@@ -94,3 +94,12 @@ product master overrides this for any material.
 ```bash
 python -m pytest
 ```
+
+## Web version
+
+`web/` holds a browser version of the same checks (`web/engine.js` is a
+JavaScript port of `loader.py`, `products.py` and `analysis.py`). Open
+`web/index.html`, drop in the exports, and enter order IDs. Files are read
+in the browser and never uploaded. If you change a rule in the Python
+package, change it in `engine.js` too. `web/demo-data.js` is generated from
+`sap_variance/sample_data.py`.
