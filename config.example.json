@@ -1,0 +1,12 @@
+{
+  "column_aliases": {
+    "order_id": ["Prod. Order"],
+    "batch": ["Batch Number (Identified Stock)"],
+    "quantity": ["Qty Confirmed"]
+  },
+  "tolerance_pct": 0.05,
+  "tolerance_kg": 50,
+  "grated_starch_pct": 0.015,
+  "swap_window_days": 7,
+  "cheese_id_prefixes": ["RM"]
+}

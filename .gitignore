@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+variance_report_*.xlsx
+sample_data/
+~$*
