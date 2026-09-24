@@ -42,7 +42,8 @@ def print_report(analysis: Analysis, show_info: bool = True) -> None:
         if row.detected_as == "unknown":
             print(f"  - {where}: not recognised (no known column headers) - skipped")
         else:
-            print(f"  - {where}: {row.detected_as}, {row.rows} rows (header on row {row.header_row})")
+            order = f" for order {row.order} ({row.order_from})" if row.order else ""
+            print(f"  - {where}: {row.detected_as}{order}, {row.rows} rows (header on row {row.header_row})")
     if analysis.missing:
         print(f"\nNot found in any file: {', '.join(analysis.missing)}")
 

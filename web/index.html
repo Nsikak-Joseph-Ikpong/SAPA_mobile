@@ -121,6 +121,9 @@
   td.num { text-align: right; font-family: var(--mono); font-variant-numeric: tabular-nums; }
   td.k { font-family: var(--mono); font-size: 11.5px; color: var(--muted); }
 
+  .ask { background: var(--medium-soft); border-radius: 8px; padding: 12px 14px; display: grid; gap: 8px; }
+  .ask label { font-weight: 400; }
+  .ask input { flex: 1 1 140px; width: auto; }
   .swaps { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; display: grid; gap: 8px; }
   .empty { background: var(--surface); border: 1px dashed var(--line); border-radius: 8px; padding: 24px; text-align: center; color: var(--muted); }
   .toast { position: fixed; left: 50%; bottom: calc(env(safe-area-inset-bottom, 0px) + 20px); transform: translateX(-50%); background: var(--ink); color: var(--ground); padding: 8px 14px; border-radius: 6px; font-size: 13px; }
@@ -189,7 +192,7 @@
   const qty = (v) => (v === null || v === undefined ? "n/a" : E.fmtQty(v));
   const SEV = ["HIGH", "MEDIUM", "LOW", "INFO"];
 
-  const state = { files: [], demo: false, ids: null, filter: null, analysis: null };
+  const state = { files: [], demo: false, ids: null, filter: null, analysis: null, journalOrders: {} };
 
   function settings() {
     const s = E.defaultSettings();
@@ -217,7 +220,7 @@
 
   async function addFiles(list) {
     if (!list.length) return;
-    if (state.demo) { state.files = []; state.demo = false; }
+    if (state.demo) { state.files = []; state.demo = false; state.journalOrders = {}; }
     for (const f of list) {
       try {
         const sheets = await readFile(f);
@@ -243,6 +246,14 @@
   function run() {
     const s = settings();
     const tables = E.loadSheets(state.files.flatMap((f) => f.sheets), s);
+    for (const t of tables) {
+      if (t.kind !== "journal" || t.order_source === "column") continue;
+      const given = state.journalOrders[t.source];
+      const guessed = E.orderFromFilename(t.source);
+      if (given) E.assignOrder(t, given, "given");
+      else if (guessed) E.assignOrder(t, guessed, "file name");
+    }
+    state.unassigned = tables.filter((t) => t.kind === "journal" && !t.order_source);
     state.analysis = state.files.length ? E.analyse(tables, s, state.ids) : null;
     renderFiles(tables);
     renderMain();
@@ -257,9 +268,13 @@
       for (const t of tables.filter((t) => t.source === f.name)) {
         const li = document.createElement("li");
         const where = t.sheet ? `${f.name} › ${t.sheet}` : f.name;
+        const order = t.kind === "journal" && t.order_source && t.order_source !== "column"
+          ? ` · order ${t.rows[0]?.order_id ?? ""}${t.order_source === "file name" ? " (from file name)" : ""}` : "";
         const meta = t.kind === "unknown"
           ? "No known column headers found, so this sheet was skipped."
-          : `${t.rows.length} rows · header on row ${t.header_row} · ${Object.keys(t.mapping).length} columns recognised`;
+          : t.kind === "journal" && !t.order_source
+            ? `${t.rows.length} rows · needs a production order ID (see right)`
+            : `${t.rows.length} rows · header on row ${t.header_row} · ${Object.keys(t.mapping).length} columns recognised${order}`;
         li.innerHTML = `<span class="name">${esc(where)}</span><span class="kind ${t.kind}">${esc(t.kind === "orders" ? "order list" : t.kind === "products" ? "product master" : t.kind)}</span><span class="meta" title="${esc(Object.entries(t.mapping).map(([k, v]) => `${k} ← ${v}`).join("\n"))}">${esc(meta)}</span>`;
         ul.appendChild(li);
       }
@@ -276,12 +291,16 @@
   function renderMain() {
     const main = $("main");
     const a = state.analysis;
-    if (!a) {
-      main.innerHTML = `<div class="empty">Add your SAP exports on the left, or <button class="link" id="demo2" type="button">load the demo data</button> to see how it works.</div>`;
-      $("demo2").onclick = loadDemo;
+    const ask = (state.unassigned || []).map((t, i) => `<form class="ask" data-src="${esc(t.source)}">
+        <label for="ask${i}"><b>${esc(t.label)}</b> is a confirmation journal with no production order in it. Which order is it for?</label>
+        <div class="row"><input type="text" id="ask${i}" placeholder="e.g. 589" autocomplete="off"><button class="primary" type="submit">Use this order</button></div></form>`).join("");
+    if (!a || (!a.every.length && ask)) {
+      main.innerHTML = ask || `<div class="empty">Add your SAP exports on the left, or <button class="link" id="demo2" type="button">load the demo data</button> to see how it works.</div>`;
+      if ($("demo2")) $("demo2").onclick = loadDemo;
+      wireAsk(main);
       return;
     }
-    const parts = [];
+    const parts = [ask];
     if (state.demo) {
       parts.push(`<div class="banner"><b>Demo data.</b> Orders 589, 746 and 783 use the figures from your notebook; the rest show each kind of check. Add your own exports to replace it.</div>`);
     }
@@ -314,6 +333,18 @@
     main.innerHTML = parts.join("");
     main.querySelectorAll(".chip").forEach((c) => (c.onclick = () => { state.filter = state.filter === c.dataset.f ? null : c.dataset.f; renderMain(); }));
     $("copy").onclick = copyFindings;
+    wireAsk(main);
+  }
+
+  function wireAsk(root) {
+    root.querySelectorAll("form.ask").forEach((f) => f.addEventListener("submit", (e) => {
+      e.preventDefault();
+      const v = f.querySelector("input").value.trim();
+      if (!v) return;
+      state.journalOrders[f.dataset.src] = v;
+      state.ids = null;
+      run();
+    }));
   }
 
   function orderCard(r) {
@@ -379,7 +410,7 @@
   ["dragleave", "drop"].forEach((ev) => drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.remove("over"); }));
   drop.addEventListener("drop", (e) => addFiles([...e.dataTransfer.files]));
   $("demo").onclick = loadDemo;
-  $("clear").onclick = () => { state.files = []; state.demo = false; state.ids = null; run(); };
+  $("clear").onclick = () => { state.files = []; state.demo = false; state.ids = null; state.journalOrders = {}; run(); };
   $("check").onclick = () => { const ids = parseIds($("ids").value); state.ids = ids.length ? ids : null; state.filter = null; run(); };
   $("ids").onkeydown = (e) => { if (e.key === "Enter") $("check").click(); };
   $("all").onclick = () => { $("ids").value = ""; state.ids = null; state.filter = null; run(); };

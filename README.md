@@ -45,6 +45,44 @@ investigates), **Orders**, **Components** (per material and batch),
 **Swap candidates**, **Batches**, and **Files read** (which columns were
 recognised in each file).
 
+## Confirmation journal straight from ByDesign
+
+The journal you pull for one production order has no order column. Its
+columns are *Site, Product, Identified Stock, Logistics Area, Created On,
+Conf.Document Type, Conf.ID, Effective Qty*. Say which order it belongs to:
+
+```bash
+python -m sap_variance conf_jtest.xlsx orders.xlsx --journal-order conf_jtest.xlsx=589
+```
+
+If you don't, and the file name has exactly one number in it (e.g. `journal_589.xlsx`),
+that number is used. Otherwise you're asked. The web page asks with a box on screen.
+
+How the journal is read:
+
+* **Effective Qty is signed.** Negative = stock left that logistics area, positive = arrived.
+* **Only `Production Confirmation` rows are consumption and output.** A material whose
+  net is negative is an input (cheese, boxes, film, labels); positive is output.
+  `Goods and Activity` and `Warehouse` confirmations are stock moves
+  (stores to line, line back to stores, put-away) and are used for the batch checks.
+* **If the file holds several products,** only the confirmations that output this
+  order's product are used, plus confirmations with no output on the same line
+  within 60 minutes. The rest are listed under `OTHER_PRODUCTS_IN_JOURNAL`.
+
+Extra checks on this format:
+
+| Check | Meaning |
+|---|---|
+| `BATCH_ON_TWO_LINES` | The same batch consumed on two lines at overlapping times (HIGH for cheese) |
+| `USED_BEFORE_ARRIVAL` | Consumed on a line before SAP shows the batch being moved there |
+| `LEFTOVER_NOT_RETURNED` / `LEFT_ON_LINE` | Moved to the line, not all consumed, rest never moved back |
+| `CONFIRMATION_WITHOUT_OUTPUT` | A production confirmation that consumed materials but records no output |
+| `OTHER_PRODUCTS_IN_JOURNAL` / `UNKNOWN_PRODUCT` / `FG_NOT_IN_JOURNAL` | The journal covers more than this order, or not this order's product |
+| `NO_CHEESE_IN_JOURNAL` | No cheese among the job's lines: none issued, export cut off, or unrecognised cheese codes |
+
+Packaging is recognised by material IDs starting `BO`, `LA`, `BASEFILM`, `TOPFILM`
+or `PILLOW` (change with `packaging_id_prefixes` in a config file).
+
 ## How the balance is calculated
 
 ```

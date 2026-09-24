@@ -15,6 +15,7 @@ import numpy as np
 import pandas as pd
 
 from .config import Settings
+from .journal import apply_signed_roles, is_signed, movement_checks, select_job
 from .loader import Dataset, is_blank
 from .products import ProductCatalog
 
@@ -145,6 +146,8 @@ def classify_material(material_id: str, desc: str | None, fg_material: str | Non
         return "offcut"
     if any(k in text for k in settings.starch_keywords):
         return "starch"
+    if any(material_id.upper().startswith(p.upper()) for p in settings.packaging_id_prefixes):
+        return "packaging"
     words = set(re.findall(r"[a-z]+", text))
     for k in settings.packaging_keywords:
         # Short keywords ("box", "bag") must be whole words; long ones ("basefilm") may be embedded
@@ -162,7 +165,8 @@ def prepare_journal(journal: pd.DataFrame, headers: dict[str, dict], catalog: Pr
     if journal.empty:
         return journal
     j = journal.copy()
-    for col in ("material_desc", "batch", "direction", "reversal", "uom", "date", "line"):
+    for col in ("material_desc", "batch", "direction", "reversal", "uom", "date", "line",
+                "doc_type", "location", "confirmation_id"):
         if col not in j.columns:
             j[col] = None
     j["reversal"] = j["reversal"].fillna(False).astype(bool)
@@ -175,17 +179,24 @@ def prepare_journal(journal: pd.DataFrame, headers: dict[str, dict], catalog: Pr
     j["qty"] = qty
     j["is_reversal"] = j["reversal"] | (j["quantity"].astype(float) < 0)
     j["dir"] = [_direction(v) for v in j["direction"]]
+    j["is_prod"] = True
+    if is_signed(j):
+        j = apply_signed_roles(j, settings)
 
     kinds = []
-    for oid, mid, desc, direction in zip(j["order_id"], j["material_id"], j["material_desc"], j["dir"]):
+    for oid, mid, desc, direction, prod in zip(j["order_id"], j["material_id"], j["material_desc"],
+                                               j["dir"], j["is_prod"]):
+        if not prod:
+            kinds.append("movement")   # stock moved between areas, not consumed or produced
+            continue
         fg = headers.get(oid, {}).get("material_id")
         kind = classify_material(mid, desc or catalog.description(mid), fg, catalog, settings)
         if kind == "cheese" and direction == "out":
             kind = "offcut"        # cheese coming back off the line
         elif kind == "offcut" and direction == "in":
             kind = "cheese"        # offcuts fed back in as rework
-        elif kind == "other" and direction == "out" and not fg:
-            kind = "fg"
+        elif kind == "other" and direction == "out":
+            kind = "other_output" if fg else "fg"
         kinds.append(kind)
     j["kind"] = kinds
     return j
@@ -193,14 +204,58 @@ def prepare_journal(journal: pd.DataFrame, headers: dict[str, dict], catalog: Pr
 
 # ---------------------------------------------------------------- per-order rules
 
+def _lines_used(lines: pd.DataFrame) -> str | None:
+    """Production line(s) where this job consumed materials."""
+    if lines.empty:
+        return None
+    for col in ("line", "location"):
+        if col in lines.columns:
+            used = lines.loc[lines["dir"] != "out", col].dropna() if "dir" in lines.columns else lines[col].dropna()
+            if not used.empty:
+                return ", ".join(sorted(set(map(str, used))))
+    return None
+
+
 def analyse_order(oid: str, header: dict, lines: pd.DataFrame, conflicts: list[str],
                   catalog: ProductCatalog, settings: Settings, journal_loaded: bool) -> OrderResult:
     s = settings
     fg = header.get("material_id")
+    pending: list[tuple] = []   # flags worked out before the result object exists
     if not fg and not lines.empty:
-        fg_lines = lines[lines["kind"] == "fg"]
-        fg = fg_lines["material_id"].mode().iat[0] if not fg_lines.empty else None
+        outs = sorted(set(lines.loc[lines["kind"] == "fg", "material_id"]))
+        if len(outs) == 1:
+            fg = outs[0]
+        elif len(outs) > 1:
+            lines = lines.assign(kind=lines["kind"].replace("fg", "other_output"))
+            pending.append(("MEDIUM", "UNKNOWN_PRODUCT",
+                            f"The journal outputs {len(outs)} products ({', '.join(outs)}) and no order list says "
+                            f"which is this order's. Load the order list (or a product master) so the right "
+                            f"confirmations can be picked out.", None))
     info = catalog.get(fg) if fg else None
+
+    file_lines = lines
+    if not lines.empty and is_signed(lines) and lines["confirmation_id"].notna().any():
+        lines, job = select_job(lines, fg, s)
+        if not job["fg_found"]:
+            pending.append(("HIGH", "FG_NOT_IN_JOURNAL",
+                            f"This order makes {fg}, but the journal has no output of {fg}. "
+                            f"Either the wrong journal was loaded for this order or the export is incomplete.", None))
+        if job["other_outputs"]:
+            parts = [f"{m} ({q:,.2f} on {n} confirmation(s){', ' + loc if loc else ''})"
+                     for m, (q, n, loc) in sorted(job["other_outputs"].items())]
+            pending.append(("MEDIUM", "OTHER_PRODUCTS_IN_JOURNAL",
+                            f"The journal also records output of {'; '.join(parts)}. It looks like it covers more "
+                            f"than one job; only confirmations for {fg} (and unmatched ones on the same line) were "
+                            f"used for this order.", None))
+        if job["no_output_confs"]:
+            n = len(job["no_output_confs"])
+            pending.append(("MEDIUM", "CONFIRMATION_WITHOUT_OUTPUT",
+                            f"{n} production confirmation(s) consumed materials but record no output: "
+                            f"{'; '.join(job['no_output_confs'])}. The output may be missing from the export, "
+                            f"or materials were booked without output.", None))
+        pending.extend(movement_checks(lines, file_lines, s))
+    movements = lines[lines["kind"] == "movement"] if not lines.empty else lines
+    lines = lines[lines["kind"] != "movement"] if not lines.empty else lines
 
     planned = _num(header.get("planned_qty"))
     fulfilled = _num(header.get("fulfilled_qty"))
@@ -242,7 +297,7 @@ def analyse_order(oid: str, header: dict, lines: pd.DataFrame, conflicts: list[s
         "fg_material": fg,
         "fg_description": info.description if info else header.get("material_desc"),
         "status": status,
-        "line": header.get("line") or (lines["line"].dropna().iat[0] if not lines.empty and lines["line"].notna().any() else None),
+        "line": header.get("line") or _lines_used(lines),
         "planned_qty": planned,
         "fulfilled_qty": fulfilled,
         "open_qty": open_qty,
@@ -275,6 +330,14 @@ def analyse_order(oid: str, header: dict, lines: pd.DataFrame, conflicts: list[s
         components.insert(0, "order_id", oid)
 
     result = OrderResult(oid, metrics, components)
+    for sev, code, msg, kg in pending:
+        result.flag(sev, code, msg, kg)
+    if not lines.empty and cheese.empty:
+        result.flag("MEDIUM", "NO_CHEESE_IN_JOURNAL",
+                    "No cheese found among this job's journal lines (cheese is recognised by material IDs "
+                    f"starting {', '.join(s.cheese_id_prefixes)}, a cheese word in the description, or "
+                    "Component Type = cheese in the product master). Either none was issued, the export is "
+                    "cut off, or the cheese codes need adding to the product master.")
 
     # --- data completeness / cross-file ---
     for c in conflicts:
@@ -541,6 +604,9 @@ def analyse(dataset: Dataset, settings: Settings, order_ids: list[str] | None = 
 
     tables = pd.DataFrame([{
         "file": t.source, "sheet": t.sheet, "detected_as": t.kind, "header_row": t.header_row,
+        "order": (t.df["order_id"].dropna().iat[0] if t.order_source not in ("", "column") and not t.df.empty
+                  else ""),
+        "order_from": t.order_source,
         "rows": len(t.df), "columns_recognised": ", ".join(f"{k} <- '{v}'" for k, v in t.mapping.items()),
     } for t in dataset.tables])
 

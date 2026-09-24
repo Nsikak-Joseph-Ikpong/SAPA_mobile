@@ -23,7 +23,7 @@ DEFAULT_COLUMN_ALIASES: dict[str, list[str]] = {
         "required on (date)", "required on", "posting date", "confirmation date",
         "confirmed on", "date", "created on", "finished on", "completed on",
     ],
-    "material_id": ["material id", "material", "product id", "material number", "item id"],
+    "material_id": ["material id", "material", "product id", "product", "material number", "item id"],
     "material_desc": [
         "material description", "material text", "description", "product description",
         "material name", "item description",
@@ -36,10 +36,11 @@ DEFAULT_COLUMN_ALIASES: dict[str, list[str]] = {
     "output_kg": ["nominal weight of output", "nominal output kg", "output kg"],
     "issued_kg": ["actual cheese issued", "cheese issued", "issued kg", "actual issued"],
     # Confirmation journal columns
-    "quantity": ["confirmed quantity", "quantity", "qty", "actual quantity", "confirmed qty"],
+    "quantity": ["confirmed quantity", "effective qty", "effective quantity", "quantity", "qty",
+                 "actual quantity", "confirmed qty"],
     "uom": ["unit of measure", "uom", "unit", "quantity unit"],
     "batch": [
-        "identified stock", "identified stock id", "batch", "batch id", "batch number",
+        "identified stock (identified stock id)", "identified stock", "identified stock id", "batch", "batch id", "batch number",
         "batch no", "lot", "lot number",
     ],
     "direction": [
@@ -49,7 +50,12 @@ DEFAULT_COLUMN_ALIASES: dict[str, list[str]] = {
     "reversal": ["reversed", "reversal", "cancelled", "canceled", "cancellation", "is reversal"],
     "line": ["resource", "resource id", "production line", "line", "work centre", "work center"],
     "user": ["created by", "confirmed by", "posted by", "user", "operator"],
-    "confirmation_id": ["confirmation id", "confirmation", "confirmation number"],
+    "confirmation_id": ["conf.id", "conf id", "confirmation id", "confirmation", "confirmation number"],
+    # Confirmation journal as exported from ByDesign: signed quantities per logistics area
+    "doc_type": ["conf.document type", "conf document type", "confirmation document type", "document type"],
+    "location": ["logistics area (logistics area id)", "logistics area", "logistics area id",
+                 "storage location", "location", "bin"],
+    "site": ["site", "site id"],
     # Product master columns
     "pack_kg": ["pack kg", "kg per case", "case weight kg", "case kg", "nominal pack weight", "pack weight"],
     "starch_pct": ["starch pct", "starch %", "starch percent", "anti caking pct"],
@@ -72,6 +78,7 @@ class Settings:
         "box", "carton", "case", "label", "film", "basefilm", "topfilm", "pillow", "bag",
         "tray", "lid", "sleeve", "pallet", "wrap", "tape", "packaging",
     ])
+    packaging_id_prefixes: list[str] = field(default_factory=lambda: ["BO", "LA", "BASEFILM", "TOPFILM", "PILLOW"])
     cheese_id_prefixes: list[str] = field(default_factory=lambda: ["RM"])
     cheese_keywords: list[str] = field(default_factory=lambda: [
         "cheese", "cheddar", "mozzarella", "mozz", "leicester", "gouda", "edam", "emmental",
@@ -92,6 +99,10 @@ class Settings:
     blend_share_tolerance: float = 0.08   # 70/30 accepted between 62/38 and 78/22
     offcut_max_ratio: float = 0.15        # offcuts > 15% of cheese issued
     closed_statuses: list[str] = field(default_factory=lambda: ["closed", "completed", "finished", "technically completed"])
+
+    # --- confirmation journal with signed quantities ---
+    production_doc_keywords: list[str] = field(default_factory=lambda: ["production"])
+    unmatched_window_minutes: int = 60   # no-output confirmations this close to the job on the same line belong to it
 
     # --- cross-order swap matching ---
     swap_window_days: int = 7

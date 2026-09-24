@@ -9,7 +9,7 @@ from datetime import datetime
 
 from .analysis import analyse, all_order_ids
 from .config import load_settings
-from .loader import load_files
+from .loader import assign_order, load_files
 from .report import print_report, write_excel
 
 
@@ -28,6 +28,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("-a", "--all", action="store_true", help="Check every order found in the files.")
     p.add_argument("-x", "--excel", help="Write the report to this Excel file (default: variance_report_<time>.xlsx).")
     p.add_argument("--no-excel", action="store_true", help="Do not write an Excel report.")
+    p.add_argument("-j", "--journal-order", action="append", default=[], metavar="FILE=ORDER",
+                   help="Production order a confirmation journal belongs to, e.g. conf_jtest.xlsx=589. "
+                        "Needed for journals without an order column (repeat for several files).")
     p.add_argument("-c", "--config", help="JSON file overriding column names, keywords or tolerances.")
     p.add_argument("--hide-info", action="store_true", help="Hide INFO-level notes in the console.")
     return p
@@ -54,11 +57,29 @@ def main(argv: list[str] | None = None) -> int:
         files = [f.strip().strip('"').strip("'") for f in entered.split(";") if f.strip()]
 
     settings = load_settings(args.config)
+    journal_orders = {}
+    for item in args.journal_order:
+        name, _, order = item.rpartition("=")
+        if not name or not order:
+            print(f"--journal-order expects FILE=ORDER, got '{item}'", file=sys.stderr)
+            return 2
+        journal_orders[name.split("/")[-1].split("\\")[-1]] = order
     try:
-        dataset = load_files(files, settings)
+        dataset = load_files(files, settings, journal_orders)
     except (FileNotFoundError, ValueError) as exc:
         print(exc, file=sys.stderr)
         return 2
+
+    for table in dataset.unassigned_journals:
+        if not interactive:
+            print(f"{table.label} is a confirmation journal with no production order column. "
+                  f"Say which order it is for with --journal-order \"{table.source}=ORDER\".", file=sys.stderr)
+            return 2
+        while True:
+            order = input(f"Which production order is the journal {table.label} for? ").strip()
+            if order:
+                assign_order(table, order)
+                break
     known = all_order_ids(dataset)
     if not known:
         print("No production orders found in the files. Check the 'Files read' list for "
