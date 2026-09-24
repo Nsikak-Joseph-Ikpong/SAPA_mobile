@@ -96,3 +96,48 @@ def test_cli_requires_order_for_orderless_journal(files, tmp_path, capsys):
     assert main([str(renamed), str(orders), "--all", "--no-excel"]) == 2
     assert "--journal-order" in capsys.readouterr().err
     assert main([str(renamed), str(orders), "-j", "conf_jtest.xlsx=900", "--all", "--no-excel"]) == 0
+
+
+# Job where cheese matches the journal's output but the order list shows only the boxed cases
+CSV_589_SHAPE = """﻿Site,Product,Identified Stock ID,Logistics Area ID,Created On,Conf.Document Type,Conf.ID,Effective Qty\r
+EXTHQ1,RMMC20BF,9108,GRATINGLINES,19.08.2026 00:57:33 GMTUK,Production Confirmation,1,"-1,000.00 kg"\r
+EXTHQ1,RMMO10BF,1594,GRATINGLINES,19.08.2026 01:00:00 GMTUK,Production Confirmation,2,"-2,000.00 kg"\r
+EXTHQ1,RMMO10BF,1594,GRATINGLINES,19.08.2026 05:00:00 GMTUK,Production Confirmation,3,30.00 kg\r
+EXTHQ1,BOBF5X1TEMP,900,GRATINGLINES,19.08.2026 01:45:00 GMTUK,Production Confirmation,10,-100.00 ea\r
+EXTHQ1,RMPS25M12,800,GRATINGLINES,19.08.2026 01:45:00 GMTUK,Production Confirmation,10,-7.50 kg\r
+EXTHQ1,FGGR155X7030,12262,FG_STAGING,19.08.2026 01:45:00 GMTUK,Production Confirmation,10,100.00 case\r
+EXTHQ1,BOBF5X1TEMP,900,GRATINGLINES,19.08.2026 02:00:00 GMTUK,Production Confirmation,11,-100.00 ea\r
+EXTHQ1,RMPS25M12,800,GRATINGLINES,19.08.2026 02:00:00 GMTUK,Production Confirmation,11,-7.50 kg\r
+EXTHQ1,FGGR155X7030,12263,FG_STAGING,19.08.2026 02:00:00 GMTUK,Production Confirmation,11,100.00 case\r
+EXTHQ1,FGGR155X7030,12264,FG_STAGING,19.08.2026 03:00:00 GMTUK,Production Confirmation,12,100.00 case\r
+EXTHQ1,FGGR155X7030,12264,FG_STAGING,19.08.2026 13:00:00 GMTUK,Production Confirmation,13,-100.00 case\r
+EXTHQ1,FGGR155X7030,12300,FG_STAGING,19.08.2026 07:38:00 GMTUK,Production Confirmation,14,400.00 case\r
+"""
+
+
+def test_cheese_matches_journal_output_not_order_list(tmp_path):
+    journal = tmp_path / "SAPAnalyticsReport_Q0001.csv"
+    journal.write_bytes(CSV_589_SHAPE.encode("utf-8"))
+    orders = tmp_path / "orders.csv"
+    orders.write_text("Production Order ID,Material ID,Material Description,Production Order Status,"
+                      "Planned Quantity,Fulfilled Quantity,Open Quantity\n"
+                      "589,FGGR155X7030,Grated Mozzarella/Cheddar 70/30 5x1kg,Started,700,200,0\n")
+    a = run([journal, orders], {journal.name: "589"})
+    r = a.results["589"]
+    m = r.metrics
+    assert m["fg_in_journal"] == 600                      # 100 + 100 + 400; conf 12 reversed by 13
+    assert m["cheese_issued_kg"] == pytest.approx(2970)   # starch RMPS25M12 is not cheese
+    assert m["cases_from_boxes"] == 200 and m["cases_from_starch"] == pytest.approx(200)
+    codes = {f.code: f for f in r.flags}
+    assert codes["CHEESE_MATCHES_JOURNAL_NOT_ORDER"].severity == "HIGH"
+    assert "CHEESE_OVER_ISSUED" not in codes and "ISSUED_TO_PLAN" not in codes
+    assert "400 cases" in codes["OUTPUT_WITHOUT_BOXES"].message and "12 (" not in codes["OUTPUT_WITHOUT_BOXES"].message
+    assert "INPUTS_DISAGREE" in codes and "OUTPUT_MISMATCH" in codes
+    assert "CONFIRMATION_WITHOUT_OUTPUT" not in codes     # cheese-only issues are normal
+
+
+def test_order_from_filename_ignores_bydesign_report_names():
+    from sap_variance.loader import order_from_filename
+    assert order_from_filename("SAPAnalyticsReportSCMCFJU01_Q0001_23.csv") is None
+    assert order_from_filename("journal_589.xlsx") == "589"
+    assert order_from_filename("PO 1439 confirmations.csv") == "1439"

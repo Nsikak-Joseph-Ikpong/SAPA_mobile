@@ -78,8 +78,12 @@ class Settings:
         "box", "carton", "case", "label", "film", "basefilm", "topfilm", "pillow", "bag",
         "tray", "lid", "sleeve", "pallet", "wrap", "tape", "packaging",
     ])
-    packaging_id_prefixes: list[str] = field(default_factory=lambda: ["BO", "LA", "BASEFILM", "TOPFILM", "PILLOW"])
-    cheese_id_prefixes: list[str] = field(default_factory=lambda: ["RM"])
+    starch_id_prefixes: list[str] = field(default_factory=lambda: ["RMPS"])   # potato starch, e.g. RMPS25M12
+    packaging_id_prefixes: list[str] = field(default_factory=lambda: ["BO", "LA", "BASEFILM", "TOPFILM", "PILLOW", "OPA"])
+    cheese_id_prefixes: list[str] = field(default_factory=lambda: ["RM"])      # checked after starch
+    box_id_prefixes: list[str] = field(default_factory=lambda: ["BO"])
+    boxes_per_case: float = 1.0
+    pack_overrides: dict[str, float] = field(default_factory=dict)            # material -> kg per case
     cheese_keywords: list[str] = field(default_factory=lambda: [
         "cheese", "cheddar", "mozzarella", "mozz", "leicester", "gouda", "edam", "emmental",
     ])
@@ -98,6 +102,7 @@ class Settings:
     over_produced_ratio: float = 1.10
     blend_share_tolerance: float = 0.08   # 70/30 accepted between 62/38 and 78/22
     offcut_max_ratio: float = 0.15        # offcuts > 15% of cheese issued
+    implied_output_tolerance: float = 0.05  # cheese/boxes/starch must agree on cases made within 5%
     closed_statuses: list[str] = field(default_factory=lambda: ["closed", "completed", "finished", "technically completed"])
 
     # --- confirmation journal with signed quantities ---

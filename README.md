@@ -79,9 +79,16 @@ Extra checks on this format:
 | `CONFIRMATION_WITHOUT_OUTPUT` | A production confirmation that consumed materials but records no output |
 | `OTHER_PRODUCTS_IN_JOURNAL` / `UNKNOWN_PRODUCT` / `FG_NOT_IN_JOURNAL` | The journal covers more than this order, or not this order's product |
 | `NO_CHEESE_IN_JOURNAL` | No cheese among the job's lines: none issued, export cut off, or unrecognised cheese codes |
+| `CHEESE_MATCHES_JOURNAL_NOT_ORDER` | Cheese balances against the output the journal confirms, but not against the order list's fulfilled quantity |
+| `INPUTS_DISAGREE` | Cheese, boxes and starch each imply a different number of cases (1 box = 1 case) |
+| `OUTPUT_WITHOUT_BOXES` | Finished goods confirmed with no boxes booked (confirmations reversed in full are ignored) |
 
-Packaging is recognised by material IDs starting `BO`, `LA`, `BASEFILM`, `TOPFILM`
-or `PILLOW` (change with `packaging_id_prefixes` in a config file).
+Material codes: cheese starts `RM`, except potato starch `RMPS…`; boxes start `BO`;
+other packaging starts `LA`, `BASEFILM`, `TOPFILM`, `PILLOW` or `OPA`. Change these with
+`cheese_id_prefixes`, `starch_id_prefixes`, `box_id_prefixes` and `packaging_id_prefixes`
+in a config file. The unit written in the quantity cell (`-1,002.11 kg`, `98.00 case`) is read too.
+Set kg per case for products whose description doesn't say, e.g.
+`{"pack_overrides": {"MCGR155EF7030": 5}}` in the config (the web page has a box for it).
 
 ## How the balance is calculated
 

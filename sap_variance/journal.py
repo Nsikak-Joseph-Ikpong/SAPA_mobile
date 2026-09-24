@@ -36,6 +36,31 @@ def apply_signed_roles(j: pd.DataFrame, settings: Settings) -> pd.DataFrame:
     return j
 
 
+def cancelled_confirmations(lines: pd.DataFrame) -> set:
+    """Confirmations that were reversed in full by a later one, and those reversals.
+
+    A reversal posts every line of the original again with the opposite sign.
+    """
+    if "confirmation_id" not in lines.columns or lines["confirmation_id"].isna().all():
+        return set()
+    sig = {}
+    for conf, rows in lines[lines["kind"] != "movement"].groupby("confirmation_id"):
+        sig[conf] = frozenset((m, b, round(float(q), 3)) for m, b, q in
+                              zip(rows["material_id"], rows["batch"].fillna(""), rows["quantity"].fillna(0)))
+    by_sig: dict = {}
+    for conf, key in sig.items():
+        by_sig.setdefault(key, []).append(conf)
+    out = set()
+    for conf, key in sig.items():
+        if conf in out:
+            continue
+        negated = frozenset((m, b, -q) for m, b, q in key)
+        partner = next((c for c in by_sig.get(negated, []) if c not in out and c != conf), None)
+        if partner is not None:
+            out.update({conf, partner})
+    return out
+
+
 def _when(ts) -> str:
     return pd.Timestamp(ts).strftime("%d.%m %H:%M") if ts is not None and not pd.isna(ts) else "?"
 
@@ -84,8 +109,13 @@ def select_job(lines: pd.DataFrame, fg: str | None, settings: Settings) -> tuple
         for mat, rows in outputs(dropped).groupby("material_id"):
             info["other_outputs"][mat] = (float(rows["qty"].sum()), rows["confirmation_id"].nunique(),
                                           ", ".join(sorted(set(rows["location"].dropna()) | set())))
+    cancelled = cancelled_confirmations(keep)
     for conf, rows in keep.groupby("confirmation_id"):
-        if outputs(rows).empty and not rows[rows["dir"] == "in"].empty:
+        if conf in cancelled:
+            continue
+        # Cheese/starch issued to the line on their own is normal; anything else with no output is not
+        raw_only = rows["kind"].isin(["cheese", "starch", "offcut"]).all()
+        if outputs(rows).empty and not rows[rows["dir"] == "in"].empty and not raw_only:
             info["no_output_confs"].append(_conf_label(rows))
 
     materials = set(keep["material_id"])

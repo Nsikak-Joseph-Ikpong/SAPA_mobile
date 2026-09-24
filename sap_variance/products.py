@@ -110,8 +110,8 @@ class ProductCatalog:
         entry = self.master.get(material_id, {})
         desc = self.description(material_id)
 
-        master_pack = entry.get("pack_kg")
-        master_pack = None if master_pack is None or math.isnan(master_pack) else float(master_pack)
+        master_pack = self.settings.pack_overrides.get(material_id, entry.get("pack_kg"))
+        master_pack = None if master_pack is None or math.isnan(float(master_pack)) else float(master_pack)
         parsed_pack = parse_pack_kg(desc)
         if master_pack:
             pack, pack_source = master_pack, "product master"

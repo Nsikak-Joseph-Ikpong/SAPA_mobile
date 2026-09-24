@@ -38,8 +38,12 @@
       offcut_keywords: ["offcut", "off-cut", "off cut", "trim", "rework", "end piece"],
       starch_keywords: ["starch", "anti-caking", "anticaking", "anti caking"],
       packaging_keywords: ["box", "carton", "case", "label", "film", "basefilm", "topfilm", "pillow", "bag", "tray", "lid", "sleeve", "pallet", "wrap", "tape", "packaging"],
-      packaging_id_prefixes: ["BO", "LA", "BASEFILM", "TOPFILM", "PILLOW"],
+      starch_id_prefixes: ["RMPS"],
+      packaging_id_prefixes: ["BO", "LA", "BASEFILM", "TOPFILM", "PILLOW", "OPA"],
       cheese_id_prefixes: ["RM"],
+      box_id_prefixes: ["BO"],
+      boxes_per_case: 1,
+      pack_overrides: {},
       cheese_keywords: ["cheese", "cheddar", "mozzarella", "mozz", "leicester", "gouda", "edam", "emmental"],
       grated_starch_pct: 0.015,
       grated_markers: ["grated", "GR"],
@@ -52,6 +56,7 @@
       over_produced_ratio: 1.1,
       blend_share_tolerance: 0.08,
       offcut_max_ratio: 0.15,
+      implied_output_tolerance: 0.05,
       closed_statuses: ["closed", "completed", "finished", "technically completed"],
       production_doc_keywords: ["production"],
       unmatched_window_minutes: 60,
@@ -168,8 +173,16 @@
       }
     }
     const kind = classify(new Set(Object.keys(columns)));
-    let out = grid.slice(best + 1).map((r) => {
+    // ByDesign writes the unit into the quantity cell: "-1,002.11 kg", "98.00 case"
+    let unitCol = null;
+    if ("quantity" in columns && !("uom" in columns)) {
+      unitCol = grid.slice(best + 1).map((r) => { const m = typeof r[columns.quantity] === "string" && r[columns.quantity].match(/([A-Za-z]+)\s*$/); return m ? m[1].toLowerCase() : null; });
+      if (unitCol.some(Boolean)) mapping.uom = `(unit written after ${mapping.quantity})`;
+      else unitCol = null;
+    }
+    let out = grid.slice(best + 1).map((r, idx) => {
       const rec = { _source: label };
+      if (unitCol) rec.uom = unitCol[idx];
       for (const [fld, pos] of Object.entries(columns)) {
         const v = r[pos];
         if (NUMERIC.has(fld)) rec[fld] = toNumber(v);
@@ -249,7 +262,8 @@
       if (this.cache[mid]) return this.cache[mid];
       const e = this.master[mid] || {};
       const desc = this.description(mid);
-      const masterPack = typeof e.pack_kg === "number" && !isNaN(e.pack_kg) ? e.pack_kg : null;
+      const ov = this.s.pack_overrides[mid];
+      const masterPack = ov ? +ov : typeof e.pack_kg === "number" && !isNaN(e.pack_kg) ? e.pack_kg : null;
       const parsedPack = parsePackKg(desc);
       let pack = null, packSource = "unknown";
       if (masterPack) { pack = masterPack; packSource = "product master"; }
@@ -332,7 +346,7 @@
     if (fg && mid === fg) return "fg";
     const text = `${mid} ${desc || ""}`.toLowerCase();
     if (s.offcut_keywords.some((k) => text.includes(k))) return "offcut";
-    if (s.starch_keywords.some((k) => text.includes(k))) return "starch";
+    if (s.starch_keywords.some((k) => text.includes(k)) || s.starch_id_prefixes.some((p) => mid.toUpperCase().startsWith(p.toUpperCase()))) return "starch";
     if (s.packaging_id_prefixes.some((p) => mid.toUpperCase().startsWith(p.toUpperCase()))) return "packaging";
     const words = new Set(text.match(/[a-z]+/g) || []);
     if (s.packaging_keywords.some((k) => words.has(k) || words.has(k + "s") || (k.length >= 6 && text.includes(k)))) return "packaging";
@@ -388,6 +402,25 @@
   const uniq = (a) => [...new Set(a.filter((x) => x !== null && x !== undefined && x !== ""))].sort();
   const confLabel = (rows) => { const locs = uniq(rows.map((r) => r.location)).join(", "); return `${rows[0].confirmation_id} (${when(minDate(rows))}${locs ? ", " + locs : ""})`; };
 
+  // Confirmations reversed in full by a later one (every line posted again with the opposite sign), and the reversals
+  function cancelledConfirmations(lines) {
+    const sig = new Map();
+    for (const [conf, rows] of groupBy(lines.filter((l) => l.kind !== "movement" && l.confirmation_id), "confirmation_id")) {
+      sig.set(conf, rows.map((r) => `${r.material_id}|${r.batch ?? ""}|${(Math.round(r.quantity * 1000) / 1000).toFixed(3)}`).sort());
+    }
+    const key = (arr) => arr.join("#");
+    const bySig = new Map();
+    for (const [conf, arr] of sig) { const k = key(arr); if (!bySig.has(k)) bySig.set(k, []); bySig.get(k).push(conf); }
+    const out = new Set();
+    for (const [conf, arr] of sig) {
+      if (out.has(conf)) continue;
+      const neg = key(arr.map((x) => { const i = x.lastIndexOf("|"); const q = -parseFloat(x.slice(i + 1)); return x.slice(0, i + 1) + (Object.is(q, -0) ? 0 : q).toFixed(3); }).sort());
+      const partner = (bySig.get(neg) || []).find((c) => !out.has(c) && c !== conf);
+      if (partner !== undefined) { out.add(conf); out.add(partner); }
+    }
+    return out;
+  }
+
   function selectJob(lines, fg, s) {
     const info = { other_outputs: {}, no_output_confs: [], fg_found: true };
     const prod = lines.filter((l) => l.kind !== "movement");
@@ -416,7 +449,13 @@
       }
     }
     const confs = [...groupBy(keep, "confirmation_id")].sort((a, b) => String(a[0]).localeCompare(String(b[0])));
-    for (const [, rows] of confs) if (!rows.some((r) => r.dir === "out") && rows.some((r) => r.dir === "in")) info.no_output_confs.push(confLabel(rows));
+    const cancelled = cancelledConfirmations(keep);
+    for (const [conf, rows] of confs) {
+      if (cancelled.has(conf)) continue;
+      // Cheese/starch issued to the line on their own is normal; anything else with no output is not
+      const rawOnly = rows.every((r) => ["cheese", "starch", "offcut"].includes(r.kind));
+      if (!rows.some((r) => r.dir === "out") && rows.some((r) => r.dir === "in") && !rawOnly) info.no_output_confs.push(confLabel(rows));
+    }
     const mats = new Set(keep.map((l) => l.material_id));
     return { lines: [...keep, ...lines.filter((l) => l.kind === "movement" && mats.has(l.material_id))], info };
   }
@@ -536,6 +575,19 @@
     for (const l of cheese) byMaterial[l.material_id] = (byMaterial[l.material_id] || 0) + l.qty;
     const cheeseMaterials = Object.entries(byMaterial).map(([m, q]) => `${m} ${nf1.format(q)}kg`).join(", ");
 
+    // Balance against the output the journal itself confirms, when that differs from the order list
+    const journalExpected = fgJournal && pack ? fgJournal * pack * (1 - starch) : null;
+    const varianceJournal = issued !== null && journalExpected !== null ? issued - journalExpected - offcutKg : null;
+    // What each input says the output was, in cases
+    const boxes = lines.filter((l) => l.kind === "packaging" && s.box_id_prefixes.some((p) => String(l.material_id).toUpperCase().startsWith(p.toUpperCase())));
+    const starchLines = lines.filter((l) => l.kind === "starch");
+    const implied = {};
+    if (issued && pack) implied["cheese"] = (issued - offcutKg) / (pack * (1 - starch));
+    if (boxes.length) implied["boxes"] = sum(boxes.map((l) => l.qty)) / s.boxes_per_case;
+    if (starchLines.length && pack && starch) implied["starch"] = sum(starchLines.map((l) => l.qty)) / (pack * starch);
+    if (fgJournal !== null) implied["journal output"] = fgJournal;
+    if (num(header.fulfilled_qty) !== null) implied["order list"] = num(header.fulfilled_qty);
+
     const dates = lines.map((l) => l.date).filter(Boolean);
     const metrics = {
       order_id: oid,
@@ -548,6 +600,8 @@
       output_kg: outputKg, expected_cheese_kg: expected, expected_for_planned_kg: planExpected,
       cheese_issued_kg: issued, offcuts_kg: offcutKg, variance_kg: variance, variance_pct: variancePct,
       tolerance_kg: tolerance, cheese_materials: cheeseMaterials, journal_lines: lines.length,
+      variance_vs_journal_output_kg: varianceJournal, cases_from_cheese: implied["cheese"] ?? null,
+      cases_from_boxes: implied["boxes"] ?? null, cases_from_starch: implied["starch"] ?? null, implied,
       sources: [...new Set([...(header.sources || []), ...lines.map((l) => l._source)])].sort().join(", "),
     };
 
@@ -592,8 +646,40 @@
       flag("MEDIUM", "OUTPUT_MISMATCH", `Header says ${fmtQty(fulfilled)} fulfilled but the journal confirms ${fmtQty(fgJournal)} of ${fg}.`);
     }
 
+    // inputs that disagree about how much was made
+    const iv = Object.values(implied);
+    // Cheese alone against output is the cheese balance below; this needs boxes or starch as a second witness
+    if (iv.length >= 2 && ("boxes" in implied || "starch" in implied)) {
+      const lo = Math.min(...iv), hi = Math.max(...iv);
+      if (hi - lo > Math.max(2, s.implied_output_tolerance * hi)) {
+        const shown = Object.entries(implied).map(([k, v]) => `${k} ${nf0.format(v)}`).join("; ");
+        flag(hi - lo > 0.1 * hi ? "HIGH" : "MEDIUM", "INPUTS_DISAGREE", `Inputs and output tell different stories about how many cases were made: ${shown}. Whichever is right, the others were booked wrongly.`);
+      }
+    }
+    // output confirmed without boxes
+    if (boxes.length && lines.some((l) => l.confirmation_id)) {
+      const cancelled = isSigned(lines) ? cancelledConfirmations(lines) : new Set();
+      const boxSet = new Set(boxes);
+      const noBox = [];
+      for (const [conf, rows] of [...groupBy(lines.filter((l) => l.confirmation_id), "confirmation_id")].sort((a, b) => String(a[0]).localeCompare(String(b[0])))) {
+        if (cancelled.has(conf)) continue;
+        const cases = sum(rows.filter((r) => r.kind === "fg").map((r) => r.qty));
+        const boxed = sum(rows.filter((r) => boxSet.has(r)).map((r) => r.qty)) / s.boxes_per_case;
+        if (cases > 0 && cases - boxed > Math.max(1, 0.02 * cases)) noBox.push([conf, minDate(rows), cases - boxed]);
+      }
+      if (noBox.length) {
+        const total = sum(noBox.map((x) => x[2]));
+        const listed = noBox.map(([c, d, n]) => `${c} (${when(d)}, ${fmtQty(n)} cases)`).join("; ");
+        flag(total > 0.1 * Math.max(fgJournal || 0, 1) ? "HIGH" : "MEDIUM", "OUTPUT_WITHOUT_BOXES", `${fmtQty(total)} cases were confirmed as output without boxes booked: ${listed}. Either those cases were never made, or their packaging (and possibly starch) was never confirmed.`);
+      }
+    }
+
     // cheese balance
-    if (variance !== null && expected) {
+    const matchesJournal = variance !== null && varianceJournal !== null && fgJournal !== fulfilled
+      && Math.abs(variance) > tolerance && Math.abs(varianceJournal) <= Math.max(s.tolerance_pct * journalExpected, s.tolerance_kg);
+    if (matchesJournal) {
+      flag("HIGH", "CHEESE_MATCHES_JOURNAL_NOT_ORDER", `Cheese issued (${fmtKg(issued)}) matches the ${fmtQty(fgJournal)} cases the journal confirms (${fmtKg(journalExpected)} expected, ${fmtKg(varianceJournal, true)}), not the ${fmtQty(fulfilled)} in the order list (${fmtKg(variance, true)}). The cheese is probably not missing: check whether ${fmtQty(fgJournal)} cases physically exist and why the order shows ${fmtQty(fulfilled)}.`, variance);
+    } else if (variance !== null && expected) {
       let detail = pack
         ? `Issued ${fmtKg(issued)} vs expected ${fmtKg(expected)} (${fmtQty(fulfilled)} x ${g(pack)} kg`
         : `Issued ${fmtKg(issued)} vs expected ${fmtKg(expected)} (`;
@@ -759,7 +845,7 @@
   }
   function orderFromFilename(name) {
     const stem = String(name).replace(/\.[^.]+$/, "");
-    const nums = stem.match(/(?<!\d)\d{3,7}(?!\d)/g) || [];
+    const nums = stem.match(/(?<![A-Za-z\d])\d{3,7}(?![A-Za-z\d])/g) || [];
     return nums.length === 1 ? nums[0] : null;
   }
 

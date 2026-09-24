@@ -124,6 +124,11 @@
   .ask { background: var(--medium-soft); border-radius: 8px; padding: 12px 14px; display: grid; gap: 8px; }
   .ask label { font-weight: 400; }
   .ask input { flex: 1 1 140px; width: auto; }
+  .packf { display: grid; gap: 6px; font-size: 13px; }
+  .packf input { flex: 0 1 120px; width: auto; }
+  .implied { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: baseline; font-size: 12.5px; color: var(--muted); padding: 8px 10px; background: var(--sunken); border-radius: 6px; }
+  .implied .il { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; flex-basis: 100%; }
+  .implied b { color: var(--ink); font-weight: 600; }
   .swaps { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; display: grid; gap: 8px; }
   .empty { background: var(--surface); border: 1px dashed var(--line); border-radius: 8px; padding: 24px; text-align: center; color: var(--muted); }
   .toast { position: fixed; left: 50%; bottom: calc(env(safe-area-inset-bottom, 0px) + 20px); transform: translateX(-50%); background: var(--ink); color: var(--ground); padding: 8px 14px; border-radius: 6px; font-size: 13px; }
@@ -192,7 +197,8 @@
   const qty = (v) => (v === null || v === undefined ? "n/a" : E.fmtQty(v));
   const SEV = ["HIGH", "MEDIUM", "LOW", "INFO"];
 
-  const state = { files: [], demo: false, ids: null, filter: null, analysis: null, journalOrders: {} };
+  const state = { files: [], demo: false, ids: null, filter: null, analysis: null, journalOrders: {}, packs: {} };
+  try { state.packs = JSON.parse(localStorage.getItem("packKg") || "{}") || {}; } catch (e) { state.packs = {}; }
 
   function settings() {
     const s = E.defaultSettings();
@@ -200,6 +206,7 @@
     s.tolerance_pct = n("tolPct", 5) / 100;
     s.tolerance_kg = n("tolKg", 50);
     s.grated_starch_pct = n("starch", 1.5) / 100;
+    s.pack_overrides = { ...state.packs };
     return s;
   }
 
@@ -337,6 +344,14 @@
   }
 
   function wireAsk(root) {
+    root.querySelectorAll("form.packf").forEach((f) => f.addEventListener("submit", (e) => {
+      e.preventDefault();
+      const v = parseFloat(f.querySelector("input").value);
+      if (!(v > 0)) return;
+      state.packs[f.dataset.mat] = v;
+      try { localStorage.setItem("packKg", JSON.stringify(state.packs)); } catch (err) { /* remembered for this visit only */ }
+      run();
+    }));
     root.querySelectorAll("form.ask").forEach((f) => f.addEventListener("submit", (e) => {
       e.preventDefault();
       const v = f.querySelector("input").value.trim();
@@ -352,7 +367,10 @@
     const sev = worst(r);
     const v = m.variance_kg;
     const vClass = v === null ? "" : Math.abs(v) <= (m.tolerance_kg || 0) ? "var-ok" : v < 0 ? "var-neg" : "var-pos";
-    const pack = m.pack_kg ? `${+m.pack_kg.toFixed(3)} kg<small>${esc(m.pack_source)}</small>` : `unknown<small>add to product master</small>`;
+    const pack = m.pack_kg ? `${+m.pack_kg.toFixed(3)} kg<small>${esc(m.pack_source === "product master" && state.packs[m.fg_material] ? "entered here" : m.pack_source)}</small>` : `unknown<small>enter below</small>`;
+    const packForm = !m.pack_kg && m.fg_material ? `<form class="packf" data-mat="${esc(m.fg_material)}"><label for="pk-${esc(m.order_id)}">kg per case for <span class="mono">${esc(m.fg_material)}</span></label><div class="row"><input type="number" step="any" min="0" id="pk-${esc(m.order_id)}" placeholder="e.g. 5"><button type="submit">Use</button></div></form>` : "";
+    const imp = m.implied && Object.keys(m.implied).length >= 2
+      ? `<div class="implied"><span class="il">Cases made, according to</span>${Object.entries(m.implied).map(([k, v]) => `<span class="iv"><b class="mono">${nf(0).format(v)}</b> ${esc(k)}</span>`).join("")}</div>` : "";
     const figs = [
       ["Planned", qty(m.planned_qty)], ["Fulfilled", qty(m.fulfilled_qty)], ["Open", qty(m.open_qty)], ["Per case", pack],
       ["Expected cheese", `${kg(m.expected_cheese_kg)}<small>${m.starch_pct ? `after ${(m.starch_pct * 100).toFixed(1)}% starch` : "no starch"}</small>`],
@@ -381,7 +399,7 @@
         <span class="fg">${m.fg_material ? `<b>${esc(m.fg_material)}</b> ` : ""}${esc(m.fg_description || "")}${date ? ` · ${esc(date)}` : ""}</span>
         ${m.status ? `<span class="status">${esc(m.status)}</span>` : ""}</div>
       <dl class="figs">${figs.map(([k, v]) => `<div class="fig"><dt>${k}</dt><dd>${v}</dd></div>`).join("")}</dl>
-      ${bars}${flags}${comp}</article>`;
+      ${packForm}${imp}${bars}${flags}${comp}</article>`;
   }
 
   function copyFindings() {

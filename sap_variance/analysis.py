@@ -15,7 +15,7 @@ import numpy as np
 import pandas as pd
 
 from .config import Settings
-from .journal import apply_signed_roles, is_signed, movement_checks, select_job
+from .journal import apply_signed_roles, cancelled_confirmations, is_signed, movement_checks, select_job
 from .loader import Dataset, is_blank
 from .products import ProductCatalog
 
@@ -144,7 +144,8 @@ def classify_material(material_id: str, desc: str | None, fg_material: str | Non
     text = f"{material_id} {desc or ''}".lower()
     if any(k in text for k in settings.offcut_keywords):
         return "offcut"
-    if any(k in text for k in settings.starch_keywords):
+    if any(k in text for k in settings.starch_keywords) or \
+            any(material_id.upper().startswith(p.upper()) for p in settings.starch_id_prefixes):
         return "starch"
     if any(material_id.upper().startswith(p.upper()) for p in settings.packaging_id_prefixes):
         return "packaging"
@@ -290,6 +291,27 @@ def analyse_order(oid: str, header: dict, lines: pd.DataFrame, conflicts: list[s
 
     cheese_by_material = (cheese.groupby("material_id")["qty"].sum().to_dict() if not cheese.empty else {})
 
+    # Balance against the output the journal itself confirms, when that differs from the order list
+    journal_expected = fg_journal * pack * (1 - starch) if (fg_journal and pack) else None
+    variance_journal = (issued - journal_expected - offcut_kg
+                        if (issued is not None and journal_expected is not None) else None)
+
+    # What each input says the output was, in cases
+    boxes = lines[(lines["kind"] == "packaging") & lines["material_id"].map(
+        lambda m: any(str(m).upper().startswith(p.upper()) for p in s.box_id_prefixes))] if not lines.empty else lines
+    starch_lines = lines[lines["kind"] == "starch"] if not lines.empty else lines
+    implied = {}
+    if issued and pack:
+        implied["cheese"] = (issued - offcut_kg) / (pack * (1 - starch))
+    if not boxes.empty:
+        implied["boxes"] = float(boxes["qty"].sum()) / s.boxes_per_case
+    if not starch_lines.empty and pack and starch:
+        implied["starch"] = float(starch_lines["qty"].sum()) / (pack * starch)
+    if fg_journal is not None:
+        implied["journal output"] = fg_journal
+    if _num(header.get("fulfilled_qty")) is not None:
+        implied["order list"] = _num(header.get("fulfilled_qty"))
+
     metrics = {
         "order_id": oid,
         "date": header.get("date") if header.get("date") is not None else
@@ -314,6 +336,10 @@ def analyse_order(oid: str, header: dict, lines: pd.DataFrame, conflicts: list[s
         "variance_kg": variance,
         "variance_pct": variance_pct,
         "tolerance_kg": tolerance,
+        "variance_vs_journal_output_kg": variance_journal,
+        "cases_from_cheese": implied.get("cheese"),
+        "cases_from_boxes": implied.get("boxes"),
+        "cases_from_starch": implied.get("starch"),
         "cheese_materials": ", ".join(f"{m} {q:,.1f}kg" for m, q in cheese_by_material.items()),
         "journal_lines": len(lines),
         "sources": ", ".join(sorted(set(header.get("sources", []))
@@ -378,8 +404,48 @@ def analyse_order(oid: str, header: dict, lines: pd.DataFrame, conflicts: list[s
                     f"Header says {fmt_qty(fulfilled)} fulfilled but the journal confirms "
                     f"{fmt_qty(fg_journal)} of {fg}.")
 
+    # --- inputs that disagree about how much was made ---
+    # Cheese alone against output is the cheese balance below; this needs boxes or starch as a second witness
+    if len(implied) >= 2 and ("boxes" in implied or "starch" in implied):
+        lo, hi = min(implied.values()), max(implied.values())
+        if hi - lo > max(2, s.implied_output_tolerance * hi):
+            shown = "; ".join(f"{k} {v:,.0f}" for k, v in implied.items())
+            result.flag("HIGH" if hi - lo > 0.10 * hi else "MEDIUM", "INPUTS_DISAGREE",
+                        f"Inputs and output tell different stories about how many cases were made: {shown}. "
+                        f"Whichever is right, the others were booked wrongly.")
+
+    # --- output confirmed without boxes ---
+    if not boxes.empty and "confirmation_id" in lines.columns and lines["confirmation_id"].notna().any():
+        no_box = []
+        cancelled = cancelled_confirmations(lines) if is_signed(lines) else set()
+        for conf, rows in lines.groupby("confirmation_id"):
+            if conf in cancelled:
+                continue
+            cases = float(rows.loc[rows["kind"] == "fg", "qty"].sum())
+            boxed = float(rows.loc[rows.index.isin(boxes.index), "qty"].sum()) / s.boxes_per_case
+            if cases > 0 and cases - boxed > max(1, 0.02 * cases):
+                no_box.append((conf, rows["date"].min(), cases - boxed))
+        if no_box:
+            total = sum(n for _, _, n in no_box)
+            listed = "; ".join(f"{c} ({pd.Timestamp(d).strftime('%d.%m %H:%M') if d is not None and not pd.isna(d) else '?'}, "
+                               f"{fmt_qty(n)} cases)" for c, d, n in no_box)
+            result.flag("HIGH" if total > 0.1 * max(fg_journal or 0, 1) else "MEDIUM", "OUTPUT_WITHOUT_BOXES",
+                        f"{fmt_qty(total)} cases were confirmed as output without boxes booked: {listed}. "
+                        f"Either those cases were never made, or their packaging (and possibly starch) "
+                        f"was never confirmed.")
+
     # --- cheese balance ---
-    if variance is not None and expected:
+    matches_journal = (variance is not None and variance_journal is not None and fg_journal != fulfilled
+                       and abs(variance) > tolerance
+                       and abs(variance_journal) <= max(s.tolerance_pct * journal_expected, s.tolerance_kg))
+    if matches_journal:
+        result.flag("HIGH", "CHEESE_MATCHES_JOURNAL_NOT_ORDER",
+                    f"Cheese issued ({fmt_kg(issued)}) matches the {fmt_qty(fg_journal)} cases the journal confirms "
+                    f"({fmt_kg(journal_expected)} expected, {fmt_kg(variance_journal, signed=True)}), not the "
+                    f"{fmt_qty(fulfilled)} in the order list ({fmt_kg(variance, signed=True)}). The cheese is "
+                    f"probably not missing: check whether {fmt_qty(fg_journal)} cases physically exist and why the "
+                    f"order shows {fmt_qty(fulfilled)}.", kg=variance)
+    elif variance is not None and expected:
         detail = (f"Issued {fmt_kg(issued)} vs expected {fmt_kg(expected)} "
                   f"({fmt_qty(fulfilled)} x {pack:g} kg" if pack else
                   f"Issued {fmt_kg(issued)} vs expected {fmt_kg(expected)} (")

@@ -227,6 +227,14 @@ def parse_sheet(raw: pd.DataFrame, source: str, sheet: str, settings: Settings) 
     body = raw.iloc[header_idx + 1:]
     out = pd.DataFrame({fld: body.iloc[:, pos].tolist() for fld, pos in columns.items()})
 
+    # ByDesign writes the unit into the quantity cell: "-1,002.11 kg", "98.00 case"
+    if "quantity" in out.columns and "uom" not in out.columns:
+        units = [re.search(r"([A-Za-z]+)\s*$", v).group(1).lower()
+                 if isinstance(v, str) and re.search(r"[A-Za-z]+\s*$", v) else None for v in out["quantity"]]
+        if any(units):
+            out["uom"] = units
+            mapping["uom"] = f"(unit written after {mapping['quantity']})"
+
     for fld in out.columns:
         if fld in NUMERIC_FIELDS:
             out[fld] = [to_number(v) for v in out[fld]]
@@ -263,7 +271,8 @@ def parse_sheet(raw: pd.DataFrame, source: str, sheet: str, settings: Settings) 
 
 def order_from_filename(name: str) -> str | None:
     """'journal_589.xlsx' or 'PO 1439 confirmations.csv' -> the order number, if exactly one."""
-    numbers = re.findall(r"(?<!\d)(\d{3,7})(?!\d)", Path(name).stem)
+    # Only stand-alone numbers: ByDesign's own names ("...CFJU01_Q0001_23") must not count
+    numbers = re.findall(r"(?<![A-Za-z\d])(\d{3,7})(?![A-Za-z\d])", Path(name).stem)
     return numbers[0] if len(numbers) == 1 else None
 
 
