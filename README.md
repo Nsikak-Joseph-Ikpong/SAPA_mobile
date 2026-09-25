@@ -148,3 +148,32 @@ JavaScript port of `loader.py`, `products.py` and `analysis.py`). Open
 in the browser and never uploaded. If you change a rule in the Python
 package, change it in `engine.js` too. `web/demo-data.js` is generated from
 `sap_variance/sample_data.py`.
+
+## Checking orders against the confirmation journal (whole workbook)
+
+```bash
+python -m sap_variance.reconcile SAP_Info.xlsx                 # every order with activity
+python -m sap_variance.reconcile SAP_Info.xlsx --orders "589 594"
+```
+
+Reads a workbook with these sheets (found by their column headers, names don't matter):
+*Production Order (OUT+IN)*, *Production order (output products)*, *Production Order (INPUT)*,
+*Confirmation Journal* and *Stock Overview*.
+
+The journal has no order ID, so postings are tied to orders:
+
+* **Output:** a pallet of product X goes to the latest order for X that had started when it was posted
+  (actual start = the order's *Production Start Date Time*).
+* **Cheese:** cheese in the order's recipe, moved to the order's line during its run (2 h before the
+  first posting until 1 h after the last regular output), belongs to that order. If the same batch moves
+  away again within 24 h, that's a return. On the shared GRATINGLINES area, a job that is already running
+  keeps the cheese over the next job on the same line. Between L4 and L5, the job whose next output comes
+  soonest gets it.
+
+Line to logistics area: SLICING_L1/2/3 → SL_1/2/3, GRATING_L4/L5 → GRATINGLINES.
+
+Checks: output in the journal vs fulfilled on the order; packaging and starch booked vs recipe for the
+output; cheese used (moved in − moved back) vs recipe × cases; blend split; output posted in bulk or
+hours late; pallets confirmed more than once or larger than usual; reversals; this job's cheese still
+on the line in the stock overview; cheese left by one job and used by the next (`CHEESE_CARRIED_OVER`).
+The Excel report lists the output postings and cheese movements each conclusion is based on.
