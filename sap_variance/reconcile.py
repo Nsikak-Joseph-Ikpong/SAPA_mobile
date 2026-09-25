@@ -239,8 +239,11 @@ def assign_outputs(wb: Workbook, rules: Rules) -> pd.DataFrame:
     out["order_id"] = None
     slack = pd.Timedelta(hours=rules.order_start_slack_hours)
     max_age = pd.Timedelta(hours=rules.max_order_age_hours)
+    # Orders that never started (Released / Canceled with no production start) cannot own postings
+    started = wb.orders[wb.orders["start_actual"].notna()
+                        | ~wb.orders["status"].astype(str).str.lower().isin(["released", "canceled", "cancelled"])]
     starts = {fg: g.dropna(subset=["start"]).sort_values("start")[["order_id", "start"]].values.tolist()
-              for fg, g in wb.orders.groupby("fg")}
+              for fg, g in started.groupby("fg")}
     assigned = []
     for fg, t in zip(out["material"], out["time"]):
         best = None
