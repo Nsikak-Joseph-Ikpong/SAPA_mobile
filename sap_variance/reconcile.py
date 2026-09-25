@@ -443,7 +443,7 @@ def check_order(oid: str, wb: Workbook, windows: pd.DataFrame, outputs: pd.DataF
     if per_case and (journal_out or order_out):
         if cheese.empty:
             flag("MEDIUM", "NO_CHEESE_SENT_TO_LINE",
-                 f"No cheese from this job's recipe ({', '.join(sorted(cheese_comps['material']))}) was moved to "
+                 f"No cheese from this job's recipe ({', '.join(sorted(set(cheese_comps['material'])))}) was moved to "
                  f"{area or 'the line'} during the run. It may have used cheese already on the line, or the "
                  f"cheese was booked elsewhere.")
         else:
@@ -526,19 +526,37 @@ def run(wb: Workbook, order_ids: list[str] | None = None, rules: Rules | None = 
         if len(per_pallet) >= 5 and per_pallet.mode().iat[0] >= 10:
             typical[fg] = per_pallet.mode().iat[0]
 
-    wanted = [str(o) for o in order_ids] if order_ids else [
-        o for o in orders["order_id"] if o in set(outputs["order_id"].dropna()) or o in set(sends["order_id"])]
+    active = [o for o in orders["order_id"] if o in set(outputs["order_id"].dropna()) or o in set(sends["order_id"])]
+    wanted = [str(o) for o in order_ids] if order_ids else active
+    known = set(orders["order_id"])
+    # The jobs just before and after each requested one on the same line are checked too,
+    # so cheese carried from one job to the next can be recognised
+    to_check = [o for o in wanted if o in known]
+    seq = orders.dropna(subset=["start"]).sort_values("start")
+    for res, g in seq.groupby("resource"):
+        ids = [o for o in g["order_id"] if o in set(active) or o in set(to_check)]
+        for i, o in enumerate(ids):
+            if o in wanted:
+                to_check += [n for n in ids[max(i - 1, 0):i + 2] if n not in to_check]
     summaries, findings = [], []
     for oid in wanted:
-        if oid not in set(orders["order_id"]):
+        if oid not in known:
             findings.append(Finding(oid, "INFO", "ORDER_NOT_FOUND", "Order not found in the order sheets."))
-            continue
+    for oid in to_check:
         s, f = check_order(oid, wb, windows, outputs, per_conf, sends, typical, rules)
         summaries.append(s)
         findings.extend(f)
     findings = pair_carry_over(summaries, findings, orders, rules)
+    summaries = [s for s in summaries if s["order_id"] in set(wanted)]
+    findings = [f for f in findings if f.order_id in set(wanted)]
     unassigned = outputs[outputs["order_id"].isna()]
     return Result(summaries, findings, outputs, sends, unassigned, wb.sheets)
+
+
+def verdict(findings: list) -> str:
+    """One word per order: PROBLEMS (any HIGH), CHECK (any MEDIUM) or OK."""
+    sev = {f.severity for f in findings}
+    return "PROBLEMS" if "HIGH" in sev else "CHECK" if "MEDIUM" in sev else "OK"
 
 
 def pair_carry_over(summaries: list, findings: list, orders: pd.DataFrame, rules: Rules) -> list:
@@ -596,7 +614,7 @@ def print_result(res: Result, show_info: bool = True) -> None:
         by_order.setdefault(f.order_id, []).append(f)
     for s in res.summaries:
         print("\n" + "=" * 100)
-        print(f"Order {s['order_id']} - {s['fg']} {s['fg_text'] or ''} ({s['status']}) on {s['line']}"
+        print(f"Order {s['order_id']} - {verdict(by_order.get(s['order_id'], []))} - {s['fg']} {s['fg_text'] or ''} ({s['status']}) on {s['line']}"
               + (f", started {s['start']:%d.%m.%Y %H:%M}" if not pd.isna(s['start']) else ""))
         print(f"  Output: planned {_fmt(s['planned_out'])} | order {_fmt(s['order_out'])} | journal {_fmt(s['journal_out'])} "
               f"cases in {s['output_confirmations']} confirmation(s)")
