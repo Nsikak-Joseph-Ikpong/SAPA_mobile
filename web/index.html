@@ -107,7 +107,7 @@
 <div class="wrap">
   <div>
     <h1>Cheese Variance Check</h1>
-    <p class="sub">Type a production order. The order's own planned, issued and open quantities are the truth: every input is checked against what the cases made need. The confirmation journal backs up the output (pallets, late or bulk postings).</p>
+    <p class="sub">Type a production order. Inputs and output are checked against the order's planned, issued and open quantities. Where the order sheet shows no cheese issued, cheese is estimated from the confirmation journal (cheese moved to the line during the run). The journal also backs up the output: pallets, late or bulk postings.</p>
   </div>
 
   <div class="top">
@@ -163,7 +163,14 @@
     OUTPUT_OVER_PLAN: "More made than planned",
     OUTPUT_SHORT_OF_PLAN: "Less made than planned, nothing left open",
     OUTPUT_STILL_OPEN: "Output still open",
-    CHEESE_NOT_ISSUED: "No cheese issued to the order",
+    CHEESE_NOT_ON_ORDER_SHEET: "No cheese on the order sheet, so estimated from the journal",
+    CHEESE_BALANCES_EST: "Cheese estimate matches the output",
+    CHEESE_OVER_EST: "More cheese went to the line than the output needs (estimate)",
+    CHEESE_UNDER_EST: "Less cheese went to the line than the output needs (estimate)",
+    CHEESE_CARRIED_OVER: "Cheese carried over between jobs (estimate)",
+    CHEESE_FROM_STORE: "Cheese issued straight from store",
+    CHEESE_SHARED_LINE: "Cheese on a shared line",
+    NO_CHEESE_SEEN: "No cheese for this job anywhere",
     CHEESE_BALANCES: "Cheese issued matches the output",
     CHEESE_OVER_ISSUED: "More cheese issued than the output needs",
     CHEESE_UNDER_ISSUED: "Less cheese issued than the output needs",
@@ -277,10 +284,16 @@
     const sub = `${esc(s.fg)} ${esc(s.fg_text || "")} · ${esc(s.line || "")} · status ${esc(s.status || "n/a")}${!isNaN(s.start) ? ` · production began ${esc(dmy(s.start))}` : ""}`;
 
     const outBad = Math.abs(s.journal_out - s.order_out) > Math.max(2, 0.02 * Math.max(s.journal_out, s.order_out));
-    const cheeseBad = s.cheese_needed_kg && (s.cheese_issued_kg === 0 || (s.cheese_diff_kg !== null && Math.abs(s.cheese_diff_kg) > s.cheese_tolerance_kg));
-    const cheeseLine = s.cheese_kg_per_case
-      ? `<div class="fig"><dt>Cheese issued</dt><dd class="${cheeseBad ? "bad" : s.cheese_needed_kg ? "good" : ""}">${kg(s.cheese_issued_kg)}<small>on the order · ${kg(s.cheese_open_kg)} open</small></dd></div>
-         <div class="fig"><dt>Cheese needed</dt><dd>${kg(s.cheese_needed_kg)}<small>${s.cheese_kg_per_case.toFixed(3)} kg/case × cases made</small></dd></div>` : "";
+    let cheeseLine = "";
+    if (s.cheese_kg_per_case && s.cheese_source === "journal") {
+      const bad = s.cheese_diff_kg !== null && Math.abs(s.cheese_diff_kg) > s.cheese_tolerance_kg;
+      cheeseLine = `<div class="fig"><dt>Cheese used (journal estimate)</dt><dd class="${bad ? "bad" : s.cheese_sent_kg ? "good" : ""}">${kg(s.cheese_used_kg)}<small>moved to line ${kg(s.cheese_sent_kg)}, away ${kg(s.cheese_returned_kg)}</small></dd></div>
+         <div class="fig"><dt>Cheese needed</dt><dd>${kg(s.cheese_est_needed_kg)}<small>${s.cheese_kg_per_case.toFixed(3)} kg/case × ${n0(s.cheese_est_output)} cases</small></dd></div>`;
+    } else if (s.cheese_kg_per_case) {
+      const bad = s.cheese_needed_kg && s.cheese_diff_kg !== null && Math.abs(s.cheese_diff_kg) > s.cheese_tolerance_kg;
+      cheeseLine = `<div class="fig"><dt>Cheese issued (order sheet)</dt><dd class="${bad ? "bad" : s.cheese_needed_kg ? "good" : ""}">${kg(s.cheese_issued_kg)}<small>${kg(s.cheese_open_kg)} still open</small></dd></div>
+         <div class="fig"><dt>Cheese needed</dt><dd>${kg(s.cheese_needed_kg)}<small>${s.cheese_kg_per_case.toFixed(3)} kg/case × cases made</small></dd></div>`;
+    }
     const figs = `<dl class="figs">
       <div class="fig"><dt>Planned</dt><dd>${n0(s.planned_out)}<small>cases</small></dd></div>
       <div class="fig"><dt>Made</dt><dd class="${outBad ? "bad" : ""}">${n0(s.order_out)}<small>fulfilled on the order</small></dd></div>
@@ -297,7 +310,7 @@
     const q = (v) => (v === null || v === undefined || isNaN(v) ? "" : f(v, 2));
     const compRows = s.components.map((c) => {
       const need = c.needed_for_output;
-      const off = need !== null && need > 0 && (c.fulfilled < need - Math.max(2, 0.03 * need) || c.fulfilled > need + Math.max(2, 0.1 * need));
+      const off = !(c.cheese && s.cheese_source === "journal") && need !== null && need > 0 && (c.fulfilled < need - Math.max(2, 0.03 * need) || c.fulfilled > need + Math.max(2, 0.1 * need));
       return `<tr class="${off ? "neg" : ""}"><td class="m">${esc(c.material)}</td><td class="n">${q(c.planned)}</td><td class="n">${q(c.fulfilled)}</td><td class="n">${q(c.open)}</td><td class="n">${q(need)}</td><td class="n">${c.difference === null ? "" : fs(c.difference, 2)}</td><td>${c.cheese ? "cheese" : ""}</td></tr>`;
     }).join("");
     const ev = `
@@ -305,9 +318,9 @@
         <thead><tr><th>Material</th><th>Planned</th><th>Issued</th><th>Open</th><th>Needed for cases made</th><th>Difference</th><th></th></tr></thead><tbody>${compRows}</tbody></table></div></details>
       <details class="ev"><summary>Output postings in the journal (${s.outputs.length})</summary><div class="scroll"><table>
         <thead><tr><th>Conf.ID</th><th>Posted</th><th>Pallet</th><th>Cases</th><th>Area</th></tr></thead><tbody>${outRows || `<tr><td colspan="5">None</td></tr>`}</tbody></table></div></details>
-      <details class="ev"><summary>Cheese moved to the line around the run (${s.cheese_moves.length}), staging only</summary>
-        <p class="hint">Moving cheese to the line only makes it available. It is not an issue to this job and isn't used in the verdict.</p><div class="scroll"><table>
-        <thead><tr><th>Moved</th><th>Material</th><th>Batch</th><th>kg in</th><th>kg back</th><th>Back to</th><th>Other jobs on the line</th></tr></thead><tbody>${cheeseRows || `<tr><td colspan="7">None</td></tr>`}</tbody></table></div></details>`;
+      <details class="ev"><summary>Cheese moved to the line during the run (${s.cheese_moves.length})</summary>
+        <p class="hint">The journal has no cheese consumption lines, so when the order sheet shows no cheese issued, these moves (less what went away again) are the estimate. Cheese issued straight from store, or left on the line from the job before, doesn't show here.</p><div class="scroll"><table>
+        <thead><tr><th>Moved</th><th>Material</th><th>Batch</th><th>kg in</th><th>kg back</th><th>Back to</th><th>Could also be</th></tr></thead><tbody>${cheeseRows || `<tr><td colspan="7">None</td></tr>`}</tbody></table></div></details>`;
 
     return `<article class="card" data-v="${v}">
       <div class="verdict"><span class="badge">${v}</span><div class="vt">Order <span class="mono">${esc(s.order_id)}</span>: ${esc(headline)}</div><div class="vs">${sub}</div></div>

@@ -106,7 +106,10 @@ def test_cheese_issued_on_order_is_the_truth(result):
     assert not any(k.startswith(("CHEESE_CARRIED", "CHEESE_STILL", "NO_CHEESE")) for k in c)
 
 
-def test_no_cheese_issued_and_over_plan(result):
+def test_no_cheese_on_order_sheet_falls_back_to_journal_estimate(result):
+    b = next(s for s in result.summaries if s["order_id"] == "B2")
+    assert b["cheese_source"] == "journal" and b["cheese_used_kg"] == pytest.approx(2000)
     c = codes(result, "B2")
-    assert c["CHEESE_NOT_ISSUED"].severity == "HIGH" and "1,970.0 kg" in c["CHEESE_NOT_ISSUED"].message
+    assert "CHEESE_NOT_ON_ORDER_SHEET" in c and "CHEESE_BALANCES_EST" in c
+    assert "400 cases in the journal need 1,970.0 kg" in c["CHEESE_BALANCES_EST"].message
     assert c["OUTPUT_OVER_PLAN"].severity == "MEDIUM" and "+50" in c["OUTPUT_OVER_PLAN"].message

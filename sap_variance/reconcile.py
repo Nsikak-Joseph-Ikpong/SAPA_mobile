@@ -457,16 +457,17 @@ def check_order(oid: str, wb: Workbook, windows: pd.DataFrame, outputs: pd.DataF
     issued = float(cheese_comps["fulfilled"].fillna(0).sum()) if not cheese_comps.empty else 0.0
     cheese_open = float(cheese_comps["open"].fillna(0).sum()) if not cheese_comps.empty else 0.0
     needed = per_case * order_out if per_case else None
+    cheese_source = None
     if needed and order_out > 0:
         lines = "; ".join(f"{c.material} {0 if pd.isna(c.fulfilled) else c.fulfilled:,.2f} of {c.planned * scale:,.2f} kg"
                           for c in cheese_comps.itertuples())
         if issued == 0:
-            flag("HIGH", "CHEESE_NOT_ISSUED",
-                 f"{order_out:,.0f} cases made but no cheese issued to the order ({lines}). "
-                 f"About {needed:,.1f} kg should be issued ({per_case:.3f} kg/case)."
-                 + (" Nothing is left open either, so the cheese requirement was closed without an issue."
-                    if cheese_open == 0 else f" {cheese_open:,.1f} kg still open."))
+            cheese_source = "journal"
+            flag("INFO", "CHEESE_NOT_ON_ORDER_SHEET",
+                 f"No cheese issue shows on the order sheet ({lines}), so cheese input is estimated from the "
+                 f"confirmation journal (cheese moved to the line during the run).")
         else:
+            cheese_source = "order"
             tol = max(rules.tolerance_pct * needed, rules.tolerance_kg)
             cheese_diff, cheese_tol = issued - needed, tol
             msg = (f"Cheese issued {issued:,.1f} kg, the {order_out:,.0f} cases need {needed:,.1f} kg "
@@ -475,8 +476,17 @@ def check_order(oid: str, wb: Workbook, windows: pd.DataFrame, outputs: pd.DataF
                 flag("INFO", "CHEESE_BALANCES", msg + f" Difference {cheese_diff:+,.1f} kg is within tolerance.")
             else:
                 sev = "HIGH" if abs(cheese_diff) > max(3 * tol, 500) else "MEDIUM"
+                extra = ""
+                if cheese_diff < 0 and not cheese.empty:
+                    # the order sheet can miss issues: check the journal estimate too
+                    moved = float((cheese["sent"] - cheese["returned"]).sum())
+                    extra = f" The journal shows about {moved:,.1f} kg moved to the line for this run"
+                    if moved >= needed - tol:
+                        sev, extra = "MEDIUM", extra + ", enough for the output, so the order sheet is probably missing issues."
+                    else:
+                        extra += "."
                 flag(sev, "CHEESE_OVER_ISSUED" if cheese_diff > 0 else "CHEESE_UNDER_ISSUED",
-                     msg + f" Difference {cheese_diff:+,.1f} kg ({cheese_diff / needed:+.1%}).")
+                     msg + f" Difference {cheese_diff:+,.1f} kg ({cheese_diff / needed:+.1%})." + extra)
             # blend: shares of the block cheeses (offcut bins can stand in for their own cheese)
             blocks = cheese_comps[~cheese_comps["material"].str.upper().str.startswith("MB")]
             plan_share = blocks.groupby("material")["planned"].sum()
@@ -489,9 +499,44 @@ def check_order(oid: str, wb: Workbook, windows: pd.DataFrame, outputs: pd.DataF
                     flag("MEDIUM", "BLEND_SPLIT_OFF", "Cheese issued in a different split from the recipe: " + "; ".join(
                         f"{m} {a:.0%} vs {sh:.0%} planned" for m, a, sh in off) + ".")
 
-    # cheese moved to the line is only staging, shown as background
+    # ---- estimate from the journal when the order sheet shows no cheese ----
+    # The journal has no cheese consumption lines; the nearest thing is cheese moved to the
+    # job's line during its run, less what was moved away again. That's an estimate: cheese
+    # can be issued straight from store without a move, or left on the line for the next job.
     sent = float(cheese["sent"].sum()) if not cheese.empty else 0.0
     back = float(cheese["returned"].sum()) if not cheese.empty else 0.0
+    used = sent - back
+    est_out = journal_out or order_out
+    est_needed = per_case * est_out if per_case else None
+    if cheese_source == "journal" and est_needed:
+        materials = sorted(set(cheese_comps["material"]))
+        not_moved = [m for m in materials if m not in set(cheese["material"]) and not m.upper().startswith("MB")]
+        if cheese.empty:
+            flag("MEDIUM", "NO_CHEESE_SEEN",
+                 f"No cheese for this job shows anywhere: nothing issued on the order sheet and none of "
+                 f"{', '.join(materials)} moved to {area or 'the line'} during the run.")
+        else:
+            tol = max(rules.tolerance_pct * est_needed, rules.tolerance_kg)
+            cheese_diff, cheese_tol = used - est_needed, tol
+            msg = (f"Estimate from the journal: {sent:,.1f} kg moved to {area}, {back:,.1f} kg moved away again, "
+                   f"so about {used:,.1f} kg used. The {est_out:,.0f} cases {'in the journal ' if journal_out else ''}"
+                   f"need {est_needed:,.1f} kg ({per_case:.3f} kg/case).")
+            if not_moved:
+                flag("INFO", "CHEESE_FROM_STORE",
+                     f"{', '.join(not_moved)} never moved to {area} during the run: issued straight from store or "
+                     f"already on the line, so it isn't in the journal estimate.")
+            if abs(cheese_diff) <= tol:
+                flag("INFO", "CHEESE_BALANCES_EST", msg + f" Difference {cheese_diff:+,.1f} kg is within tolerance.")
+            else:
+                flag("MEDIUM", "CHEESE_OVER_EST" if cheese_diff > 0 else "CHEESE_UNDER_EST",
+                     msg + f" Difference {cheese_diff:+,.1f} kg ({cheese_diff / est_needed:+.1%}).")
+            shared = cheese[cheese["candidates"] > 1]
+            if not shared.empty:
+                others = sorted(set(", ".join(shared["other_orders"]).split(", ")) - {""})
+                flag("INFO", "CHEESE_SHARED_LINE",
+                     f"{len(shared)} cheese move(s) ({shared['sent'].sum():,.1f} kg) on {area} could also belong to "
+                     f"order(s) {', '.join(others)}, on {area} around the same time; they were given to this order "
+                     f"because it was already running or its next output followed soonest.")
 
     offcuts = wb.byproducts[wb.byproducts["order_id"] == oid]
     summary = {
@@ -499,8 +544,9 @@ def check_order(oid: str, wb: Workbook, windows: pd.DataFrame, outputs: pd.DataF
         "area": area, "start": o["start"], "last_regular_output": last_regular,
         "planned_out": planned_out, "order_out": order_out, "journal_out": journal_out,
         "output_confirmations": len(confs), "cheese_kg_per_case": per_case,
-        "cheese_issued_kg": issued, "cheese_needed_kg": needed, "cheese_open_kg": cheese_open,
-        "cheese_sent_kg": sent, "cheese_returned_kg": back,
+        "cheese_source": cheese_source, "cheese_issued_kg": issued, "cheese_needed_kg": needed,
+        "cheese_open_kg": cheese_open, "cheese_sent_kg": sent, "cheese_returned_kg": back, "cheese_used_kg": used,
+        "cheese_est_needed_kg": est_needed, "cheese_est_output": est_out,
         "offcuts_kg": float(offcuts["fulfilled"].sum()) if not offcuts.empty else 0.0,
         "cheese_diff_kg": cheese_diff, "cheese_tolerance_kg": cheese_tol,
         "components": comp_rows,
@@ -535,7 +581,15 @@ def run(wb: Workbook, order_ids: list[str] | None = None, rules: Rules | None = 
     active = [o for o in orders["order_id"] if o in set(outputs["order_id"].dropna()) or o in set(sends["order_id"])]
     wanted = [str(o) for o in order_ids] if order_ids else active
     known = set(orders["order_id"])
+    # The jobs just before and after each requested one on the same line are checked too,
+    # so cheese carried from one job to the next can be recognised
     to_check = [o for o in wanted if o in known]
+    seq = orders.dropna(subset=["start"]).sort_values("start")
+    for res, g in seq.groupby("resource"):
+        ids = [o for o in g["order_id"] if o in set(active) or o in set(to_check)]
+        for i, o in enumerate(ids):
+            if o in wanted:
+                to_check += [n for n in ids[max(i - 1, 0):i + 2] if n not in to_check]
     summaries, findings = [], []
     for oid in wanted:
         if oid not in known:
@@ -544,6 +598,7 @@ def run(wb: Workbook, order_ids: list[str] | None = None, rules: Rules | None = 
         s, f = check_order(oid, wb, windows, outputs, per_conf, sends, typical, rules)
         summaries.append(s)
         findings.extend(f)
+    findings = pair_carry_over(summaries, findings, orders, rules)
     summaries = [s for s in summaries if s["order_id"] in set(wanted)]
     findings = [f for f in findings if f.order_id in set(wanted)]
     unassigned = outputs[outputs["order_id"].isna()]
@@ -555,6 +610,50 @@ def verdict(findings: list) -> str:
     sev = {f.severity for f in findings}
     return "PROBLEMS" if "HIGH" in sev else "CHECK" if "MEDIUM" in sev else "OK"
 
+
+def pair_carry_over(summaries: list, findings: list, orders: pd.DataFrame, rules: Rules) -> list:
+    """A job over on cheese followed on the same line by a job under by about the same amount:
+    cheese left on the line in SAP after the first job was used by the next one."""
+    by_id = {s["order_id"]: s for s in summaries}
+    seq = orders[orders["order_id"].isin(by_id)].dropna(subset=["start"]).sort_values("start")
+    replace: dict[str, Finding] = {}
+    for res, g in seq.groupby("resource"):
+        ids = list(g["order_id"])
+        for a, b in zip(ids, ids[1:]):
+            sa, sb = by_id[a], by_id[b]
+            da, db = sa.get("cheese_diff_kg"), sb.get("cheese_diff_kg")
+            if sa.get("cheese_source") != "journal" or sb.get("cheese_source") != "journal":
+                continue
+            if da is None or db is None or a in replace or b in replace:
+                continue
+            # First job over, next job under: the first job's leftover was used by the next
+            if abs(da) <= sa["cheese_tolerance_kg"] or abs(db) <= sb["cheese_tolerance_kg"] or not (da > 0 > db):
+                continue
+            end_a = sa["last_regular_output"] if not pd.isna(sa["last_regular_output"]) else sa["start"]
+            if pd.isna(end_a) or pd.isna(sb["start"]) or sb["start"] - end_a > pd.Timedelta(hours=12):
+                continue
+            residual = abs(da + db) / max(abs(da), abs(db))
+            if residual > 0.35:
+                continue
+            first, second = (a, b)
+            over, under = (a, b) if da > 0 else (b, a)
+            msg = (f"Orders {first} and {second} ran one after the other on {res}: {over} is "
+                   f"{by_id[over]['cheese_diff_kg']:+,.1f} kg on the journal estimate and {under} is "
+                   f"{by_id[under]['cheese_diff_kg']:+,.1f} kg (net {da + db:+,.1f} kg). ")
+            msg += ("Cheese left on the line after the first job was used by the next one without being "
+                    "returned and re-issued in SAP.")
+            for oid in (a, b):
+                replace[oid] = Finding(oid, "MEDIUM", "CHEESE_CARRIED_OVER", msg)
+    out = []
+    for f in findings:
+        if f.order_id in replace and f.code in ("CHEESE_OVER_EST", "CHEESE_UNDER_EST"):
+            out.append(replace.pop(f.order_id))
+        else:
+            out.append(f)
+    return out
+
+
+# ---------------------------------------------------------------- reporting
 
 def _fmt(v, d=0):
     return "n/a" if v is None or (isinstance(v, float) and math.isnan(v)) else f"{v:,.{d}f}"
@@ -574,9 +673,11 @@ def print_result(res: Result, show_info: bool = True) -> None:
         print(f"  Output: planned {_fmt(s['planned_out'])} | order {_fmt(s['order_out'])} | journal {_fmt(s['journal_out'])} "
               f"cases in {s['output_confirmations']} confirmation(s)")
         if s["cheese_kg_per_case"]:
-            print(f"  Cheese on the order: issued {_fmt(s['cheese_issued_kg'], 1)} kg, needed {_fmt(s['cheese_needed_kg'], 1)} kg "
-                  f"({s['cheese_kg_per_case']:.3f} kg/case), open {_fmt(s['cheese_open_kg'], 1)} kg | moved to the line "
-                  f"around the run (staging only) {_fmt(s['cheese_sent_kg'], 1)} kg")
+            print(f"  Cheese on the order sheet: issued {_fmt(s['cheese_issued_kg'], 1)} kg, needed {_fmt(s['cheese_needed_kg'], 1)} kg "
+                  f"({s['cheese_kg_per_case']:.3f} kg/case), open {_fmt(s['cheese_open_kg'], 1)} kg")
+            print(f"  Journal estimate: moved to the line {_fmt(s['cheese_sent_kg'], 1)} - away {_fmt(s['cheese_returned_kg'], 1)} = "
+                  f"{_fmt(s['cheese_used_kg'], 1)} kg vs {_fmt(s['cheese_est_needed_kg'], 1)} kg needed"
+                  + ("  <- used" if s["cheese_source"] == "journal" else ""))
         for f in by_order.get(s["order_id"], []):
             if show_info or f.severity != "INFO":
                 print(f"  [{f.severity}] {f.code}: {f.message}")

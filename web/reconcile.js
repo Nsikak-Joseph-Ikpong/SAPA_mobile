@@ -382,17 +382,28 @@
     const issued = sum(cheeseComps.map((c) => (isNaN(c.fulfilled) ? 0 : c.fulfilled)));
     const cheeseOpen = sum(cheeseComps.map((c) => (isNaN(c.open) ? 0 : c.open)));
     const needed = perCase ? perCase * order_out : null;
+    let cheeseSource = null;
     if (needed && order_out > 0) {
       const lines = cheeseComps.map((c) => `${c.material} ${f(isNaN(c.fulfilled) ? 0 : c.fulfilled, 2)} of ${f(c.planned * scale, 2)} kg`).join("; ");
       if (issued === 0) {
-        flag("HIGH", "CHEESE_NOT_ISSUED", `${f(order_out)} cases made but no cheese issued to the order (${lines}). About ${f(needed, 1)} kg should be issued (${fixed(perCase, 3)} kg/case).`
-          + (cheeseOpen === 0 ? " Nothing is left open either, so the cheese requirement was closed without an issue." : ` ${f(cheeseOpen, 1)} kg still open.`));
+        cheeseSource = "journal";
+        flag("INFO", "CHEESE_NOT_ON_ORDER_SHEET", `No cheese issue shows on the order sheet (${lines}), so cheese input is estimated from the confirmation journal (cheese moved to the line during the run).`);
       } else {
+        cheeseSource = "order";
         const tol = Math.max(RULES.tolerance_pct * needed, RULES.tolerance_kg);
         cheese_diff = issued - needed; cheese_tol = tol;
         const msg = `Cheese issued ${f(issued, 1)} kg, the ${f(order_out)} cases need ${f(needed, 1)} kg (${fixed(perCase, 3)} kg/case): ${lines}.`;
         if (Math.abs(cheese_diff) <= tol) flag("INFO", "CHEESE_BALANCES", msg + ` Difference ${fs(cheese_diff, 1)} kg is within tolerance.`);
-        else flag(Math.abs(cheese_diff) > Math.max(3 * tol, 500) ? "HIGH" : "MEDIUM", cheese_diff > 0 ? "CHEESE_OVER_ISSUED" : "CHEESE_UNDER_ISSUED", msg + ` Difference ${fs(cheese_diff, 1)} kg (${pct(cheese_diff / needed, 1, true)}).`);
+        else {
+          let sev = Math.abs(cheese_diff) > Math.max(3 * tol, 500) ? "HIGH" : "MEDIUM", extra = "";
+          if (cheese_diff < 0 && cheese.length) {
+            // the order sheet can miss issues: check the journal estimate too
+            const moved = sum(cheese.map((c) => c.sent - c.returned));
+            extra = ` The journal shows about ${f(moved, 1)} kg moved to the line for this run`;
+            if (moved >= needed - tol) { sev = "MEDIUM"; extra += ", enough for the output, so the order sheet is probably missing issues."; } else extra += ".";
+          }
+          flag(sev, cheese_diff > 0 ? "CHEESE_OVER_ISSUED" : "CHEESE_UNDER_ISSUED", msg + ` Difference ${fs(cheese_diff, 1)} kg (${pct(cheese_diff / needed, 1, true)}).` + extra);
+        }
         // blend: shares of the block cheeses (offcut bins can stand in for their own cheese)
         const plan = {}, got = {}; let pt = 0, gt = 0;
         for (const c of cheeseComps) {
@@ -408,20 +419,70 @@
       }
     }
 
-    // cheese moved to the line is only staging, shown as background
+    // estimate from the journal when the order sheet shows no cheese: the journal has no cheese
+    // consumption lines, so cheese moved to the job's line during its run, less moved away again
     const sent = cheese.length ? sum(cheese.map((s) => s.sent)) : 0, back = cheese.length ? sum(cheese.map((s) => s.returned)) : 0;
+    const used = sent - back;
+    const estOut = journal_out || order_out, estNeeded = perCase ? perCase * estOut : null;
+    if (cheeseSource === "journal" && estNeeded) {
+      const materials = [...new Set(cheeseComps.map((c) => c.material))].sort();
+      const moved = new Set(cheese.map((c) => c.material));
+      const notMoved = materials.filter((m) => !moved.has(m) && !m.toUpperCase().startsWith("MB"));
+      if (!cheese.length) {
+        flag("MEDIUM", "NO_CHEESE_SEEN", `No cheese for this job shows anywhere: nothing issued on the order sheet and none of ${materials.join(", ")} moved to ${area || "the line"} during the run.`);
+      } else {
+        const tol = Math.max(RULES.tolerance_pct * estNeeded, RULES.tolerance_kg);
+        cheese_diff = used - estNeeded; cheese_tol = tol;
+        const msg = `Estimate from the journal: ${f(sent, 1)} kg moved to ${area}, ${f(back, 1)} kg moved away again, so about ${f(used, 1)} kg used. The ${f(estOut)} cases ${journal_out ? "in the journal " : ""}need ${f(estNeeded, 1)} kg (${fixed(perCase, 3)} kg/case).`;
+        if (notMoved.length) flag("INFO", "CHEESE_FROM_STORE", `${notMoved.join(", ")} never moved to ${area} during the run: issued straight from store or already on the line, so it isn't in the journal estimate.`);
+        if (Math.abs(cheese_diff) <= tol) flag("INFO", "CHEESE_BALANCES_EST", msg + ` Difference ${fs(cheese_diff, 1)} kg is within tolerance.`);
+        else flag("MEDIUM", cheese_diff > 0 ? "CHEESE_OVER_EST" : "CHEESE_UNDER_EST", msg + ` Difference ${fs(cheese_diff, 1)} kg (${pct(cheese_diff / estNeeded, 1, true)}).`);
+        const shared = cheese.filter((c) => c.candidates > 1);
+        if (shared.length) {
+          const others = [...new Set(shared.map((c) => c.other_orders).join(", ").split(", "))].filter(Boolean).sort();
+          flag("INFO", "CHEESE_SHARED_LINE", `${shared.length} cheese move(s) (${f(sum(shared.map((c) => c.sent)), 1)} kg) on ${area} could also belong to order(s) ${others.join(", ")}, on ${area} around the same time; they were given to this order because it was already running or its next output followed soonest.`);
+        }
+      }
+    }
 
     const offcuts = idx.byp.get(oid) || [];
     const summary = {
       order_id: oid, status: o.status, fg, fg_text: o.fg_text, line: o.resource, area, start: o.start, last_regular_output: last,
       planned_out, order_out, journal_out, output_confirmations: confs.length, cheese_kg_per_case: perCase,
-      cheese_issued_kg: issued, cheese_needed_kg: needed, cheese_open_kg: cheeseOpen,
-      cheese_sent_kg: sent, cheese_returned_kg: back, offcuts_kg: sum(offcuts.map((b) => (isNaN(b.fulfilled) ? 0 : b.fulfilled))),
+      cheese_source: cheeseSource, cheese_issued_kg: issued, cheese_needed_kg: needed, cheese_open_kg: cheeseOpen,
+      cheese_sent_kg: sent, cheese_returned_kg: back, cheese_used_kg: used, cheese_est_needed_kg: estNeeded, cheese_est_output: estOut, offcuts_kg: sum(offcuts.map((b) => (isNaN(b.fulfilled) ? 0 : b.fulfilled))),
       cheese_diff_kg: cheese_diff, cheese_tolerance_kg: cheese_tol, components: compRows,
       outputs: out.slice().sort((a, b) => a.time - b.time), confirmations: confs, cheese_moves: cheese.slice().sort((a, b) => a.time - b.time),
     };
     findings.sort((a, b) => SEV[a.severity] - SEV[b.severity]);
     return { summary, findings };
+  }
+
+  function pairCarryOver(results, ctx) {
+    const byId = new Map(results.map((r) => [r.summary.order_id, r.summary]));
+    const seq = ctx.orders.filter((o) => byId.has(o.order_id) && !isNaN(o.start)).sort((a, b) => a.start - b.start);
+    const replace = new Map();
+    for (const [res, g] of groupBy(seq, "resource")) {
+      const ids = g.map((o) => o.order_id);
+      for (let i = 0; i + 1 < ids.length; i++) {
+        const a = ids[i], b = ids[i + 1], sa = byId.get(a), sb = byId.get(b);
+        const da = sa.cheese_diff_kg, db = sb.cheese_diff_kg;
+        if (sa.cheese_source !== "journal" || sb.cheese_source !== "journal") continue;
+        if (da === null || db === null || replace.has(a) || replace.has(b)) continue;
+        if (Math.abs(da) <= sa.cheese_tolerance_kg || Math.abs(db) <= sb.cheese_tolerance_kg || !(da > 0 && db < 0)) continue;
+        const endA = !isNaN(sa.last_regular_output) ? sa.last_regular_output : sa.start;
+        if (isNaN(endA) || isNaN(sb.start) || sb.start - endA > 12 * H) continue;
+        if (Math.abs(da + db) / Math.max(Math.abs(da), Math.abs(db)) > 0.35) continue;
+        const msg = `Orders ${a} and ${b} ran one after the other on ${res}: ${a} is ${fs(da, 1)} kg on the journal estimate and ${b} is ${fs(db, 1)} kg (net ${fs(da + db, 1)} kg). Cheese left on the line after the first job was used by the next one without being returned and re-issued in SAP.`;
+        for (const oid of [a, b]) replace.set(oid, { order_id: oid, severity: "MEDIUM", code: "CHEESE_CARRIED_OVER", message: msg });
+      }
+    }
+    for (const r of results) {
+      const rep = replace.get(r.summary.order_id);
+      if (!rep) continue;
+      const i = r.findings.findIndex((x) => x.code === "CHEESE_OVER_EST" || x.code === "CHEESE_UNDER_EST");
+      if (i >= 0) { r.findings[i] = rep; r.findings.sort((a, b) => SEV[a.severity] - SEV[b.severity]); }
+    }
   }
 
   // ------------------------------------------------------------ entry points
@@ -436,8 +497,14 @@
       windows: new Map(windows.map((w) => [w.order_id, w])), outputs: groupBy(outputs.filter((r) => r.order_id !== null), "order_id"),
       perConf: groupBy(perConf, "order_id"), sends: groupBy(sends, "order_id"), byp: groupBy(wb.byproducts, "order_id"),
     };
+    const active = new Set([...idx.outputs.keys(), ...idx.sends.keys()]);
+    const seqByRes = new Map();
+    for (const o of orders.filter((o) => !isNaN(o.start)).sort((a, b) => a.start - b.start)) {
+      if (!seqByRes.has(o.resource)) seqByRes.set(o.resource, []);
+      seqByRes.get(o.resource).push(o.order_id);
+    }
     const journalRange = wb.journal.length ? [Math.min(...wb.journal.map((r) => r.time)), Math.max(...wb.journal.map((r) => r.time))] : null;
-    return { wb, orders, outputs, sends, idx, active: new Set(idx.outputs.keys()), typical: typicalPallets(outputs), journalRange,
+    return { wb, orders, outputs, sends, idx, active, seqByRes, typical: typicalPallets(outputs), journalRange,
       unassigned: outputs.filter((r) => r.order_id === null) };
   }
 
@@ -446,11 +513,21 @@
     return s.has("HIGH") ? "PROBLEMS" : s.has("MEDIUM") ? "CHECK" : "OK";
   }
 
+  // Check the requested orders; the jobs just before and after each on the same line are checked too,
+  // so cheese carried from one job to the next is recognised.
   function check(ctx, orderIds) {
     const wanted = orderIds.map((x) => String(x).trim()).filter(Boolean);
-    const results = wanted.filter((o) => ctx.idx.orders.has(o)).map((oid) => checkOrder(oid, ctx));
-    results.forEach((r) => (r.verdict = verdict(r.findings)));
-    return { results, missing: wanted.filter((o) => !ctx.idx.orders.has(o)) };
+    const known = wanted.filter((o) => ctx.idx.orders.has(o));
+    const toCheck = [...known];
+    for (const ids0 of ctx.seqByRes.values()) {
+      const ids = ids0.filter((o) => ctx.active.has(o) || toCheck.includes(o));
+      ids.forEach((o, i) => { if (wanted.includes(o)) for (const n of ids.slice(Math.max(i - 1, 0), i + 2)) if (!toCheck.includes(n)) toCheck.push(n); });
+    }
+    const results = toCheck.map((oid) => checkOrder(oid, ctx));
+    pairCarryOver(results, ctx);
+    const keep = results.filter((r) => wanted.includes(r.summary.order_id));
+    keep.forEach((r) => (r.verdict = verdict(r.findings)));
+    return { results: keep, missing: wanted.filter((o) => !ctx.idx.orders.has(o)) };
   }
 
   const api = { RULES, readWorkbook, prepare, check, verdict, isCheese, fmt: { f, fs, dm, dmy } };
