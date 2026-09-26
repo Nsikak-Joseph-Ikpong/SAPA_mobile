@@ -164,16 +164,26 @@ The journal has no order ID, so postings are tied to orders:
 
 * **Output:** a pallet of product X goes to the latest order for X that had started when it was posted
   (actual start = the order's *Production Start Date Time*).
-* **Cheese:** cheese in the order's recipe, moved to the order's line during its run (2 h before the
-  first posting until 1 h after the last regular output), belongs to that order. If the same batch moves
+* **Cheese moved to the line (reference only):** cheese in the order's recipe moved to the order's line
+  during its run (2 h before the first posting until 1 h after the last regular output) is listed with it. If the same batch moves
   away again within 24 h, that's a return. On the shared GRATINGLINES area, a job that is already running
   keeps the cheese over the next job on the same line. Between L4 and L5, the job whose next output comes
   soonest gets it.
 
 Line to logistics area: SLICING_L1/2/3 → SL_1/2/3, GRATING_L4/L5 → GRATINGLINES.
 
-Checks: output in the journal vs fulfilled on the order; packaging and starch booked vs recipe for the
-output; cheese used (moved in − moved back) vs recipe × cases; blend split; output posted in bulk or
-hours late; pallets confirmed more than once or larger than usual; reversals; this job's cheese still
-on the line in the stock overview; cheese left by one job and used by the next (`CHEESE_CARRIED_OVER`).
-The Excel report lists the output postings and cheese movements each conclusion is based on.
+**The order sheet is the first point of truth.** For the output and every input it says what was
+planned, what was fulfilled (made / issued) and what is still open. Every input is judged against what
+the cases actually made need (planned × made ÷ planned output):
+
+* cheese issued to the order vs needed: none issued (`CHEESE_NOT_ISSUED`), over or under issued, and the
+  split between the block cheeses vs the recipe (offcut bins MB…OFF are left out of the split);
+* packaging, labels and starch issued short or over for the output;
+* output made vs planned, still open, or closed short with nothing left open.
+
+The confirmation journal backs this up: output in the journal vs fulfilled on the order, output posted in
+bulk or hours late, pallets confirmed more than once or larger than usual, reversals. Cheese moved to the
+line around the run is listed for reference only: moving cheese to the line makes it available, the
+operator issues it to the order explicitly (from wherever it is stored), so a move is never counted as
+use.
+The Excel report lists the order's inputs, the output postings and the cheese moved to the line.

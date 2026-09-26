@@ -18,19 +18,20 @@ def write_workbook(path):
                  "Output Material ID", "Output Material ID (Text)", "Planned Quantity", "Open Quantity",
                  "Fulfilled Quantity", "Counter", "Open Quantity", "Fulfilled Quantity"]
     comp = [
-        # Job A: 1,000 cases planned (5kg, 1.5% starch -> 4.925 kg cheese/case), 400 booked on the order
-        ["A1", "Started", ts("01:00"), None, ts("01:00"), "FGBLEND", "GRATING_L4", "BOBOX", "FGBLEND", "", 1000, 0, 400, 1, 0, 400],
-        [None] * 7 + ["RMCHED", "FGBLEND", "", 1477.5, 0, 0, 1, 0, 400],
-        [None] * 7 + ["RMMOZZ", "FGBLEND", "", 3447.5, 0, 0, 1, 0, 400],
-        # Job B next on the same line: 400 cases of mozzarella
-        ["B2", "Finished", ts("06:00"), None, ts("06:00"), "FGMOZZ", "GRATING_L4", "BOBOX", "FGMOZZ", "", 400, 0, 400, 1, 0, 400],
-        [None] * 7 + ["RMMOZZ", "FGMOZZ", "", 1970, 0, 0, 1, 0, 400],
+        # Job A: 1,000 cases planned (5kg, 1.5% starch -> 4.925 kg cheese/case), 400 made so far.
+        # Boxes issued short, all the cheese issued as mozzarella (recipe 30/70 cheddar/mozzarella)
+        ["A1", "Started", ts("01:00"), None, ts("01:00"), "FGBLEND", "GRATING_L4", "BOBOX", "FGBLEND", "", 1000, 620, 380, 1, 600, 400],
+        [None] * 7 + ["RMCHED", "FGBLEND", "", 1477.5, 1477.5, 0, 1, 600, 400],
+        [None] * 7 + ["RMMOZZ", "FGBLEND", "", 3447.5, 1477.5, 1970, 1, 600, 400],
+        # Job B next on the same line: 350 cases planned, 400 made, no cheese issued
+        ["B2", "Finished", ts("06:00"), None, ts("06:00"), "FGMOZZ", "GRATING_L4", "BOBOX", "FGMOZZ", "", 350, 0, 400, 1, 0, 400],
+        [None] * 7 + ["RMMOZZ", "FGMOZZ", "", 1723.75, 1723.75, 0, 1, 0, 400],
     ]
     out_head = ["Production Order", "Production Order (Output Product)", "Production Order (Output Product Text)",
                 "Product", "Product (Text)", "Production Order Creation Date", "Production Order Latest End Date Time",
                 "Production Start Date Time", "Planned Quantity", "Open Quantity", "Fulfilled Quantity"]
     outs = [["A1", "FGBLEND", "Blend 5x1kg", "FGBLEND", "Blend", None, ts("07:00"), ts("00:50"), 1000, 0, 400],
-            ["B2", "FGMOZZ", "Mozz 5x1kg", "FGMOZZ", "Mozz", None, ts("09:00"), ts("05:40"), 400, 0, 400]]
+            ["B2", "FGMOZZ", "Mozz 5x1kg", "FGMOZZ", "Mozz", None, ts("09:00"), ts("05:40"), 350, 0, 400]]
     j_head = ["Site", "Product", "Identified Stock (Identified Stock ID)", "Logistics Area (Logistics Area ID)",
               "Created On", "Conf.Document Type", "Conf.ID", "Restricted", "Effective Qty"]
     J = []
@@ -85,18 +86,27 @@ def test_output_matched_by_product_and_time(result):
     assert "OUTPUT_NOT_ON_ORDER" in c and "+600" in c["OUTPUT_NOT_ON_ORDER"].message
     assert "220" in c["OUTPUT_POSTED_IN_BULK_OR_LATE"].message
     assert "P1: 200 cases" in c["PALLET_CONFIRMED_MORE_THAN_ONCE"].message
-    assert "BOBOX 400.00 booked vs 1,000.00 needed" in c["INPUTS_SHORT_FOR_OUTPUT"].message
 
 
-def test_cheese_from_movements_balances_against_journal_output(result):
+def test_inputs_judged_on_order_quantities(result):
+    c = codes(result, "A1")
+    assert "BOBOX 380.00 issued vs 400.00 needed" in c["INPUTS_SHORT_FOR_OUTPUT"].message
+    assert c["INPUTS_SHORT_FOR_OUTPUT"].severity == "MEDIUM"
+    assert "600 of 1,000 planned cases still open" in c["OUTPUT_STILL_OPEN"].message
+
+
+def test_cheese_issued_on_order_is_the_truth(result):
     a = next(s for s in result.summaries if s["order_id"] == "A1")
-    assert a["cheese_sent_kg"] == pytest.approx(5000) and a["cheese_returned_kg"] == pytest.approx(75)
-    assert a["cheese_expected_journal_kg"] == pytest.approx(4925)
-    assert "CHEESE_BALANCES" in codes(result, "A1")
+    assert a["cheese_issued_kg"] == pytest.approx(1970) and a["cheese_needed_kg"] == pytest.approx(1970)
+    c = codes(result, "A1")
+    assert "CHEESE_BALANCES" in c
+    assert "RMCHED 0% vs 30% planned" in c["BLEND_SPLIT_OFF"].message
+    # cheese moved to the line is shown but never judged
+    assert a["cheese_sent_kg"] == pytest.approx(5000)
+    assert not any(k.startswith(("CHEESE_CARRIED", "CHEESE_STILL", "NO_CHEESE")) for k in c)
 
 
-def test_next_job_on_same_line_keeps_its_own_cheese(result):
-    b = next(s for s in result.summaries if s["order_id"] == "B2")
-    assert b["cheese_sent_kg"] == pytest.approx(2000)       # not given to the job that ran before it
+def test_no_cheese_issued_and_over_plan(result):
     c = codes(result, "B2")
-    assert "CHEESE_BALANCES" in c and "M2 40.0 kg" in c["CHEESE_STILL_ON_LINE"].message
+    assert c["CHEESE_NOT_ISSUED"].severity == "HIGH" and "1,970.0 kg" in c["CHEESE_NOT_ISSUED"].message
+    assert c["OUTPUT_OVER_PLAN"].severity == "MEDIUM" and "+50" in c["OUTPUT_OVER_PLAN"].message
