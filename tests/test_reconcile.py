@@ -113,3 +113,58 @@ def test_no_cheese_on_order_sheet_falls_back_to_journal_estimate(result):
     assert "CHEESE_NOT_ON_ORDER_SHEET" in c and "CHEESE_BALANCES_EST" in c
     assert "400 cases in the journal need 1,970.0 kg" in c["CHEESE_BALANCES_EST"].message
     assert c["OUTPUT_OVER_PLAN"].severity == "MEDIUM" and "+50" in c["OUTPUT_OVER_PLAN"].message
+
+
+def write_full_journal(path):
+    """A separate journal export with both sides (as ByDesign's Confirmation Journal export): header on
+    row 7 after a title block, a blank first column, moves out as negatives, cheese consumed as its own
+    production confirmation."""
+    head = [None, "Site", "Product", "Identified Stock ID", "Logistics Area ID", "Created On",
+            "Conf.Document Type", "Conf.ID", "Effective Qty"]
+    rows = [[None, "Confirmation Journal"] + [None] * 7, [None] * 9,
+            [None, "Sent at: ", "20.08.2026 06:40:37 GMTUK"] + [None] * 6, [None] * 9, [None] * 9, [None] * 9, head]
+    add = lambda m, b, area, t, doc, conf, q: rows.append([None, "EXTHQ1", m, b, area, ts(t), doc, conf, q])
+    # the same moves to the line as the workbook's journal, now with their "from" side
+    for i, (m, q) in enumerate([("RMCHED", 1000), ("RMCHED", 500), ("RMMOZZ", 1000), ("RMMOZZ", 1000),
+                                ("RMMOZZ", 1000), ("RMMOZZ", 500)]):
+        t = f"0{1 + i // 3}:{10 + i:02d}"
+        add(m, f"C{i}", "FLOOR5", t, GA, f"10{i}", -q)
+        add(m, f"C{i}", "GRATINGLINES", t, GA, f"10{i}", q)
+    # job A consumes 1,925 kg: 30/70 recipe but only 400 kg cheddar
+    add("RMCHED", "C0", "GRATINGLINES", "01:20", PC, "400", -400)
+    add("RMMOZZ", "C2", "GRATINGLINES", "01:21", PC, "401", -1000)
+    add("RMMOZZ", "C3", "GRATINGLINES", "02:20", PC, "402", -600)
+    add("RMMOZZ", "C3", "GRATINGLINES", "02:40", PC, "403", 75)          # reversal of part of C3
+    # job B: 1,000 kg consumed at 05:50, 20 min before B2's regular start is covered by its window;
+    # batch M1 is consumed twice (1,000 + 900) though the pallet held 1,000
+    add("RMMOZZ", "M1", "GRATINGLINES", "05:50", GA, "300", 1000)
+    add("RMMOZZ", "M1", "GRATINGLINES", "05:55", PC, "500", -1000)
+    add("RMMOZZ", "M1", "GRATINGLINES", "07:00", PC, "501", -900)
+    for i, t in enumerate(["06:30", "07:00", "07:40", "08:10"]):
+        add("FGMOZZ", f"R{i}", "FG_STAGING", t, PC, f"31{i}", 100)
+    pd.DataFrame(rows).to_excel(path, sheet_name="Export 20.08.2026", header=False, index=False)
+
+
+@pytest.fixture(scope="module")
+def full(tmp_path_factory):
+    d = tmp_path_factory.mktemp("full")
+    write_workbook(d / "SAP_Info.xlsx")
+    write_full_journal(d / "Confirmation_Journal.xlsx")
+    return run(read_workbook([str(d / "SAP_Info.xlsx"), str(d / "Confirmation_Journal.xlsx")]))
+
+
+def test_cheese_consumption_from_full_journal(full):
+    a = next(s for s in full.summaries if s["order_id"] == "A1")
+    assert a["cheese_source"] == "consumed" and a["cheese_consumed_kg"] == pytest.approx(1925)
+    c = codes(full, "A1")
+    # needed for the 1,000 cases in the journal is 4,925 kg
+    assert c["CHEESE_UNDER_USED"].severity == "HIGH" and "RMCHED 400.0 of 1,477.5 kg" in c["CHEESE_UNDER_USED"].message
+    assert "RMCHED 21% vs 30% planned" in c["BLEND_SPLIT_OFF"].message
+    # outputs from the workbook's journal are not double counted by the second export
+    assert a["journal_out"] == 1000
+
+
+def test_batch_consumed_twice(full):
+    b = next(s for s in full.summaries if s["order_id"] == "B2")
+    assert b["cheese_consumed_kg"] == pytest.approx(1900)
+    assert "RMMOZZ M1 consumed 1,900.00 kg" in codes(full, "B2")["BATCH_OVER_CONSUMED"].message

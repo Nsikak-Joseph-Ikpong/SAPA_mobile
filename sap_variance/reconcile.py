@@ -48,6 +48,7 @@ class Rules:
         "SLICING_L1": "SL_1", "SLICING_L2": "SL_2", "SLICING_L3": "SL_3",
         "GRATING_L4": "GRATINGLINES", "GRATING_L5": "GRATINGLINES",
     })
+    handoff_minutes: int = 30                        # cheese consumed this soon before the next job starts is for it
     skip_resources: tuple = ("FLOOR_WASTE", "LINE_RECOVERY")
     cheese_prefixes: tuple = ("RM",)
     not_cheese_prefixes: tuple = ("RMPS",)          # potato starch
@@ -81,7 +82,7 @@ SHEET_SIGNATURES = {
 
 
 def _find_header(raw: pd.DataFrame) -> tuple[str | None, int]:
-    for i in range(min(6, len(raw))):
+    for i in range(min(15, len(raw))):
         keys = {_key(v) for v in raw.iloc[i]}
         for kind, sig in SHEET_SIGNATURES.items():
             if sig <= keys:
@@ -131,9 +132,33 @@ class Workbook:
     sheets: dict
 
 
+def _journal(j: pd.DataFrame) -> pd.DataFrame:
+    journal = pd.DataFrame({
+        "site": j["site"], "material": j["product"].astype(str).str.strip(),
+        "batch": _id(j[[c for c in j.columns if c.startswith("identifiedstock")][0]]),
+        "area": j[[c for c in j.columns if c.startswith("logisticsarea")][0]].astype(str).str.strip(),
+        "time": _time(j["createdon"]), "doc": j["confdocumenttype"].astype(str),
+        "conf": _id(j["confid"]), "qty": _num(j["effectiveqty"]),
+    }).dropna(subset=["time", "qty"])
+    journal["is_prod"] = journal["doc"].str.contains("Production", case=False)
+    return journal
+
+
+def _merge_journals(journals: list) -> pd.DataFrame:
+    """Several exports of the journal can overlap (e.g. one with only receiving rows, one with
+    both sides). The fullest one is kept whole; the others only add postings it doesn't have."""
+    journals = sorted(journals, key=len, reverse=True)
+    base = journals[0]
+    key = lambda d: d["conf"].astype(str) + "|" + d["material"] + "|" + d["batch"].astype(str)
+    seen = set(key(base))
+    extra = [d[~key(d).isin(seen)] for d in journals[1:]]
+    return pd.concat([base, *extra], ignore_index=True) if extra else base
+
+
 def read_workbook(paths: list[str]) -> Workbook:
     found: dict[str, pd.DataFrame] = {}
-    names: dict[str, str] = {}
+    names: dict = {}
+    journals: list[pd.DataFrame] = []
     for p in paths:
         path = Path(p)
         if path.suffix.lower() in (".csv", ".txt"):
@@ -142,10 +167,17 @@ def read_workbook(paths: list[str]) -> Workbook:
             sheets = pd.read_excel(path, sheet_name=None, header=None, dtype=object)
         for name, raw in sheets.items():
             kind, row = _find_header(raw)
-            if kind:
+            if kind == "journal":
+                journals.append(_journal(_frame(raw, row)))
+                names.setdefault("journal", [])
+                names["journal"].append(f"{path.name} [{name}]")
+            elif kind:
                 df = _frame(raw, row)
                 found[kind] = pd.concat([found[kind], df], ignore_index=True) if kind in found else df
                 names[kind] = f"{path.name} [{name}]"
+    if journals:
+        found["journal"] = _merge_journals(journals)
+        names["journal"] = ", ".join(names["journal"])
     missing = [k for k in ("journal", "components") if k not in found]
     if missing:
         raise ValueError("Could not find these sheets (by their column headers): " + ", ".join(missing))
@@ -194,16 +226,7 @@ def read_workbook(paths: list[str]) -> Workbook:
     orders["fulfilled_out"] = orders["fulfilled_out"].fillna(orders["out_fulfilled"])
     orders["start"] = orders["start_actual"].fillna(orders["requested_start"])
 
-    # --- journal ---
-    j = found["journal"]
-    journal = pd.DataFrame({
-        "site": j["site"], "material": j["product"].astype(str).str.strip(),
-        "batch": _id(j[[c for c in j.columns if c.startswith("identifiedstock")][0]]),
-        "area": j[[c for c in j.columns if c.startswith("logisticsarea")][0]].astype(str).str.strip(),
-        "time": _time(j["createdon"]), "doc": j["confdocumenttype"].astype(str),
-        "conf": _id(j["confid"]), "qty": _num(j["effectiveqty"]),
-    }).dropna(subset=["time", "qty"])
-    journal["is_prod"] = journal["doc"].str.contains("Production", case=False)
+    journal = found["journal"]
 
     # --- stock overview ---
     stock = pd.DataFrame(columns=["area", "material", "batch", "qty"])
@@ -255,7 +278,13 @@ def assign_outputs(wb: Workbook, rules: Rules) -> pd.DataFrame:
                 break
         assigned.append(best[0] if best and t - best[1] <= max_age else None)
     out["order_id"] = assigned
-    return out
+    # A negative row is a reversal only for a pallet that was posted as output; otherwise it's
+    # finished goods used as an input (rework) and not this product's output
+    pos = out[out["qty"] > 0]
+    made = set(zip(pos["order_id"], pos["material"], pos["batch"]))
+    keep = (out["qty"] > 0) | pd.Series([k in made for k in zip(out["order_id"], out["material"], out["batch"])],
+                                        index=out.index)
+    return out[keep]
 
 
 def order_windows(orders: pd.DataFrame, outputs: pd.DataFrame, rules: Rules) -> pd.DataFrame:
@@ -274,13 +303,35 @@ def order_windows(orders: pd.DataFrame, outputs: pd.DataFrame, rules: Rules) -> 
     return w.reset_index(), per_conf
 
 
-def assign_cheese(wb: Workbook, windows: pd.DataFrame, outputs: pd.DataFrame, rules: Rules) -> pd.DataFrame:
-    """Cheese moved to a line during an order's run; returns found by batch afterwards."""
+def _pick_owner(r, wins, recipe_by_order, next_out, starts, resources):
+    """The order a cheese posting on a line belongs to: an order on that line's area whose run covers
+    the posting and whose recipe has the cheese. A job already running owns it over the next job on
+    the same line; between jobs running side by side (L4 and L5 share GRATINGLINES), the next regular
+    output decides."""
+    cands = wins[(wins["area"] == r.area) & (wins["begin"] <= r.time) & (wins["end"] >= r.time)]
+    cands = [c for c in cands["order_id"] if r.material in recipe_by_order.get(c, set())]
+    if not cands:
+        return None
+
+    def soonest(oid):
+        later = [t for t in next_out.get(oid, []) if t >= r.time]
+        return later[0] if later else pd.Timestamp.max
+    running = [c for c in cands if not pd.isna(starts.get(c)) and starts[c] <= r.time]
+    if running:
+        latest = {}
+        for c in running:
+            res = resources.get(c)
+            if res not in latest or starts[c] > starts[latest[res]]:
+                latest[res] = c
+        owner = min(latest.values(), key=soonest)
+    else:
+        owner = min(cands, key=lambda c: starts.get(c) if not pd.isna(starts.get(c)) else pd.Timestamp.max)
+    return owner, cands
+
+
+def _line_context(wb: Workbook, windows: pd.DataFrame, outputs: pd.DataFrame, rules: Rules):
     recipe = wb.components[wb.components["material"].map(lambda m: is_cheese(m, rules))]
     recipe_by_order = recipe.groupby("order_id")["material"].apply(set).to_dict()
-    moves = wb.journal[(~wb.journal["is_prod"]) & (wb.journal["qty"] > 0)]
-    arrivals = moves[moves["material"].map(lambda m: is_cheese(m, rules))
-                     & moves["area"].isin(set(rules.line_areas.values()))]
     per_conf = (outputs[outputs["qty"] > 0].groupby(["order_id", "conf"])
                 .agg(time=("time", "min"), pallets=("batch", "nunique")).reset_index())
     regular = per_conf[per_conf["pallets"] < rules.bulk_pallets]
@@ -288,27 +339,77 @@ def assign_cheese(wb: Workbook, windows: pd.DataFrame, outputs: pd.DataFrame, ru
     wins = windows.dropna(subset=["area", "begin", "end"])
     starts = dict(zip(windows["order_id"], windows["start"]))
     resources = dict(zip(windows["order_id"], windows["resource"]))
+    return wins, recipe_by_order, next_out, starts, resources
+
+
+def consumption_rows(journal: pd.DataFrame, rules: Rules) -> pd.DataFrame:
+    """Cheese consumed on production confirmations: negative cheese rows (positive block-cheese rows
+    are reversals). Positive offcut-bin rows are offcuts produced, not consumption."""
+    ch = journal["is_prod"] & journal["material"].map(lambda m: is_cheese(m, rules)) & (journal["qty"] != 0)
+    offcut_made = journal["material"].str.upper().str.match(rules.offcut_pattern) & (journal["qty"] > 0)
+    return journal[ch & ~offcut_made]
+
+
+def assign_consumption(wb: Workbook, windows: pd.DataFrame, outputs: pd.DataFrame, rules: Rules) -> pd.DataFrame:
+    """Cheese consumption postings on a line, each tied to the order most likely to own it."""
+    wins, recipe_by_order, next_out, starts, resources = _line_context(wb, windows, outputs, rules)
+    cons = consumption_rows(wb.journal, rules)
+    cons = cons[cons["area"].isin(set(rules.line_areas.values()))].sort_values("time", kind="stable")
+    last_out = dict(zip(windows["order_id"], windows["last_regular"]))
+    last_user: dict = {}
+    rows = []
+    for r in cons.itertuples():
+        key = (r.material, r.batch)
+        if r.qty > 0 and key in last_user:
+            # a reversal goes back to the job that consumed the batch
+            owner, cands = last_user[key], [last_user[key]]
+        else:
+            picked = _pick_owner(r, wins, recipe_by_order, next_out, starts, resources)
+            owner, cands = picked if picked else (None, [])
+            if owner is not None:
+                # posted after the owner's last output and just before the next job on that line starts:
+                # it's for the next job
+                lo = last_out.get(owner)
+                nxt = [c for c in cands if resources.get(c) == resources.get(owner) and not pd.isna(starts.get(c))
+                       and r.time < starts[c] <= r.time + pd.Timedelta(minutes=rules.handoff_minutes)]
+                if not pd.isna(lo) and r.time > lo and nxt:
+                    owner = min(nxt, key=lambda c: starts[c])
+            if r.qty < 0 and owner is not None:
+                last_user[key] = owner
+        rows.append({"order_id": owner, "material": r.material, "batch": r.batch, "area": r.area,
+                     "time": r.time, "conf": r.conf, "consumed": -r.qty, "candidates": len(cands),
+                     "other_orders": ", ".join(c for c in cands if c != owner)})
+    return pd.DataFrame(rows, columns=["order_id", "material", "batch", "area", "time", "conf", "consumed",
+                                       "candidates", "other_orders"])
+
+
+def over_consumed_batches(journal: pd.DataFrame, rules: Rules) -> dict:
+    """Batches consumed for more than the biggest quantity ever posted for them (a pallet weight)."""
+    cons = consumption_rows(journal, rules)
+    if cons.empty:
+        return {}
+    used = (-cons.groupby(["material", "batch"])["qty"].sum())
+    size = journal[journal["qty"] > 0].groupby(["material", "batch"])["qty"].max()
+    out = {}
+    for (m, b), u in used.items():
+        sz = size.get((m, b))
+        if sz and u > sz + max(1.0, 0.01 * sz):
+            out[(m, b)] = (u, sz)
+    return out
+
+
+def assign_cheese(wb: Workbook, windows: pd.DataFrame, outputs: pd.DataFrame, rules: Rules) -> pd.DataFrame:
+    """Cheese moved to a line during an order's run; returns found by batch afterwards."""
+    wins, recipe_by_order, next_out, starts, resources = _line_context(wb, windows, outputs, rules)
+    moves = wb.journal[(~wb.journal["is_prod"]) & (wb.journal["qty"] > 0)]
+    arrivals = moves[moves["material"].map(lambda m: is_cheese(m, rules))
+                     & moves["area"].isin(set(rules.line_areas.values()))]
     rows = []
     for r in arrivals.itertuples():
-        cands = wins[(wins["area"] == r.area) & (wins["begin"] <= r.time) & (wins["end"] >= r.time)]
-        cands = [c for c in cands["order_id"] if r.material in recipe_by_order.get(c, set())]
-        if not cands:
+        picked = _pick_owner(r, wins, recipe_by_order, next_out, starts, resources)
+        if not picked:
             continue
-        def soonest(oid):
-            later = [t for t in next_out.get(oid, []) if t >= r.time]
-            return later[0] if later else pd.Timestamp.max
-        # A job already running owns the cheese over the next job on the same line;
-        # between jobs running side by side (L4 and L5 share GRATINGLINES), the next regular output decides.
-        running = [c for c in cands if not pd.isna(starts.get(c)) and starts[c] <= r.time]
-        if running:
-            latest = {}
-            for c in running:
-                res = resources.get(c)
-                if res not in latest or starts[c] > starts[latest[res]]:
-                    latest[res] = c
-            owner = min(latest.values(), key=soonest)
-        else:
-            owner = min(cands, key=lambda c: starts.get(c) if not pd.isna(starts.get(c)) else pd.Timestamp.max)
+        owner, cands = picked
         rows.append({"order_id": owner, "material": r.material, "batch": r.batch, "area": r.area,
                      "time": r.time, "conf": r.conf, "sent": r.qty, "candidates": len(cands),
                      "other_orders": ", ".join(c for c in cands if c != owner)})
@@ -343,13 +444,16 @@ def assign_cheese(wb: Workbook, windows: pd.DataFrame, outputs: pd.DataFrame, ru
 # ---------------------------------------------------------------- checks
 
 def check_order(oid: str, wb: Workbook, windows: pd.DataFrame, outputs: pd.DataFrame, per_conf: pd.DataFrame,
-                sends: pd.DataFrame, typical_pallet: dict, rules: Rules) -> tuple[dict, list[Finding]]:
+                sends: pd.DataFrame, typical_pallet: dict, rules: Rules, consumption: pd.DataFrame | None = None,
+                over_batches: dict | None = None) -> tuple[dict, list[Finding]]:
     o = wb.orders[wb.orders["order_id"] == oid].iloc[0]
     comps = wb.components[wb.components["order_id"] == oid]
     w = windows[windows["order_id"] == oid].iloc[0]
     out = outputs[outputs["order_id"] == oid]
     confs = per_conf[per_conf["order_id"] == oid].sort_values("time")
     cheese = sends[sends["order_id"] == oid]
+    has_cons = consumption is not None
+    cons = consumption[consumption["order_id"] == oid] if has_cons else pd.DataFrame(columns=["material", "consumed"])
     findings: list[Finding] = []
     cheese_diff = cheese_tol = None
 
@@ -458,7 +562,7 @@ def check_order(oid: str, wb: Workbook, windows: pd.DataFrame, outputs: pd.DataF
     cheese_open = float(cheese_comps["open"].fillna(0).sum()) if not cheese_comps.empty else 0.0
     needed = per_case * order_out if per_case else None
     cheese_source = None
-    if needed and order_out > 0:
+    if needed and order_out > 0 and not has_cons:
         lines = "; ".join(f"{c.material} {0 if pd.isna(c.fulfilled) else c.fulfilled:,.2f} of {c.planned * scale:,.2f} kg"
                           for c in cheese_comps.itertuples())
         if issued == 0:
@@ -538,6 +642,59 @@ def check_order(oid: str, wb: Workbook, windows: pd.DataFrame, outputs: pd.DataF
                      f"order(s) {', '.join(others)}, on {area} around the same time; they were given to this order "
                      f"because it was already running or its next output followed soonest.")
 
+    # ---- cheese consumed, from the journal's production confirmations ----
+    consumed = float(cons["consumed"].sum()) if not cons.empty else 0.0
+    by_mat = cons.groupby("material")["consumed"].sum() if not cons.empty else pd.Series(dtype=float)
+    if has_cons and per_case and (journal_out or order_out):
+        cheese_source = "consumed"
+        est_out = journal_out or order_out
+        est_needed = per_case * est_out
+        share = cheese_comps.groupby("material")["planned"].sum() / cheese_comps["planned"].sum()
+        mats = "; ".join(f"{m} {by_mat.get(m, 0.0):,.1f} of {sh * est_needed:,.1f} kg" for m, sh in share.items())
+        others = [m for m in by_mat.index if m not in share.index]
+        sheet = f" The order sheet shows {issued:,.1f} kg issued." if issued else " None of it shows on the order sheet."
+        other_out = (f" (the order shows {order_out:,.0f} cases, which need {per_case * order_out:,.1f} kg)"
+                     if journal_out and order_out != journal_out else "")
+        if cons.empty:
+            moved = f" {sent:,.1f} kg was moved to {area} during the run." if sent else ""
+            flag("HIGH", "CHEESE_NOT_CONSUMED",
+                 f"No cheese consumption in the journal for this run: the {est_out:,.0f} cases need "
+                 f"{est_needed:,.1f} kg ({per_case:.3f} kg/case){other_out}.{moved}{sheet}")
+        else:
+            tol = max(rules.tolerance_pct * est_needed, rules.tolerance_kg)
+            cheese_diff, cheese_tol = consumed - est_needed, tol
+            msg = (f"Cheese consumed {consumed:,.1f} kg, the {est_out:,.0f} cases {'in the journal ' if journal_out else ''}"
+                   f"need {est_needed:,.1f} kg ({per_case:.3f} kg/case){other_out}: {mats}"
+                   + (f"; also {', '.join(f'{m} {by_mat[m]:,.1f} kg' for m in others)}" if others else "") + "."
+                   + sheet)
+            if abs(cheese_diff) <= tol:
+                flag("INFO", "CHEESE_BALANCES", msg + f" Difference {cheese_diff:+,.1f} kg is within tolerance.")
+            else:
+                sev = "HIGH" if abs(cheese_diff) > max(3 * tol, 500) else "MEDIUM"
+                flag(sev, "CHEESE_OVER_USED" if cheese_diff > 0 else "CHEESE_UNDER_USED",
+                     msg + f" Difference {cheese_diff:+,.1f} kg ({cheese_diff / est_needed:+.1%}).")
+            blocks = share[[not m.upper().startswith("MB") for m in share.index]]
+            got = by_mat.reindex(blocks.index).fillna(0)
+            if len(blocks) > 1 and got.sum() > 0:
+                blocks, got = blocks / blocks.sum(), got / got.sum()
+                off = [(m, got[m], sh) for m, sh in blocks.items() if abs(got[m] - sh) > rules.blend_tolerance]
+                if off:
+                    flag("MEDIUM", "BLEND_SPLIT_OFF", "Cheese consumed in a different split from the recipe: " + "; ".join(
+                        f"{m} {a:.0%} vs {sh:.0%} planned" for m, a, sh in off) + ".")
+            shared = cons[cons["candidates"] > 1]
+            if not shared.empty:
+                oth = sorted(set(", ".join(shared["other_orders"]).split(", ")) - {""})
+                flag("INFO", "CHEESE_SHARED_LINE",
+                     f"{len(shared)} consumption posting(s) ({shared['consumed'].sum():,.1f} kg) on {area} could also "
+                     f"belong to order(s) {', '.join(oth)}, on {area} around the same time; they were given to this "
+                     f"order because it was already running or its next output followed soonest.")
+        over = [(m, b, *over_batches[(m, b)]) for m, b in cons[["material", "batch"]].drop_duplicates().itertuples(index=False)
+                if over_batches and (m, b) in over_batches]
+        if over:
+            flag("MEDIUM", "BATCH_OVER_CONSUMED", "Batch consumed for more than it held: " + "; ".join(
+                f"{m} {b} consumed {u:,.2f} kg in total (this job {cons[(cons['material'] == m) & (cons['batch'] == b)]['consumed'].sum():,.2f}), "
+                f"largest quantity posted for it {sz:,.2f} kg" for m, b, u, sz in over) + ".")
+
     offcuts = wb.byproducts[wb.byproducts["order_id"] == oid]
     summary = {
         "order_id": oid, "status": o["status"], "fg": fg, "fg_text": o.get("fg_text"), "line": o["resource"],
@@ -546,7 +703,8 @@ def check_order(oid: str, wb: Workbook, windows: pd.DataFrame, outputs: pd.DataF
         "output_confirmations": len(confs), "cheese_kg_per_case": per_case,
         "cheese_source": cheese_source, "cheese_issued_kg": issued, "cheese_needed_kg": needed,
         "cheese_open_kg": cheese_open, "cheese_sent_kg": sent, "cheese_returned_kg": back, "cheese_used_kg": used,
-        "cheese_est_needed_kg": est_needed, "cheese_est_output": est_out,
+        "cheese_est_needed_kg": est_needed, "cheese_est_output": est_out, "cheese_consumed_kg": consumed,
+        "cheese_consumed_by_material": {k: float(v) for k, v in by_mat.items()},
         "offcuts_kg": float(offcuts["fulfilled"].sum()) if not offcuts.empty else 0.0,
         "cheese_diff_kg": cheese_diff, "cheese_tolerance_kg": cheese_tol,
         "components": comp_rows,
@@ -563,6 +721,7 @@ class Result:
     sends: pd.DataFrame
     unassigned: pd.DataFrame
     sheets: dict
+    consumption: pd.DataFrame | None = None
 
 
 def run(wb: Workbook, order_ids: list[str] | None = None, rules: Rules | None = None) -> Result:
@@ -571,6 +730,11 @@ def run(wb: Workbook, order_ids: list[str] | None = None, rules: Rules | None = 
     outputs = assign_outputs(wb, rules)
     windows, per_conf = order_windows(orders, outputs, rules)
     sends = assign_cheese(wb, windows, outputs, rules)
+    # Journals exported with both sides carry cheese consumption; receiving-only exports don't
+    raw_cons = consumption_rows(wb.journal, rules)
+    has_cons = bool(((raw_cons["qty"] < 0) & ~raw_cons["material"].str.upper().str.match(rules.offcut_pattern)).any())
+    consumption = assign_consumption(wb, windows, outputs, rules) if has_cons else None
+    over_batches = over_consumed_batches(wb.journal, rules) if has_cons else {}
     pos = outputs[outputs["qty"] > 0]
     typical = {}
     for fg, g in pos.groupby("material"):
@@ -595,14 +759,14 @@ def run(wb: Workbook, order_ids: list[str] | None = None, rules: Rules | None = 
         if oid not in known:
             findings.append(Finding(oid, "INFO", "ORDER_NOT_FOUND", "Order not found in the order sheets."))
     for oid in to_check:
-        s, f = check_order(oid, wb, windows, outputs, per_conf, sends, typical, rules)
+        s, f = check_order(oid, wb, windows, outputs, per_conf, sends, typical, rules, consumption, over_batches)
         summaries.append(s)
         findings.extend(f)
     findings = pair_carry_over(summaries, findings, orders, rules)
     summaries = [s for s in summaries if s["order_id"] in set(wanted)]
     findings = [f for f in findings if f.order_id in set(wanted)]
     unassigned = outputs[outputs["order_id"].isna()]
-    return Result(summaries, findings, outputs, sends, unassigned, wb.sheets)
+    return Result(summaries, findings, outputs, sends, unassigned, wb.sheets, consumption)
 
 
 def verdict(findings: list) -> str:
@@ -696,14 +860,17 @@ def print_result(res: Result, show_info: bool = True) -> None:
 def write_excel(res: Result, path: str) -> str:
     flags = pd.DataFrame([{"Order": f.order_id, "Severity": f.severity, "Check": f.code, "Finding": f.message,
                            "Reason code": "", "Resolved by": "", "Notes": ""} for f in res.findings])
-    orders = pd.DataFrame([{k: v for k, v in s.items() if k != "components"} for s in res.summaries])
+    orders = pd.DataFrame([{k: (", ".join(f"{m} {q:,.1f}" for m, q in v.items()) if isinstance(v, dict) else v)
+                            for k, v in s.items() if k != "components"} for s in res.summaries])
     comps = pd.DataFrame([{"order_id": s["order_id"], **c} for s in res.summaries for c in s["components"]])
     ids = {s["order_id"] for s in res.summaries}
     outs = res.outputs[res.outputs["order_id"].isin(ids)].sort_values(["order_id", "time"])
     sends = res.sends[res.sends["order_id"].isin(ids)].sort_values(["order_id", "time"])
+    cons = (res.consumption[res.consumption["order_id"].isin(ids)].sort_values(["order_id", "time"])
+            if res.consumption is not None else pd.DataFrame())
     with pd.ExcelWriter(path, engine="openpyxl") as xw:
         for name, df in (("Flags", flags), ("Orders", orders), ("Inputs vs recipe", comps),
-                         ("Output postings", outs), ("Cheese to line", sends),
+                         ("Output postings", outs), ("Cheese consumed", cons), ("Cheese to line", sends),
                          ("Unmatched output", res.unassigned)):
             df.to_excel(xw, sheet_name=name, index=False)
             ws = xw.sheets[name]

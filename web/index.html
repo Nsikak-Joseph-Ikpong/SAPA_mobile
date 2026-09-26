@@ -72,6 +72,7 @@
   .vt .mono { font-weight: 600; }
   .vs { font-size: 13px; color: var(--ink); opacity: 0.85; overflow-wrap: anywhere; }
   .body { padding: 16px 18px; display: grid; gap: 16px; }
+  .body > * { min-width: 0; }
 
   .figs { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px 18px; }
   .fig { display: grid; gap: 2px; }
@@ -107,7 +108,7 @@
 <div class="wrap">
   <div>
     <h1>Cheese Variance Check</h1>
-    <p class="sub">Type a production order. Inputs and output are checked against the order's planned, issued and open quantities. Where the order sheet shows no cheese issued, cheese is estimated from the confirmation journal (cheese moved to the line during the run). The journal also backs up the output: pallets, late or bulk postings.</p>
+    <p class="sub">Type a production order. Output and packaging are checked against the order's planned, issued and open quantities. Cheese is checked against what the confirmation journal shows consumed on the line during the run (or, if the journal has no consumption lines, what was moved to the line). The journal also backs up the output: pallets, late or bulk postings.</p>
   </div>
 
   <div class="top">
@@ -116,10 +117,11 @@
       <div class="source" id="source"><span class="loading">Loading…</span></div>
       <div class="drop" id="drop" tabindex="0" role="button">
         <strong>Load SAP workbook</strong>
-        <span>Drop or choose the .xlsx with the order, journal and stock sheets. It stays in this browser and is remembered for next time.</span>
+        <span>Drop or choose the SAP workbook (.xlsx). A separate confirmation journal export can go with it: drop both together, or add it afterwards. Files stay in this browser and are remembered for next time.</span>
       </div>
-      <input type="file" id="file" accept=".xlsx,.xlsm,.xls" hidden>
-      <div class="row"><button class="link" id="forget" type="button" hidden>Forget saved workbook</button></div>
+      <input type="file" id="file" accept=".xlsx,.xlsm,.xls" multiple hidden>
+      <input type="file" id="addfile" accept=".xlsx,.xlsm,.xls" multiple hidden>
+      <div class="row"><button class="link" id="add" type="button" hidden>Add another file</button> <button class="link" id="forget" type="button" hidden>Forget saved files</button></div>
     </section>
 
     <section class="panel" aria-labelledby="ord-h">
@@ -171,14 +173,18 @@
     CHEESE_FROM_STORE: "Cheese issued straight from store",
     CHEESE_SHARED_LINE: "Cheese on a shared line",
     NO_CHEESE_SEEN: "No cheese for this job anywhere",
-    CHEESE_BALANCES: "Cheese issued matches the output",
+    CHEESE_BALANCES: "Cheese matches the output",
+    CHEESE_OVER_USED: "More cheese consumed than the output needs",
+    CHEESE_UNDER_USED: "Less cheese consumed than the output needs",
+    CHEESE_NOT_CONSUMED: "No cheese consumed for this run",
+    BATCH_OVER_CONSUMED: "Batch consumed for more than it held",
     CHEESE_OVER_ISSUED: "More cheese issued than the output needs",
     CHEESE_UNDER_ISSUED: "Less cheese issued than the output needs",
-    BLEND_SPLIT_OFF: "Cheese issued in a different split from the recipe",
+    BLEND_SPLIT_OFF: "Cheese split differs from the recipe",
   };
   const VERDICT_TEXT = { PROBLEMS: "Problems found", CHECK: "Worth checking", OK: "Looks OK" };
 
-  const state = { ctx: null, source: null, demo: true };
+  const state = { ctx: null, source: null, demo: true, files: null };
 
   function toast(msg) { const t = $("toast"); t.textContent = msg; t.hidden = false; clearTimeout(toast.t); toast.t = setTimeout(() => (t.hidden = true), 2600); }
 
@@ -201,11 +207,12 @@
       } catch (e) { resolve(null); }
     });
   }
-  const saveFile = (name, buf) => idb("readwrite", (s) => s.put({ name, buf, saved: Date.now() }, "workbook"));
-  const loadFile = () => idb("readonly", (s) => s.get("workbook"));
-  const forgetFile = () => idb("readwrite", (s) => s.delete("workbook"));
+  const saveFiles = (files) => idb("readwrite", (s) => s.put({ files: files.map(({ name, buf }) => ({ name, buf })), saved: Date.now() }, "workbook"));
+  const loadSaved = () => idb("readonly", (s) => s.get("workbook"));
+  const forgetFiles = () => idb("readwrite", (s) => s.delete("workbook"));
 
   // ---------------------------------------------------------------- loading
+  const KIND_TEXT = { components: "order inputs", outputs: "order outputs", inputs: "input units", journal: "journal", stock: "stock" };
   function sheetsFromBuffer(name, buf) {
     const wb = XLSX.read(buf, { type: "array", dense: true });
     return wb.SheetNames.map((sn) => ({ file: name, sheet: sn, rows: XLSX.utils.sheet_to_json(wb.Sheets[sn], { header: 1, raw: true, defval: null, blankrows: true }) }));
@@ -221,10 +228,14 @@
   function renderSource() {
     const c = state.ctx, s = state.source;
     const range = c.journalRange ? `${dmy(c.journalRange[0]).slice(0, 10)} to ${dmy(c.journalRange[1]).slice(0, 10)}` : "no journal";
-    $("source").innerHTML = `<div class="what"><div class="name">${esc(s.name)}</div>
-      <div class="meta">${f(c.wb.journal.length)} journal rows (${esc(range)}) · ${f(c.orders.length)} orders${s.saved ? ` · saved ${esc(new Date(s.saved).toLocaleDateString("en-GB"))}` : ""}</div></div>
+    const names = s.files ? s.files.map((x) => `<div class="name">${esc(x.name)} <span class="meta">(${esc(x.kinds.map((k) => KIND_TEXT[k] || k).join(", "))})</span></div>`).join("") : `<div class="name">${esc(s.name)}</div>`;
+    const cheese = state.demo ? "" : c.hasCons ? " · cheese consumption found in the journal"
+      : " · no cheese consumption lines in the journal, so cheese is estimated from moves to the line";
+    $("source").innerHTML = `<div class="what">${names}
+      <div class="meta">${f(c.wb.journal.length)} journal rows (${esc(range)}) · ${f(c.orders.length)} orders${s.saved ? ` · saved ${esc(new Date(s.saved).toLocaleDateString("en-GB"))}` : ""}${esc(cheese)}</div></div>
       <span class="pill ${state.demo ? "" : "real"}">${state.demo ? "demo" : "your data"}</span>`;
     $("forget").hidden = state.demo;
+    $("add").hidden = state.demo;
     const ex = state.demo ? ["A1", "B2"] : pickExamples();
     $("examples").innerHTML = ex.length ? `Try: ${ex.map((o) => `<button type="button" data-o="${esc(o)}">${esc(o)}</button>`).join("")}` : "";
     $("examples").querySelectorAll("button").forEach((b) => (b.onclick = () => { $("oid").value = b.dataset.o; run(); }));
@@ -235,28 +246,68 @@
     return ["589", ...ids.slice(-3)].filter((o, i, a) => state.ctx.idx.orders.has(o) && a.indexOf(o) === i).slice(0, 4);
   }
 
-  async function loadBuffer(name, buf, saved) {
-    $("result").innerHTML = `<div class="empty loading">Reading ${esc(name)}…</div>`;
-    await new Promise((r) => setTimeout(r, 30));
+  const pause = () => new Promise((r) => setTimeout(r, 30));
+
+  // files: [{name, buf}] -> parsed and checked together
+  async function useFiles(files, saved) {
+    const parsed = [];
+    for (const x of files) {
+      if (!x.sheets) {
+        $("result").innerHTML = `<div class="empty loading">Reading ${esc(x.name)}…</div>`;
+        await pause();
+        x.sheets = sheetsFromBuffer(x.name, x.buf);
+        x.kinds = R.sheetKinds(x.sheets);
+      }
+      parsed.push(x);
+    }
+    $("result").innerHTML = `<div class="empty loading">Matching postings to orders…</div>`;
+    await pause();
+    const wasDemo = state.demo;
     try {
+      const sheets = parsed.flatMap((x) => x.sheets);
       state.demo = false;
-      useSheets(sheetsFromBuffer(name, buf), { name, saved });
-      return true;
+      useSheets(sheets, { files: parsed, saved });
+      state.files = parsed; state.pending = false;
+      return "ready";
     } catch (e) {
-      state.demo = true;
-      $("result").innerHTML = `<div class="empty">Couldn't use ${esc(name)}: ${esc(e.message)}. The workbook needs at least the confirmation journal and the production order (OUT+IN) sheets.</div>`;
-      return false;
+      state.demo = wasDemo;
+      const has = new Set(parsed.flatMap((x) => x.kinds));
+      const need = !has.has("components") ? "the SAP workbook with the Production Order (OUT+IN) sheet" : !has.has("journal") ? "a confirmation journal" : null;
+      $("result").innerHTML = need
+        ? `<div class="empty">Got ${esc(parsed.map((x) => x.name).join(", "))}. Now add ${esc(need)}.</div>`
+        : `<div class="empty">Couldn't use ${esc(parsed.map((x) => x.name).join(", "))}: ${esc(e.message)}.</div>`;
+      if (need) state.pending = true;
+      return need ? "pending" : false;
     }
   }
 
-  async function onFile(file) {
-    if (!file) return;
-    const buf = await file.arrayBuffer();
-    if (await loadBuffer(file.name, buf, Date.now())) {
-      const ok = await saveFile(file.name, buf);
-      toast(ok ? "Workbook loaded and saved in this browser." : "Workbook loaded (this browser can't save it for next time).");
-      $("result").innerHTML = `<div class="empty">Workbook ready. Type an order number above.</div>`;
-      $("oid").focus();
+  // add = keep the files already loaded, replacing any with the same name or the same kind of sheets
+  async function onFiles(list, add) {
+    const incoming = [];
+    for (const file of list) incoming.push({ name: file.name, buf: await file.arrayBuffer() });
+    if (!incoming.length) return;
+    let files = incoming;
+    // while waiting for the other file, anything dropped is added to what's there
+    if ((add || state.pending) && state.files) {
+      const fresh = [];
+      for (const x of incoming) {
+        $("result").innerHTML = `<div class="empty loading">Reading ${esc(x.name)}…</div>`;
+        await pause();
+        x.sheets = sheetsFromBuffer(x.name, x.buf); x.kinds = R.sheetKinds(x.sheets); fresh.push(x);
+      }
+      const same = (a, b) => a.name === b.name || a.kinds.join() === b.kinds.join();
+      files = [...state.files.filter((old) => !fresh.some((x) => same(old, x))), ...fresh];
+    }
+    const ok = await useFiles(files, Date.now());
+    if (ok) {
+      state.files = files;
+      const saved = await saveFiles(files);
+      $("add").hidden = false;
+      if (ok === "ready") {
+        toast(saved ? "Loaded and saved in this browser." : "Loaded (this browser can't save it for next time).");
+        $("result").innerHTML = `<div class="empty">Ready. Type an order number above.</div>`;
+        $("oid").focus();
+      }
     }
   }
 
@@ -285,7 +336,11 @@
 
     const outBad = Math.abs(s.journal_out - s.order_out) > Math.max(2, 0.02 * Math.max(s.journal_out, s.order_out));
     let cheeseLine = "";
-    if (s.cheese_kg_per_case && s.cheese_source === "journal") {
+    if (s.cheese_kg_per_case && s.cheese_source === "consumed") {
+      const bad = s.cheese_consumed_kg === 0 || (s.cheese_diff_kg !== null && Math.abs(s.cheese_diff_kg) > s.cheese_tolerance_kg);
+      cheeseLine = `<div class="fig"><dt>Cheese consumed</dt><dd class="${bad ? "bad" : "good"}">${kg(s.cheese_consumed_kg)}<small>${s.consumption.length} posting${s.consumption.length === 1 ? "" : "s"} in the journal</small></dd></div>
+         <div class="fig"><dt>Cheese needed</dt><dd>${kg(s.cheese_est_needed_kg)}<small>${s.cheese_kg_per_case.toFixed(3)} kg/case × ${n0(s.cheese_est_output)} cases</small></dd></div>`;
+    } else if (s.cheese_kg_per_case && s.cheese_source === "journal") {
       const bad = s.cheese_diff_kg !== null && Math.abs(s.cheese_diff_kg) > s.cheese_tolerance_kg;
       cheeseLine = `<div class="fig"><dt>Cheese used (journal estimate)</dt><dd class="${bad ? "bad" : s.cheese_sent_kg ? "good" : ""}">${kg(s.cheese_used_kg)}<small>moved to line ${kg(s.cheese_sent_kg)}, away ${kg(s.cheese_returned_kg)}</small></dd></div>
          <div class="fig"><dt>Cheese needed</dt><dd>${kg(s.cheese_est_needed_kg)}<small>${s.cheese_kg_per_case.toFixed(3)} kg/case × ${n0(s.cheese_est_output)} cases</small></dd></div>`;
@@ -308,18 +363,26 @@
     const outRows = s.outputs.map((o) => `<tr class="${o.qty < 0 ? "neg" : ""}"><td class="m">${esc(o.conf)}</td><td class="m">${esc(dm(o.time))}</td><td class="m">${esc(o.batch)}</td><td class="n">${f(o.qty)}</td><td>${esc(o.area)}</td></tr>`).join("");
     const cheeseRows = s.cheese_moves.map((c) => `<tr><td class="m">${esc(dm(c.time))}</td><td class="m">${esc(c.material)}</td><td class="m">${esc(c.batch)}</td><td class="n">${f(c.sent, 2)}</td><td class="n">${c.returned ? f(c.returned, 2) : ""}</td><td>${esc(c.returned_to || "")}</td><td>${esc(c.other_orders || "")}</td></tr>`).join("");
     const q = (v) => (v === null || v === undefined || isNaN(v) ? "" : f(v, 2));
+    const consumedCol = s.cheese_source === "consumed";
+    const byMat = s.cheese_consumed_by_material || {};
     const compRows = s.components.map((c) => {
       const need = c.needed_for_output;
-      const off = !(c.cheese && s.cheese_source === "journal") && need !== null && need > 0 && (c.fulfilled < need - Math.max(2, 0.03 * need) || c.fulfilled > need + Math.max(2, 0.1 * need));
-      return `<tr class="${off ? "neg" : ""}"><td class="m">${esc(c.material)}</td><td class="n">${q(c.planned)}</td><td class="n">${q(c.fulfilled)}</td><td class="n">${q(c.open)}</td><td class="n">${q(need)}</td><td class="n">${c.difference === null ? "" : fs(c.difference, 2)}</td><td>${c.cheese ? "cheese" : ""}</td></tr>`;
+      const judged = !(c.cheese && (s.cheese_source === "journal" || consumedCol));
+      const off = judged && need !== null && need > 0 && (c.fulfilled < need - Math.max(2, 0.03 * need) || c.fulfilled > need + Math.max(2, 0.1 * need));
+      const cons = consumedCol ? `<td class="n">${c.cheese ? f(byMat[c.material] || 0, 2) : ""}</td>` : "";
+      return `<tr class="${off ? "neg" : ""}"><td class="m">${esc(c.material)}</td><td class="n">${q(c.planned)}</td><td class="n">${q(c.fulfilled)}</td><td class="n">${q(c.open)}</td>${cons}<td class="n">${q(need)}</td><td class="n">${c.difference === null ? "" : fs(c.difference, 2)}</td><td>${c.cheese ? "cheese" : ""}</td></tr>`;
     }).join("");
+    const consRows = (s.consumption || []).map((c) => `<tr class="${c.consumed < 0 ? "neg" : ""}"><td class="m">${esc(dm(c.time))}</td><td class="m">${esc(c.conf)}</td><td class="m">${esc(c.material)}</td><td class="m">${esc(c.batch)}</td><td class="n">${f(c.consumed, 2)}</td><td>${esc(c.other_orders || "")}</td></tr>`).join("");
     const ev = `
       <details class="ev" open><summary>Inputs on the order (${s.components.length})</summary><div class="scroll"><table>
-        <thead><tr><th>Material</th><th>Planned</th><th>Issued</th><th>Open</th><th>Needed for cases made</th><th>Difference</th><th></th></tr></thead><tbody>${compRows}</tbody></table></div></details>
+        <thead><tr><th>Material</th><th>Planned</th><th>Issued</th><th>Open</th>${consumedCol ? "<th>Consumed (journal)</th>" : ""}<th>Needed for cases made</th><th>Issued − needed</th><th></th></tr></thead><tbody>${compRows}</tbody></table></div></details>
+      ${consumedCol ? `<details class="ev"><summary>Cheese consumed in the journal (${s.consumption.length})</summary>
+        <p class="hint">Consumption postings on ${esc(s.area || "the line")} during the run, for cheese in this order's recipe. Negative rows are reversals.</p><div class="scroll"><table>
+        <thead><tr><th>Posted</th><th>Conf.ID</th><th>Material</th><th>Batch</th><th>kg</th><th>Could also be</th></tr></thead><tbody>${consRows || `<tr><td colspan="6">None</td></tr>`}</tbody></table></div></details>` : ""}
       <details class="ev"><summary>Output postings in the journal (${s.outputs.length})</summary><div class="scroll"><table>
         <thead><tr><th>Conf.ID</th><th>Posted</th><th>Pallet</th><th>Cases</th><th>Area</th></tr></thead><tbody>${outRows || `<tr><td colspan="5">None</td></tr>`}</tbody></table></div></details>
       <details class="ev"><summary>Cheese moved to the line during the run (${s.cheese_moves.length})</summary>
-        <p class="hint">The journal has no cheese consumption lines, so when the order sheet shows no cheese issued, these moves (less what went away again) are the estimate. Cheese issued straight from store, or left on the line from the job before, doesn't show here.</p><div class="scroll"><table>
+        <p class="hint">${consumedCol ? "Moves only make cheese available on the line; the consumption above is what counts." : "The journal has no cheese consumption lines, so when the order sheet shows no cheese issued, these moves (less what went away again) are the estimate. Cheese issued straight from store, or left on the line from the job before, doesn't show here."}</p><div class="scroll"><table>
         <thead><tr><th>Moved</th><th>Material</th><th>Batch</th><th>kg in</th><th>kg back</th><th>Back to</th><th>Could also be</th></tr></thead><tbody>${cheeseRows || `<tr><td colspan="7">None</td></tr>`}</tbody></table></div></details>`;
 
     return `<article class="card" data-v="${v}">
@@ -328,15 +391,17 @@
   }
 
   // ---------------------------------------------------------------- wiring
-  const drop = $("drop"), input = $("file");
+  const drop = $("drop"), input = $("file"), addInput = $("addfile");
   drop.onclick = () => input.click();
   drop.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); input.click(); } };
-  input.onchange = () => { onFile(input.files[0]); input.value = ""; };
+  input.onchange = () => { onFiles([...input.files], false); input.value = ""; };
+  $("add").onclick = () => addInput.click();
+  addInput.onchange = () => { onFiles([...addInput.files], true); addInput.value = ""; };
   ["dragenter", "dragover"].forEach((ev) => drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.add("over"); }));
   ["dragleave", "drop"].forEach((ev) => drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.remove("over"); }));
-  drop.addEventListener("drop", (e) => onFile(e.dataTransfer.files[0]));
+  drop.addEventListener("drop", (e) => onFiles([...e.dataTransfer.files], false));
   $("ask").addEventListener("submit", (e) => { e.preventDefault(); run(); });
-  $("forget").onclick = async () => { await forgetFile(); startDemo(); toast("Saved workbook removed from this browser."); };
+  $("forget").onclick = async () => { await forgetFiles(); state.files = null; startDemo(); toast("Saved files removed from this browser."); };
 
   function startDemo() {
     state.demo = true;
@@ -346,10 +411,12 @@
   }
 
   (async function start() {
-    const saved = typeof XLSX !== "undefined" ? await loadFile() : null;
-    if (saved && saved.buf && await loadBuffer(saved.name, saved.buf, saved.saved)) {
-      $("result").innerHTML = `<div class="empty">Using your saved workbook. Type an order number above.</div>`;
-      return;
+    const saved = typeof XLSX !== "undefined" ? await loadSaved() : null;
+    const files = saved ? saved.files || (saved.buf ? [{ name: saved.name, buf: saved.buf }] : []) : [];
+    if (files.length) {
+      const ok = await useFiles(files, saved.saved);
+      if (ok === "ready") { $("result").innerHTML = `<div class="empty">Using your saved files. Type an order number above.</div>`; return; }
+      if (ok === "pending") { state.files = files; $("add").hidden = false; return; }
     }
     startDemo();
   })();

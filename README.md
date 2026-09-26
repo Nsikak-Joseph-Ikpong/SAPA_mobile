@@ -158,7 +158,10 @@ python -m sap_variance.reconcile SAP_Info.xlsx --orders "589 594"
 
 Reads a workbook with these sheets (found by their column headers, names don't matter):
 *Production Order (OUT+IN)*, *Production order (output products)*, *Production Order (INPUT)*,
-*Confirmation Journal* and *Stock Overview*.
+*Confirmation Journal* and *Stock Overview*. A separate, fuller journal export can be passed as a second
+file (`python -m sap_variance.reconcile SAP_Info.xlsx Confirmation_Journal.xlsx`, or added on the web page).
+Where two journals overlap, the bigger one is used whole and the other only adds postings it lacks
+(matched on Conf.ID, product and batch).
 
 The journal has no order ID, so postings are tied to orders:
 
@@ -172,19 +175,22 @@ The journal has no order ID, so postings are tied to orders:
 
 Line to logistics area: SLICING_L1/2/3 → SL_1/2/3, GRATING_L4/L5 → GRATINGLINES.
 
-**The order sheet is the first point of truth.** For the output and every input it says what was
-planned, what was fulfilled (made / issued) and what is still open. Every input is judged against what
-the cases actually made need (planned × made ÷ planned output):
+For the output and every input the order sheet says what was planned, what was fulfilled (made /
+issued) and what is still open. Inputs are judged against what the cases made need (planned × made ÷
+planned output):
 
-* cheese issued to the order vs needed, and the split between the block cheeses vs the recipe (offcut
-  bins MB…OFF are left out of the split). When cheese is under-issued, the journal estimate is shown too;
-  if it covers the output, the order sheet is probably missing issues;
-* **when the order sheet shows no cheese issued** (the report often doesn't carry cheese issues), cheese is
-  estimated from the journal instead. The journal has no cheese consumption lines, so the estimate is
-  cheese moved to the job's line during its run minus what was moved away again. Estimates never make an
-  order worse than CHECK. A job over on the estimate followed on the same line by a job under by about
-  the same amount is reported as cheese carried over (`CHEESE_CARRIED_OVER`). A recipe cheese never moved
-  to the line was issued straight from store and isn't in the estimate (`CHEESE_FROM_STORE`);
+* **cheese consumed, from the confirmation journal** (when the journal export has both sides, e.g. the
+  *Confirmation Journal* export with negative rows). Cheese consumption is posted as its own production
+  confirmation (a negative cheese row, no order ID). Each posting on a line is tied to the order running
+  there, as for output; a reversal (a positive block-cheese row) goes back to the order that consumed
+  that batch; a posting made after an order's last output and within 30 minutes of the next job's start
+  on the same line goes to the next job. Consumption vs needed (recipe × cases), the split between the
+  block cheeses, no consumption at all (`CHEESE_NOT_CONSUMED`) and batches consumed for more than the
+  pallet held (`BATCH_OVER_CONSUMED`) are checked;
+* when the journal has no consumption lines: cheese issued on the order sheet vs needed, or, when the
+  sheet shows none, an estimate from cheese moved to the job's line during its run minus what was moved
+  away again (never worse than CHECK; `CHEESE_CARRIED_OVER` when one job's surplus matches the next
+  job's shortfall);
 * packaging, labels and starch issued short or over for the output;
 * output made vs planned, still open, or closed short with nothing left open.
 
