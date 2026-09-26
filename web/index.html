@@ -122,8 +122,8 @@
       <h2 id="src-h">SAP workbook</h2>
       <div class="source" id="source"><span class="loading">Loading…</span></div>
       <div class="drop" id="drop" tabindex="0" role="button">
-        <strong>Load SAP workbook</strong>
-        <span>Drop or choose the SAP workbook (.xlsx). A separate confirmation journal export can go with it: drop both together, or add it afterwards. Files stay in this browser and are remembered for next time.</span>
+        <strong>Load SAP files</strong>
+        <span>Drop or choose the SAP workbook (.xlsx) and the confirmation journal export, together or one at a time. Each file is added to what's loaded; a newer file of the same kind replaces the older one. Files stay in this browser and are remembered for next time.</span>
       </div>
       <input type="file" id="file" accept=".xlsx,.xlsm,.xls" multiple hidden>
       <input type="file" id="addfile" accept=".xlsx,.xlsm,.xls" multiple hidden>
@@ -292,25 +292,24 @@
     }
   }
 
-  // add = keep the files already loaded, replacing any with the same name or the same kind of sheets
-  async function onFiles(list, add) {
-    const incoming = [];
-    for (const file of list) incoming.push({ name: file.name, buf: await file.arrayBuffer() });
-    if (!incoming.length) return;
-    let files = incoming;
-    // while waiting for the other file, anything dropped is added to what's there
-    if ((add || state.pending) && state.files) {
+  // Files loaded are added to the ones already there; a new file replaces one with the same name or the
+  // same kind of sheets (a newer SAP workbook replaces the old workbook, a newer journal the old journal).
+  async function onFiles(list) {
+    try {
       const fresh = [];
-      for (const x of incoming) {
-        $("result").innerHTML = `<div class="empty loading">Reading ${esc(x.name)}…</div>`;
+      for (const file of list) {
+        $("result").innerHTML = `<div class="empty loading">Reading ${esc(file.name)}…</div>`;
         await pause();
-        x.sheets = sheetsFromBuffer(x.name, x.buf); x.kinds = R.sheetKinds(x.sheets); fresh.push(x);
+        const x = { name: file.name, buf: await file.arrayBuffer() };
+        x.sheets = sheetsFromBuffer(x.name, x.buf); x.kinds = R.sheetKinds(x.sheets);
+        if (!x.kinds.length) throw new Error(`${file.name} has no sheet the check recognises (order sheets, confirmation journal or stock overview)`);
+        fresh.push(x);
       }
+      if (!fresh.length) return;
       const same = (a, b) => a.name === b.name || a.kinds.join() === b.kinds.join();
-      files = [...state.files.filter((old) => !fresh.some((x) => same(old, x))), ...fresh];
-    }
-    const ok = await useFiles(files, Date.now());
-    if (ok) {
+      const files = [...(state.files || []).filter((old) => !fresh.some((x) => same(old, x))), ...fresh];
+      const ok = await useFiles(files, Date.now());
+      if (!ok) return;
       state.files = files;
       const saved = await saveFiles(files);
       $("add").hidden = false;
@@ -319,6 +318,8 @@
         $("result").innerHTML = `<div class="empty">Ready. Type an order number above.</div>`;
         $("oid").focus();
       }
+    } catch (e) {
+      $("result").innerHTML = `<div class="empty">Couldn't load that file: ${esc(e.message)}.</div>`;
     }
   }
 
@@ -421,12 +422,12 @@
   const drop = $("drop"), input = $("file"), addInput = $("addfile");
   drop.onclick = () => input.click();
   drop.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); input.click(); } };
-  input.onchange = () => { onFiles([...input.files], false); input.value = ""; };
+  input.onchange = () => { onFiles([...input.files]); input.value = ""; };
   $("add").onclick = () => addInput.click();
-  addInput.onchange = () => { onFiles([...addInput.files], true); addInput.value = ""; };
+  addInput.onchange = () => { onFiles([...addInput.files]); addInput.value = ""; };
   ["dragenter", "dragover"].forEach((ev) => drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.add("over"); }));
   ["dragleave", "drop"].forEach((ev) => drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.remove("over"); }));
-  drop.addEventListener("drop", (e) => onFiles([...e.dataTransfer.files], false));
+  drop.addEventListener("drop", (e) => onFiles([...e.dataTransfer.files]));
   $("ask").addEventListener("submit", (e) => { e.preventDefault(); run(); });
   $("forget").onclick = async () => { await forgetFiles(); state.files = null; startDemo(); toast("Saved files removed from this browser."); };
 
