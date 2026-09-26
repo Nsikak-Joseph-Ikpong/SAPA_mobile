@@ -347,15 +347,17 @@
     const sub = `${esc(s.fg)} ${esc(s.fg_text || "")} · ${esc(s.line || "")} · status ${esc(s.status || "n/a")}${!isNaN(s.start) ? ` · production began ${esc(dmy(s.start))}` : ""}`;
 
     const outBad = Math.abs(s.journal_out - s.order_out) > Math.max(2, 0.02 * Math.max(s.journal_out, s.order_out));
+    const pc = s.cheese_planned_kg, po = s.cheese_planned_offcuts_kg;
+    const plannedCheese = pc ? `<div class="fig"><dt>Cheese planned</dt><dd>${kg(pc)}<small>${po ? `blocks ${kg(pc - po)} + offcuts ${kg(po)}` : "cheese blocks"} · for ${n0(s.planned_out)} cases</small></dd></div>` : "";
     let cheeseLine = "";
     if (s.cheese_kg_per_case && s.cheese_source === "consumed") {
       const bad = s.cheese_consumed_kg === 0 || (s.cheese_diff_kg !== null && Math.abs(s.cheese_diff_kg) > s.cheese_tolerance_kg);
-      cheeseLine = `<div class="fig"><dt>Cheese consumed</dt><dd class="${bad ? "bad" : "good"}">${kg(s.cheese_consumed_kg)}<small>${s.consumption.length} posting${s.consumption.length === 1 ? "" : "s"} in the journal</small></dd></div>
-         <div class="fig"><dt>Cheese needed</dt><dd>${kg(s.cheese_est_needed_kg)}<small>${s.cheese_kg_per_case.toFixed(3)} kg/case × ${n0(s.cheese_est_output)} cases</small></dd></div>`;
+      cheeseLine = `<div class="fig"><dt>Cheese needed for cases made</dt><dd>${kg(s.cheese_est_needed_kg)}<small>${s.cheese_kg_per_case.toFixed(3)} kg/case × ${n0(s.cheese_est_output)} cases</small></dd></div>
+         <div class="fig"><dt>Cheese consumed</dt><dd class="${bad ? "bad" : "good"}">${kg(s.cheese_consumed_kg)}<small>${s.consumption.length} posting${s.consumption.length === 1 ? "" : "s"} in the journal${pc ? ` · ${fs(s.cheese_consumed_kg - pc, 1)} kg vs the full plan` : ""}</small></dd></div>`;
     } else if (s.cheese_kg_per_case && s.cheese_source === "journal") {
       const bad = s.cheese_diff_kg !== null && Math.abs(s.cheese_diff_kg) > s.cheese_tolerance_kg;
       cheeseLine = `<div class="fig"><dt>Cheese used (journal estimate)</dt><dd class="${bad ? "bad" : s.cheese_sent_kg ? "good" : ""}">${kg(s.cheese_used_kg)}<small>moved to line ${kg(s.cheese_sent_kg)}, away ${kg(s.cheese_returned_kg)}</small></dd></div>
-         <div class="fig"><dt>Cheese needed</dt><dd>${kg(s.cheese_est_needed_kg)}<small>${s.cheese_kg_per_case.toFixed(3)} kg/case × ${n0(s.cheese_est_output)} cases</small></dd></div>`;
+         <div class="fig"><dt>Cheese needed for cases made</dt><dd>${kg(s.cheese_est_needed_kg)}<small>${s.cheese_kg_per_case.toFixed(3)} kg/case × ${n0(s.cheese_est_output)} cases</small></dd></div>`;
     } else if (s.cheese_kg_per_case) {
       const bad = s.cheese_needed_kg && s.cheese_diff_kg !== null && Math.abs(s.cheese_diff_kg) > s.cheese_tolerance_kg;
       cheeseLine = `<div class="fig"><dt>Cheese issued (order sheet)</dt><dd class="${bad ? "bad" : s.cheese_needed_kg ? "good" : ""}">${kg(s.cheese_issued_kg)}<small>${kg(s.cheese_open_kg)} still open</small></dd></div>
@@ -365,7 +367,7 @@
       <div class="fig"><dt>Planned</dt><dd>${n0(s.planned_out)}<small>cases</small></dd></div>
       <div class="fig"><dt>Made</dt><dd class="${outBad ? "bad" : ""}">${n0(s.order_out)}<small>fulfilled on the order</small></dd></div>
       <div class="fig"><dt>In the journal</dt><dd class="${outBad ? "bad" : ""}">${n0(s.journal_out)}<small>${s.output_confirmations} confirmation${s.output_confirmations === 1 ? "" : "s"}</small></dd></div>
-      ${cheeseLine}</dl>`;
+      ${plannedCheese}${cheeseLine}</dl>`;
 
     const m = s.mass;
     const massBad = m && Math.abs(m.unaccounted) > m.tolerance;
