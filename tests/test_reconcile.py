@@ -26,12 +26,17 @@ def write_workbook(path):
         # Job B next on the same line: 350 cases planned, 400 made, no cheese issued
         ["B2", "Finished", ts("06:00"), None, ts("06:00"), "FGMOZZ", "GRATING_L4", "BOBOX", "FGMOZZ", "", 350, 0, 400, 1, 0, 400],
         [None] * 7 + ["RMMOZZ", "FGMOZZ", "", 1723.75, 1723.75, 0, 1, 0, 400],
+        # Job C on a slicing line: 100 cases, 700 kg cheese planned of which 70 kg comes back as offcuts
+        ["C3", "Finished", ts("09:00"), None, ts("09:00"), "FGSLICE", "SLICING_L1", "BOBOX", "FGSLICE", "", 100, 0, 100, 1, 0, 100],
+        [None] * 7 + ["RMSLICE", "FGSLICE", "", 700, 700, 0, 1, 0, 100],
     ]
     out_head = ["Production Order", "Production Order (Output Product)", "Production Order (Output Product Text)",
                 "Product", "Product (Text)", "Production Order Creation Date", "Production Order Latest End Date Time",
                 "Production Start Date Time", "Planned Quantity", "Open Quantity", "Fulfilled Quantity"]
     outs = [["A1", "FGBLEND", "Blend 5x1kg", "FGBLEND", "Blend", None, ts("07:00"), ts("00:50"), 1000, 0, 400],
-            ["B2", "FGMOZZ", "Mozz 5x1kg", "FGMOZZ", "Mozz", None, ts("09:00"), ts("05:40"), 350, 0, 400]]
+            ["B2", "FGMOZZ", "Mozz 5x1kg", "FGMOZZ", "Mozz", None, ts("09:00"), ts("05:40"), 350, 0, 400],
+            ["C3", "FGSLICE", "Slices 6x1kg", "FGSLICE", "Slices", None, ts("12:00"), ts("09:00"), 100, 0, 100],
+            [None, None, None, "MBSLOFF", "Bin 9 slicing offcuts", None, None, None, 70, 0, 110]]
     j_head = ["Site", "Product", "Identified Stock (Identified Stock ID)", "Logistics Area (Logistics Area ID)",
               "Created On", "Conf.Document Type", "Conf.ID", "Restricted", "Effective Qty"]
     J = []
@@ -53,6 +58,7 @@ def write_workbook(path):
     add("RMMOZZ", "M2", "GRATINGLINES", "06:10", GA, "301", 1000)
     for i, t in enumerate(["06:30", "07:00", "07:40", "08:10"]):
         add("FGMOZZ", f"R{i}", "FG_STAGING", t, PC, f"31{i}", 100)
+    add("FGSLICE", "S1", "FG_STAGING", "10:00", PC, "600", 100)
     stock_head = ["Site", "Logistics Area", "Material", "Material (Text)", "Identified Stock (Identified Stock ID)",
                   "Identified Stock (External Identified Stock ID)", "Identified Stock (Production Date)",
                   "Identified Stock (Expiration Date)", "On-Hand Stock UoM", "Expiry date", "Restricted",
@@ -142,6 +148,9 @@ def write_full_journal(path):
     add("RMMOZZ", "M1", "GRATINGLINES", "07:00", PC, "501", -900)
     for i, t in enumerate(["06:30", "07:00", "07:40", "08:10"]):
         add("FGMOZZ", f"R{i}", "FG_STAGING", t, PC, f"31{i}", 100)
+    # job C slices 720 kg; its offcut bins are posted where they're stored, on GRATINGLINES
+    add("RMSLICE", "K1", "SL_1", "09:05", PC, "610", -720)
+    add("MBSLOFF", "B1", "GRATINGLINES", "09:40", PC, "611", 110)
     pd.DataFrame(rows).to_excel(path, sheet_name="Export 20.08.2026", header=False, index=False)
 
 
@@ -168,3 +177,19 @@ def test_batch_consumed_twice(full):
     b = next(s for s in full.summaries if s["order_id"] == "B2")
     assert b["cheese_consumed_kg"] == pytest.approx(1900)
     assert "RMMOZZ M1 consumed 1,900.00 kg" in codes(full, "B2")["BATCH_OVER_CONSUMED"].message
+
+
+def test_mass_balance_with_offcuts(full):
+    c = next(s for s in full.summaries if s["order_id"] == "C3")
+    m = c["mass"]
+    # product weight per case = (700 cheese - 70 offcuts planned) / 100 cases
+    assert m["kg_per_case"] == pytest.approx(6.3) and m["in"] == pytest.approx(720)
+    assert m["out"] == pytest.approx(630 + 110) and m["unaccounted"] == pytest.approx(-20)
+    f = codes(full, "C3")
+    assert "MASS_BALANCES" in f and "CHEESE_BALANCES" in f
+    assert "15.3% of what went in against 10.0% planned" in f["OFFCUTS_OVER_PLAN"].message
+
+
+def test_offcuts_used_as_input_count_as_cheese(full):
+    a = next(s for s in full.summaries if s["order_id"] == "A1")
+    assert a["mass"]["blocks_in"] == pytest.approx(1925) and a["mass"]["offcuts_in"] == 0

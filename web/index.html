@@ -81,6 +81,12 @@
   .fig dd small { display: block; font: 400 12px var(--sans); color: var(--muted); }
   .bad { color: var(--high); } .good { color: var(--ok); }
 
+  .mass { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); }
+  .mass table { font-size: 13px; }
+  .mass caption { text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); padding-bottom: 4px; }
+  .mass td { white-space: normal; }
+  .mass tr.tot td { font-weight: 600; border-top: 1.5px solid var(--ink); }
+  .mass .un { grid-column: 1 / -1; font-size: 13.5px; }
   .flags { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
   .flags li { display: grid; grid-template-columns: 76px minmax(0, 1fr); gap: 2px 12px; }
   .tag { font: 600 10.5px var(--mono); letter-spacing: 0.04em; padding: 3px 0; border-radius: 4px; text-align: center; align-self: start; margin-top: 2px; }
@@ -108,7 +114,7 @@
 <div class="wrap">
   <div>
     <h1>Cheese Variance Check</h1>
-    <p class="sub">Type a production order. Output and packaging are checked against the order's planned, issued and open quantities. Cheese is checked against what the confirmation journal shows consumed on the line during the run (or, if the journal has no consumption lines, what was moved to the line). The journal also backs up the output: pallets, late or bulk postings.</p>
+    <p class="sub">Type a production order. Output and packaging are checked against the order's planned, issued and open quantities. Cheese is checked against what the confirmation journal shows consumed on the line during the run (or, if the journal has no consumption lines, what was moved to the line), and everything that went in (cheese blocks, offcuts, starch) is balanced against everything that came out (product and offcuts). The journal also backs up the output: pallets, late or bulk postings.</p>
   </div>
 
   <div class="top">
@@ -178,6 +184,11 @@
     CHEESE_UNDER_USED: "Less cheese consumed than the output needs",
     CHEESE_NOT_CONSUMED: "No cheese consumed for this run",
     BATCH_OVER_CONSUMED: "Batch consumed for more than it held",
+    MASS_BALANCES: "Everything in matches everything out",
+    MASS_UNACCOUNTED: "More went in than came out",
+    MASS_OUT_EXCEEDS_IN: "More came out than went in",
+    OFFCUTS_OVER_PLAN: "More offcuts than planned",
+    OFFCUTS_NOT_DECLARED: "No offcuts declared",
     CHEESE_OVER_ISSUED: "More cheese issued than the output needs",
     CHEESE_UNDER_ISSUED: "Less cheese issued than the output needs",
     BLEND_SPLIT_OFF: "Cheese split differs from the recipe",
@@ -236,7 +247,7 @@
       <span class="pill ${state.demo ? "" : "real"}">${state.demo ? "demo" : "your data"}</span>`;
     $("forget").hidden = state.demo;
     $("add").hidden = state.demo;
-    const ex = state.demo ? ["A1", "B2"] : pickExamples();
+    const ex = state.demo ? ["A1", "B2", "C3"] : pickExamples();
     $("examples").innerHTML = ex.length ? `Try: ${ex.map((o) => `<button type="button" data-o="${esc(o)}">${esc(o)}</button>`).join("")}` : "";
     $("examples").querySelectorAll("button").forEach((b) => (b.onclick = () => { $("oid").value = b.dataset.o; run(); }));
   }
@@ -355,6 +366,21 @@
       <div class="fig"><dt>In the journal</dt><dd class="${outBad ? "bad" : ""}">${n0(s.journal_out)}<small>${s.output_confirmations} confirmation${s.output_confirmations === 1 ? "" : "s"}</small></dd></div>
       ${cheeseLine}</dl>`;
 
+    const m = s.mass;
+    const massBad = m && Math.abs(m.unaccounted) > m.tolerance;
+    const massHtml = m ? `<div class="mass">
+        <table><caption>In</caption><tbody>
+          <tr><td>Cheese blocks</td><td class="n">${kg(m.blocks_in)}</td></tr>
+          <tr><td>Offcuts used</td><td class="n">${kg(m.offcuts_in)}</td></tr>
+          <tr><td>Starch</td><td class="n">${kg(m.starch_in)}</td></tr>
+          <tr class="tot"><td>Total in</td><td class="n">${kg(m.in)}</td></tr></tbody></table>
+        <table><caption>Out</caption><tbody>
+          <tr><td>Product: ${n0(m.cases)} cases × ${m.kg_per_case.toFixed(3)} kg</td><td class="n">${kg(m.product)}</td></tr>
+          <tr><td>Offcuts made${m.offcuts_planned ? ` (${f(m.offcuts_planned, 1)} kg planned)` : ""}</td><td class="n">${kg(m.offcuts_made)}</td></tr>
+          <tr><td>&nbsp;</td><td></td></tr>
+          <tr class="tot"><td>Total out</td><td class="n">${kg(m.out)}</td></tr></tbody></table>
+        <div class="un">Unaccounted (in − out): <strong class="mono ${massBad ? "bad" : "good"}">${fs(m.unaccounted, 1)} kg</strong>${m.in ? ` (${(100 * m.unaccounted / m.in).toFixed(1)}% of what went in)` : ""}</div>
+      </div>` : "";
     const flags = r.findings.length ? `<ul class="flags">${r.findings.map((x) => `<li><span class="tag ${x.severity}">${x.severity}</span>
         <span class="ft">${esc(TITLES[x.code] || x.code)}</span><span class="fm">${esc(x.message)}</span><span class="fc">${esc(x.code)}</span></li>`).join("")}</ul>`
       : `<p class="good">Nothing flagged.</p>`;
@@ -369,7 +395,8 @@
       const need = c.needed_for_output;
       const judged = !(c.cheese && (s.cheese_source === "journal" || consumedCol));
       const off = judged && need !== null && need > 0 && (c.fulfilled < need - Math.max(2, 0.03 * need) || c.fulfilled > need + Math.max(2, 0.1 * need));
-      const cons = consumedCol ? `<td class="n">${c.cheese ? f(byMat[c.material] || 0, 2) : ""}</td>` : "";
+      const starch = /^RMPS/i.test(c.material);
+      const cons = consumedCol ? `<td class="n">${c.cheese ? f(byMat[c.material] || 0, 2) : starch && s.mass ? f(s.mass.starch_in, 2) : ""}</td>` : "";
       return `<tr class="${off ? "neg" : ""}"><td class="m">${esc(c.material)}</td><td class="n">${q(c.planned)}</td><td class="n">${q(c.fulfilled)}</td><td class="n">${q(c.open)}</td>${cons}<td class="n">${q(need)}</td><td class="n">${c.difference === null ? "" : fs(c.difference, 2)}</td><td>${c.cheese ? "cheese" : ""}</td></tr>`;
     }).join("");
     const consRows = (s.consumption || []).map((c) => `<tr class="${c.consumed < 0 ? "neg" : ""}"><td class="m">${esc(dm(c.time))}</td><td class="m">${esc(c.conf)}</td><td class="m">${esc(c.material)}</td><td class="m">${esc(c.batch)}</td><td class="n">${f(c.consumed, 2)}</td><td>${esc(c.other_orders || "")}</td></tr>`).join("");
@@ -387,7 +414,7 @@
 
     return `<article class="card" data-v="${v}">
       <div class="verdict"><span class="badge">${v}</span><div class="vt">Order <span class="mono">${esc(s.order_id)}</span>: ${esc(headline)}</div><div class="vs">${sub}</div></div>
-      <div class="body">${figs}${note}${flags}${ev}</div></article>`;
+      <div class="body">${figs}${massHtml}${note}${flags}${ev}</div></article>`;
   }
 
   // ---------------------------------------------------------------- wiring

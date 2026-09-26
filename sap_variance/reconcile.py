@@ -64,6 +64,7 @@ class Rules:
     tolerance_pct: float = 0.05
     tolerance_kg: float = 50.0
     blend_tolerance: float = 0.08
+    offcut_tolerance: float = 0.03                   # offcut rate this far above plan is flagged
 
 
 # ---------------------------------------------------------------- reading the workbook
@@ -383,6 +384,14 @@ def assign_consumption(wb: Workbook, windows: pd.DataFrame, outputs: pd.DataFram
                                        "candidates", "other_orders"])
 
 
+def starch_consumed(journal: pd.DataFrame, outputs: pd.DataFrame, rules: Rules) -> dict:
+    """Starch is backflushed with the output: its rows sit on the order's output confirmations."""
+    confs = outputs[outputs["order_id"].notna() & (outputs["qty"] > 0)][["order_id", "conf"]].drop_duplicates()
+    st = journal[journal["is_prod"] & journal["material"].str.upper().str.startswith(rules.not_cheese_prefixes)]
+    st = st.merge(confs, on="conf")
+    return (-st.groupby("order_id")["qty"].sum()).to_dict()
+
+
 def over_consumed_batches(journal: pd.DataFrame, rules: Rules) -> dict:
     """Batches consumed for more than the biggest quantity ever posted for them (a pallet weight)."""
     cons = consumption_rows(journal, rules)
@@ -445,7 +454,7 @@ def assign_cheese(wb: Workbook, windows: pd.DataFrame, outputs: pd.DataFrame, ru
 
 def check_order(oid: str, wb: Workbook, windows: pd.DataFrame, outputs: pd.DataFrame, per_conf: pd.DataFrame,
                 sends: pd.DataFrame, typical_pallet: dict, rules: Rules, consumption: pd.DataFrame | None = None,
-                over_batches: dict | None = None) -> tuple[dict, list[Finding]]:
+                over_batches: dict | None = None, starch_used: dict | None = None) -> tuple[dict, list[Finding]]:
     o = wb.orders[wb.orders["order_id"] == oid].iloc[0]
     comps = wb.components[wb.components["order_id"] == oid]
     w = windows[windows["order_id"] == oid].iloc[0]
@@ -643,6 +652,7 @@ def check_order(oid: str, wb: Workbook, windows: pd.DataFrame, outputs: pd.DataF
                      f"because it was already running or its next output followed soonest.")
 
     # ---- cheese consumed, from the journal's production confirmations ----
+    mass = None
     consumed = float(cons["consumed"].sum()) if not cons.empty else 0.0
     by_mat = cons.groupby("material")["consumed"].sum() if not cons.empty else pd.Series(dtype=float)
     if has_cons and per_case and (journal_out or order_out):
@@ -655,7 +665,30 @@ def check_order(oid: str, wb: Workbook, windows: pd.DataFrame, outputs: pd.DataF
         sheet = f" The order sheet shows {issued:,.1f} kg issued." if issued else " None of it shows on the order sheet."
         other_out = (f" (the order shows {order_out:,.0f} cases, which need {per_case * order_out:,.1f} kg)"
                      if journal_out and order_out != journal_out else "")
+        # ---- mass balance: everything in (cheese blocks, offcuts, starch) vs everything out
+        # (product, offcuts made). Product weight per case comes from the recipe: cheese + starch
+        # planned, less the offcuts planned, over the planned cases.
+        starch_comps = comps[comps["material"].str.upper().str.startswith(rules.not_cheese_prefixes)]
+        p_cheese, p_starch = float(cheese_comps["planned"].sum()), float(starch_comps["planned"].sum())
+        offc = wb.byproducts[wb.byproducts["order_id"] == oid]
+        p_off, made_off = float(offc["planned"].fillna(0).sum()), float(offc["fulfilled"].fillna(0).sum())
+        net_pc = (p_cheese + p_starch - p_off) / planned_out
+        starch_in = float((starch_used or {}).get(oid, 0.0))
+        offcut_in = float(sum(v for m, v in by_mat.items() if re.match(rules.offcut_pattern, m.upper())))
+        mass_in = consumed + starch_in
+        product_kg = est_out * net_pc
+        mass_out = product_kg + made_off
+        unacc = mass_in - mass_out
+        mass_tol = max(rules.tolerance_pct * mass_in, rules.tolerance_kg)
+        off_scale = est_out / planned_out                  # planned offcuts for the cases made
+        mass = {"in": mass_in, "blocks_in": consumed - offcut_in, "offcuts_in": offcut_in, "starch_in": starch_in,
+                "out": mass_out, "product": product_kg, "kg_per_case": net_pc, "cases": est_out,
+                "offcuts_made": made_off, "offcuts_planned": p_off * off_scale, "unaccounted": unacc, "tolerance": mass_tol}
+        mass_text = (f"In {mass_in:,.1f} kg (cheese blocks {consumed - offcut_in:,.1f}, offcuts {offcut_in:,.1f}, "
+                     f"starch {starch_in:,.1f}); out {mass_out:,.1f} kg (product {est_out:,.0f} cases × {net_pc:.3f} kg = "
+                     f"{product_kg:,.1f}, offcuts made {made_off:,.1f}).")
         if cons.empty:
+            mass = None
             moved = f" {sent:,.1f} kg was moved to {area} during the run." if sent else ""
             flag("HIGH", "CHEESE_NOT_CONSUMED",
                  f"No cheese consumption in the journal for this run: the {est_out:,.0f} cases need "
@@ -667,12 +700,42 @@ def check_order(oid: str, wb: Workbook, windows: pd.DataFrame, outputs: pd.DataF
                    f"need {est_needed:,.1f} kg ({per_case:.3f} kg/case){other_out}: {mats}"
                    + (f"; also {', '.join(f'{m} {by_mat[m]:,.1f} kg' for m in others)}" if others else "") + "."
                    + sheet)
-            if abs(cheese_diff) <= tol:
+            cheese_off = abs(cheese_diff) > tol
+            if not cheese_off:
                 flag("INFO", "CHEESE_BALANCES", msg + f" Difference {cheese_diff:+,.1f} kg is within tolerance.")
+            elif p_off > 0 and abs(unacc) <= mass_tol:
+                # the extra (or missing) cheese came out as more (or fewer) offcuts than planned
+                flag("LOW", "CHEESE_OVER_USED" if cheese_diff > 0 else "CHEESE_UNDER_USED",
+                     msg + f" Difference {cheese_diff:+,.1f} kg ({cheese_diff / est_needed:+.1%}). Everything that went "
+                     f"in came out as product or offcuts (offcuts made {made_off:,.1f} kg against {p_off * off_scale:,.1f} planned "
+                     f"for these cases), "
+                     f"so this is offcut yield, not missing cheese.")
             else:
                 sev = "HIGH" if abs(cheese_diff) > max(3 * tol, 500) else "MEDIUM"
                 flag(sev, "CHEESE_OVER_USED" if cheese_diff > 0 else "CHEESE_UNDER_USED",
                      msg + f" Difference {cheese_diff:+,.1f} kg ({cheese_diff / est_needed:+.1%}).")
+            if abs(unacc) <= mass_tol:
+                flag("INFO", "MASS_BALANCES", mass_text + f" Unaccounted {unacc:+,.1f} kg is within tolerance.")
+            else:
+                same = cheese_off and (cheese_diff > 0) == (unacc > 0)
+                sev = "INFO" if same else "HIGH" if abs(unacc) > max(3 * mass_tol, 500) else "MEDIUM"
+                if unacc > 0:
+                    flag(sev, "MASS_UNACCOUNTED", mass_text + f" {unacc:,.1f} kg ({unacc / mass_in:.1%}) went in but "
+                         f"didn't come out as product or offcuts: waste, giveaway, or output or offcuts not posted.")
+                else:
+                    flag(sev, "MASS_OUT_EXCEEDS_IN", mass_text + f" {-unacc:,.1f} kg more came out than went in: "
+                         f"inputs used but not consumed in SAP, or output overstated.")
+            if p_off > 0 and mass_in > 0:
+                plan_rate = p_off / (p_cheese + p_starch)
+                rate = made_off / mass_in
+                extra = made_off - plan_rate * mass_in
+                if order_out > 0 and made_off == 0:
+                    flag("LOW", "OFFCUTS_NOT_DECLARED",
+                         f"No offcuts declared on the order ({p_off:,.1f} kg planned, {', '.join(sorted(set(offc['material'])))}).")
+                elif rate - plan_rate > rules.offcut_tolerance and extra >= 25:
+                    flag("MEDIUM", "OFFCUTS_OVER_PLAN",
+                         f"Offcuts made {made_off:,.1f} kg, {rate:.1%} of what went in against {plan_rate:.1%} planned "
+                         f"({extra:+,.1f} kg): {', '.join(f'{r.material} {r.fulfilled:,.1f} kg' for r in offc.itertuples())}.")
             blocks = share[[not m.upper().startswith("MB") for m in share.index]]
             got = by_mat.reindex(blocks.index).fillna(0)
             if len(blocks) > 1 and got.sum() > 0:
@@ -705,6 +768,7 @@ def check_order(oid: str, wb: Workbook, windows: pd.DataFrame, outputs: pd.DataF
         "cheese_open_kg": cheese_open, "cheese_sent_kg": sent, "cheese_returned_kg": back, "cheese_used_kg": used,
         "cheese_est_needed_kg": est_needed, "cheese_est_output": est_out, "cheese_consumed_kg": consumed,
         "cheese_consumed_by_material": {k: float(v) for k, v in by_mat.items()},
+        "mass": mass,
         "offcuts_kg": float(offcuts["fulfilled"].sum()) if not offcuts.empty else 0.0,
         "cheese_diff_kg": cheese_diff, "cheese_tolerance_kg": cheese_tol,
         "components": comp_rows,
@@ -735,6 +799,7 @@ def run(wb: Workbook, order_ids: list[str] | None = None, rules: Rules | None = 
     has_cons = bool(((raw_cons["qty"] < 0) & ~raw_cons["material"].str.upper().str.match(rules.offcut_pattern)).any())
     consumption = assign_consumption(wb, windows, outputs, rules) if has_cons else None
     over_batches = over_consumed_batches(wb.journal, rules) if has_cons else {}
+    starch_used = starch_consumed(wb.journal, outputs, rules) if has_cons else {}
     pos = outputs[outputs["qty"] > 0]
     typical = {}
     for fg, g in pos.groupby("material"):
@@ -759,7 +824,8 @@ def run(wb: Workbook, order_ids: list[str] | None = None, rules: Rules | None = 
         if oid not in known:
             findings.append(Finding(oid, "INFO", "ORDER_NOT_FOUND", "Order not found in the order sheets."))
     for oid in to_check:
-        s, f = check_order(oid, wb, windows, outputs, per_conf, sends, typical, rules, consumption, over_batches)
+        s, f = check_order(oid, wb, windows, outputs, per_conf, sends, typical, rules, consumption, over_batches,
+                           starch_used)
         summaries.append(s)
         findings.extend(f)
     findings = pair_carry_over(summaries, findings, orders, rules)
@@ -860,8 +926,19 @@ def print_result(res: Result, show_info: bool = True) -> None:
 def write_excel(res: Result, path: str) -> str:
     flags = pd.DataFrame([{"Order": f.order_id, "Severity": f.severity, "Check": f.code, "Finding": f.message,
                            "Reason code": "", "Resolved by": "", "Notes": ""} for f in res.findings])
-    orders = pd.DataFrame([{k: (", ".join(f"{m} {q:,.1f}" for m, q in v.items()) if isinstance(v, dict) else v)
-                            for k, v in s.items() if k != "components"} for s in res.summaries])
+    def flat(s):
+        row = {}
+        for k, v in s.items():
+            if k == "components":
+                continue
+            if k == "mass":
+                row.update({f"mass_{mk}": mv for mk, mv in (v or {}).items()})
+            elif isinstance(v, dict):
+                row[k] = ", ".join(f"{m} {q:,.1f}" for m, q in v.items())
+            else:
+                row[k] = v
+        return row
+    orders = pd.DataFrame([flat(s) for s in res.summaries])
     comps = pd.DataFrame([{"order_id": s["order_id"], **c} for s in res.summaries for c in s["components"]])
     ids = {s["order_id"] for s in res.summaries}
     outs = res.outputs[res.outputs["order_id"].isin(ids)].sort_values(["order_id", "time"])

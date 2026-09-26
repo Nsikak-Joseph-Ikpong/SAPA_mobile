@@ -8,7 +8,7 @@
     skip_resources: ["FLOOR_WASTE", "LINE_RECOVERY"],
     cheese_prefixes: ["RM"], not_cheese_prefixes: ["RMPS"], offcut_pattern: /^MB.*OFF$/,
     lead_hours: 2, tail_hours: 1, return_hours: 24, order_start_slack_hours: 1, max_order_age_hours: 72,
-    bulk_pallets: 4, late_hours: 2, handoff_minutes: 30, tolerance_pct: 0.05, tolerance_kg: 50, blend_tolerance: 0.08,
+    bulk_pallets: 4, late_hours: 2, handoff_minutes: 30, tolerance_pct: 0.05, tolerance_kg: 50, blend_tolerance: 0.08, offcut_tolerance: 0.03,
   };
   const SEV = { HIGH: 0, MEDIUM: 1, LOW: 2, INFO: 3 };
   const H = 3600000;
@@ -315,6 +315,24 @@
     return rows;
   }
 
+  // Starch is backflushed with the output: its rows sit on the order's output confirmations
+  function starchConsumed(journal, outputs) {
+    const byConf = new Map(), seen = new Set();
+    for (const r of outputs) {
+      if (r.order_id === null || !(r.qty > 0)) continue;
+      const k = r.order_id + "|" + r.conf;
+      if (seen.has(k)) continue; seen.add(k);
+      if (!byConf.has(r.conf)) byConf.set(r.conf, []);
+      byConf.get(r.conf).push(r.order_id);
+    }
+    const out = new Map();
+    for (const r of journal) {
+      if (!r.is_prod || !RULES.not_cheese_prefixes.some((p) => r.material.toUpperCase().startsWith(p))) continue;
+      for (const oid of byConf.get(r.conf) || []) out.set(oid, (out.get(oid) || 0) - r.qty);
+    }
+    return out;
+  }
+
   // Batches consumed for more than the biggest quantity ever posted for them (a pallet weight)
   function overConsumedBatches(journal) {
     const used = new Map(), size = new Map();
@@ -523,6 +541,7 @@
     }
 
     // cheese consumed, from the journal's production confirmations
+    let mass = null;
     const consumed = sum(cons.map((c) => c.consumed));
     const byMat = new Map();
     for (const c of cons) byMat.set(c.material, (byMat.get(c.material) || 0) + c.consumed);
@@ -536,7 +555,23 @@
       const others = [...byMat.keys()].filter((m) => !share.has(m)).sort();
       const sheet = issued ? ` The order sheet shows ${f(issued, 1)} kg issued.` : " None of it shows on the order sheet.";
       const otherOut = journal_out && order_out !== journal_out ? ` (the order shows ${f(order_out)} cases, which need ${f(perCase * order_out, 1)} kg)` : "";
+      // mass balance: everything in (cheese blocks, offcuts, starch) vs everything out (product, offcuts made).
+      // Product weight per case comes from the recipe: cheese + starch planned, less the offcuts planned, over the planned cases.
+      const starchComps = comps.filter((c) => RULES.not_cheese_prefixes.some((p) => c.material.toUpperCase().startsWith(p)));
+      const pCheese = sum(cheeseComps.map((c) => c.planned)), pStarch = sum(starchComps.map((c) => c.planned));
+      const offc = idx.byp.get(oid) || [];
+      const pOff = sum(offc.map((b) => (isNaN(b.planned) ? 0 : b.planned))), madeOff = sum(offc.map((b) => (isNaN(b.fulfilled) ? 0 : b.fulfilled)));
+      const netPc = (pCheese + pStarch - pOff) / planned_out;
+      const starchIn = ctx.starchUsed.get(oid) || 0;
+      const offcutIn = sum([...byMat.keys()].sort().filter((m) => RULES.offcut_pattern.test(m.toUpperCase())).map((m) => byMat.get(m)));
+      const massIn = consumed + starchIn, productKg = estOut * netPc, massOut = productKg + madeOff, unacc = massIn - massOut;
+      const massTol = Math.max(RULES.tolerance_pct * massIn, RULES.tolerance_kg);
+      const offScale = estOut / planned_out;
+      mass = { in: massIn, blocks_in: consumed - offcutIn, offcuts_in: offcutIn, starch_in: starchIn, out: massOut, product: productKg,
+        kg_per_case: netPc, cases: estOut, offcuts_made: madeOff, offcuts_planned: pOff * offScale, unaccounted: unacc, tolerance: massTol };
+      const massText = `In ${f(massIn, 1)} kg (cheese blocks ${f(consumed - offcutIn, 1)}, offcuts ${f(offcutIn, 1)}, starch ${f(starchIn, 1)}); out ${f(massOut, 1)} kg (product ${f(estOut)} cases × ${fixed(netPc, 3)} kg = ${f(productKg, 1)}, offcuts made ${f(madeOff, 1)}).`;
       if (!cons.length) {
+        mass = null;
         const moved = sent ? ` ${f(sent, 1)} kg was moved to ${area} during the run.` : "";
         flag("HIGH", "CHEESE_NOT_CONSUMED", `No cheese consumption in the journal for this run: the ${f(estOut)} cases need ${f(estNeeded, 1)} kg (${fixed(perCase, 3)} kg/case)${otherOut}.${moved}${sheet}`);
       } else {
@@ -544,8 +579,24 @@
         cheese_diff = consumed - estNeeded; cheese_tol = tol;
         const msg = `Cheese consumed ${f(consumed, 1)} kg, the ${f(estOut)} cases ${journal_out ? "in the journal " : ""}need ${f(estNeeded, 1)} kg (${fixed(perCase, 3)} kg/case)${otherOut}: ${matsTxt}`
           + (others.length ? `; also ${others.map((m) => `${m} ${f(byMat.get(m), 1)} kg`).join(", ")}` : "") + "." + sheet;
-        if (Math.abs(cheese_diff) <= tol) flag("INFO", "CHEESE_BALANCES", msg + ` Difference ${fs(cheese_diff, 1)} kg is within tolerance.`);
-        else flag(Math.abs(cheese_diff) > Math.max(3 * tol, 500) ? "HIGH" : "MEDIUM", cheese_diff > 0 ? "CHEESE_OVER_USED" : "CHEESE_UNDER_USED", msg + ` Difference ${fs(cheese_diff, 1)} kg (${pct(cheese_diff / estNeeded, 1, true)}).`);
+        const cheeseOff = Math.abs(cheese_diff) > tol;
+        if (!cheeseOff) flag("INFO", "CHEESE_BALANCES", msg + ` Difference ${fs(cheese_diff, 1)} kg is within tolerance.`);
+        else if (pOff > 0 && Math.abs(unacc) <= massTol) {
+          // the extra (or missing) cheese came out as more (or fewer) offcuts than planned
+          flag("LOW", cheese_diff > 0 ? "CHEESE_OVER_USED" : "CHEESE_UNDER_USED", msg + ` Difference ${fs(cheese_diff, 1)} kg (${pct(cheese_diff / estNeeded, 1, true)}). Everything that went in came out as product or offcuts (offcuts made ${f(madeOff, 1)} kg against ${f(pOff * offScale, 1)} planned for these cases), so this is offcut yield, not missing cheese.`);
+        } else flag(Math.abs(cheese_diff) > Math.max(3 * tol, 500) ? "HIGH" : "MEDIUM", cheese_diff > 0 ? "CHEESE_OVER_USED" : "CHEESE_UNDER_USED", msg + ` Difference ${fs(cheese_diff, 1)} kg (${pct(cheese_diff / estNeeded, 1, true)}).`);
+        if (Math.abs(unacc) <= massTol) flag("INFO", "MASS_BALANCES", massText + ` Unaccounted ${fs(unacc, 1)} kg is within tolerance.`);
+        else {
+          const same = cheeseOff && (cheese_diff > 0) === (unacc > 0);
+          const sev = same ? "INFO" : Math.abs(unacc) > Math.max(3 * massTol, 500) ? "HIGH" : "MEDIUM";
+          if (unacc > 0) flag(sev, "MASS_UNACCOUNTED", massText + ` ${f(unacc, 1)} kg (${pct(unacc / massIn, 1)}) went in but didn't come out as product or offcuts: waste, giveaway, or output or offcuts not posted.`);
+          else flag(sev, "MASS_OUT_EXCEEDS_IN", massText + ` ${f(-unacc, 1)} kg more came out than went in: inputs used but not consumed in SAP, or output overstated.`);
+        }
+        if (pOff > 0 && massIn > 0) {
+          const planRate = pOff / (pCheese + pStarch), rate = madeOff / massIn, extra = madeOff - planRate * massIn;
+          if (order_out > 0 && madeOff === 0) flag("LOW", "OFFCUTS_NOT_DECLARED", `No offcuts declared on the order (${f(pOff, 1)} kg planned, ${[...new Set(offc.map((b) => b.material))].sort().join(", ")}).`);
+          else if (rate - planRate > RULES.offcut_tolerance && extra >= 25) flag("MEDIUM", "OFFCUTS_OVER_PLAN", `Offcuts made ${f(madeOff, 1)} kg, ${pct(rate, 1)} of what went in against ${pct(planRate, 1)} planned (${fs(extra, 1)} kg): ${offc.map((b) => `${b.material} ${f(isNaN(b.fulfilled) ? 0 : b.fulfilled, 1)} kg`).join(", ")}.`);
+        }
         const blocks = mats.filter((m) => !m.toUpperCase().startsWith("MB"));
         const bt = sum(blocks.map((m) => share.get(m))), gt = sum(blocks.map((m) => byMat.get(m) || 0));
         if (blocks.length > 1 && gt > 0) {
@@ -572,7 +623,7 @@
       order_id: oid, status: o.status, fg, fg_text: o.fg_text, line: o.resource, area, start: o.start, last_regular_output: last,
       planned_out, order_out, journal_out, output_confirmations: confs.length, cheese_kg_per_case: perCase,
       cheese_source: cheeseSource, cheese_issued_kg: issued, cheese_needed_kg: needed, cheese_open_kg: cheeseOpen,
-      cheese_sent_kg: sent, cheese_returned_kg: back, cheese_used_kg: used, cheese_est_needed_kg: estNeeded, cheese_est_output: estOut, cheese_consumed_kg: consumed, cheese_consumed_by_material: Object.fromEntries(byMat), consumption: cons.slice().sort((a, b) => a.time - b.time), offcuts_kg: sum(offcuts.map((b) => (isNaN(b.fulfilled) ? 0 : b.fulfilled))),
+      cheese_sent_kg: sent, cheese_returned_kg: back, cheese_used_kg: used, cheese_est_needed_kg: estNeeded, cheese_est_output: estOut, cheese_consumed_kg: consumed, cheese_consumed_by_material: Object.fromEntries(byMat), mass, consumption: cons.slice().sort((a, b) => a.time - b.time), offcuts_kg: sum(offcuts.map((b) => (isNaN(b.fulfilled) ? 0 : b.fulfilled))),
       cheese_diff_kg: cheese_diff, cheese_tolerance_kg: cheese_tol, components: compRows,
       outputs: out.slice().sort((a, b) => a.time - b.time), confirmations: confs, cheese_moves: cheese.slice().sort((a, b) => a.time - b.time),
     };
@@ -618,6 +669,7 @@
     const hasCons = consumptionRows(wb.journal).some((r) => r.qty < 0 && !RULES.offcut_pattern.test(r.material.toUpperCase()));
     const consumption = hasCons ? assignConsumption(wb, windows, perConf) : [];
     const overBatches = hasCons ? overConsumedBatches(wb.journal) : new Map();
+    const starchUsed = hasCons ? starchConsumed(wb.journal, outputs) : new Map();
     const idx = {
       orders: new Map(orders.map((o) => [o.order_id, o])), comps: groupBy(wb.components, "order_id"),
       windows: new Map(windows.map((w) => [w.order_id, w])), outputs: groupBy(outputs.filter((r) => r.order_id !== null), "order_id"),
@@ -632,7 +684,7 @@
     let jmin = Infinity, jmax = -Infinity;
     for (const r of wb.journal) { if (r.time < jmin) jmin = r.time; if (r.time > jmax) jmax = r.time; }
     const journalRange = wb.journal.length ? [jmin, jmax] : null;
-    return { wb, orders, outputs, sends, idx, active, seqByRes, hasCons, overBatches, typical: typicalPallets(outputs), journalRange,
+    return { wb, orders, outputs, sends, idx, active, seqByRes, hasCons, overBatches, starchUsed, typical: typicalPallets(outputs), journalRange,
       unassigned: outputs.filter((r) => r.order_id === null) };
   }
 

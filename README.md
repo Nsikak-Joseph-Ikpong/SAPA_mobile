@@ -187,6 +187,15 @@ planned output):
   on the same line goes to the next job. Consumption vs needed (recipe × cases), the split between the
   block cheeses, no consumption at all (`CHEESE_NOT_CONSUMED`) and batches consumed for more than the
   pallet held (`BATCH_OVER_CONSUMED`) are checked;
+* **mass balance** (with consumption): everything in (cheese blocks and offcuts consumed, plus starch
+  backflushed on the order's output confirmations) against everything out (cases × product weight, plus
+  offcuts made as booked on the order's by-products). Product weight per case comes from the recipe:
+  cheese + starch planned, less offcuts planned, over the planned cases (e.g. 6.068 kg for a 6×1 kg case).
+  Offcut bins are made by slicing orders and consumed like any cheese by the orders whose recipe lists
+  them. Flags: more went in than came out (`MASS_UNACCOUNTED`), more came out than went in
+  (`MASS_OUT_EXCEEDS_IN`), offcut rate more than 3 points over plan (`OFFCUTS_OVER_PLAN`), no offcuts
+  declared (`OFFCUTS_NOT_DECLARED`). When cheese is over or under the recipe but the balance closes, the
+  difference is offcut yield and the cheese flag drops to LOW;
 * when the journal has no consumption lines: cheese issued on the order sheet vs needed, or, when the
   sheet shows none, an estimate from cheese moved to the job's line during its run minus what was moved
   away again (never worse than CHECK; `CHEESE_CARRIED_OVER` when one job's surplus matches the next
