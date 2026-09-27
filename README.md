@@ -214,9 +214,10 @@ planned output):
   or given to a neighbouring job, a recipe cheese not consumed at all, cheese moved back off the line
   without the consumption being reversed, offcuts above or below expected, output findings. The page can
   download the variance report for every order; the Excel report has it as its first sheet;
-* **planned, done and open** on the order for the product (cases), offcuts made, cheese blocks, offcuts
-  used and starch, with the journal's output or consumption next to each (open quantities are also in the
-  variance report);
+* **planned, actual and open** for the product (cases), offcuts made, cheese blocks, offcuts used and
+  starch. Open is worked out as planned − actual (the order sheet's open quantity isn't reliable); actual
+  cheese and starch are what the journal shows consumed, product and offcuts as made on the order. Open
+  quantities are also in the variance report;
 * when the journal has no consumption lines: cheese issued on the order sheet vs needed, or, when the
   sheet shows none, an estimate from cheese moved to the job's line during its run minus what was moved
   away again (never worse than CHECK; `CHEESE_CARRIED_OVER` when one job's surplus matches the next

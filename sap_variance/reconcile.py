@@ -1046,19 +1046,26 @@ def check_order(oid: str, wb: Workbook, windows: pd.DataFrame, outputs: pd.DataF
     stc = comps[comps["material"].str.upper().str.startswith(rules.not_cheese_prefixes)]
     cons_blk = float(sum(v for m, v in by_mat.items() if not re.match(rules.offcut_pattern, m.upper())))
     cons_off = float(sum(v for m, v in by_mat.items() if re.match(rules.offcut_pattern, m.upper())))
+    # open = planned - actual, worked out here (the order sheet's open quantity isn't reliable).
+    # Actual cheese and starch are what the journal shows consumed; product and offcuts as made on the order.
+    j_or = lambda jv, sheet: jv if has_cons else sheet
     open_status = [
-        {"item": "Product", "unit": "cases", "planned": planned_out or 0.0, "done": order_out,
-         "open": float(o["out_open"]) if not pd.isna(o["out_open"]) else None, "journal": journal_out},
-        {"item": "Offcuts made", "unit": "kg", "planned": _tot(offcuts, "planned"), "done": _tot(offcuts, "fulfilled"),
-         "open": _tot(offcuts, "open"), "journal": None},
-        {"item": "Cheese blocks", "unit": "kg", "planned": _tot(blk, "planned"), "done": _tot(blk, "fulfilled"),
-         "open": _tot(blk, "open"), "journal": cons_blk if has_cons else None},
-        {"item": "Offcuts used", "unit": "kg", "planned": _tot(offi, "planned"), "done": _tot(offi, "fulfilled"),
-         "open": _tot(offi, "open"), "journal": cons_off if has_cons else None},
-        {"item": "Starch", "unit": "kg", "planned": _tot(stc, "planned"), "done": _tot(stc, "fulfilled"),
-         "open": _tot(stc, "open"), "journal": float((starch_used or {}).get(oid, 0.0)) if has_cons else None},
+        {"item": "Product", "unit": "cases", "planned": planned_out or 0.0, "actual": order_out,
+         "source": "made on the order"},
+        {"item": "Offcuts made", "unit": "kg", "planned": _tot(offcuts, "planned"), "actual": _tot(offcuts, "fulfilled"),
+         "source": "by-products on the order"},
+        {"item": "Cheese blocks", "unit": "kg", "planned": _tot(blk, "planned"), "actual": j_or(cons_blk, _tot(blk, "fulfilled")),
+         "source": "consumed in the journal" if has_cons else "issued on the order"},
+        {"item": "Offcuts used", "unit": "kg", "planned": _tot(offi, "planned"), "actual": j_or(cons_off, _tot(offi, "fulfilled")),
+         "source": "consumed in the journal" if has_cons else "issued on the order"},
+        {"item": "Starch", "unit": "kg", "planned": _tot(stc, "planned"),
+         "actual": j_or(float((starch_used or {}).get(oid, 0.0)), _tot(stc, "fulfilled")),
+         "source": "consumed in the journal" if has_cons else "issued on the order"},
     ]
-    open_status = [r for r in open_status if r["planned"] or r["done"] or r["open"] or r["journal"]]
+    for r_ in open_status:
+        r_["planned"], r_["actual"] = float(r_["planned"]), float(r_["actual"])
+        r_["open"] = r_["planned"] - r_["actual"]
+    open_status = [r for r in open_status if r["planned"] or r["actual"]]
     summary = {
         "order_id": oid, "status": o["status"], "open_status": open_status, "fg": fg, "fg_text": o.get("fg_text"), "line": o["resource"],
         "area": area, "start": o["start"], "last_regular_output": last_regular,

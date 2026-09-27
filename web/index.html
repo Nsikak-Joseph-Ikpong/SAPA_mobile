@@ -404,10 +404,10 @@
         <p class="src">Case weight from the ${esc(va.case_weight_from)}; actual cheese is ${esc(va.actual_cheese_from)}. GA = giveaway: cheese in, less nominal output and offcuts. Against the plan, GA is ${fs(va.variance_kg, 1)} kg.</p></div>` : "";
     const os = s.open_status || [];
     const q1 = (x) => (x === null || x === undefined ? "-" : f(x, 1));
-    const openHtml = os.length ? `<div class="var"><h3>Planned, done and open on the order</h3><div class="scroll"><table>
-        <thead><tr><th></th><th>Unit</th><th>Planned</th><th>Done on the order</th><th>Open on the order</th><th>In the journal</th></tr></thead>
-        <tbody>${os.map((r) => `<tr><td>${esc(r.item)}</td><td>${esc(r.unit)}</td><td class="n">${q1(r.planned)}</td><td class="n">${q1(r.done)}</td><td class="n${r.open ? " hl" : ""}">${q1(r.open)}</td><td class="n">${q1(r.journal)}</td></tr>`).join("")}</tbody></table></div>
-        <p class="src">Done and open are from the order sheets (fulfilled and open quantity). "In the journal" is output posted, or cheese and starch consumed, per the confirmation journal.</p></div>` : "";
+    const openHtml = os.length ? `<div class="var"><h3>Planned, actual and open</h3><div class="scroll"><table>
+        <thead><tr><th></th><th>Unit</th><th>Planned</th><th>Actual</th><th>Open (planned − actual)</th><th>Actual is</th></tr></thead>
+        <tbody>${os.map((r) => `<tr><td>${esc(r.item)}</td><td>${esc(r.unit)}</td><td class="n">${q1(r.planned)}</td><td class="n">${q1(r.actual)}</td><td class="n hl${r.open < -0.05 ? " bad" : ""}">${q1(r.open)}</td><td>${esc(r.source)}</td></tr>`).join("")}</tbody></table></div>
+        <p class="src">Open is worked out as planned − actual, not taken from the order sheet. A negative open means more was used or made than planned.</p></div>` : "";
     const why = s.variance_reasons || [];
     const whyHtml = why.length ? `<div class="why"><h3>Possible reasons</h3><ol>${why.map((x) => `<li>${x.kg ? `<span class="kg">${f(x.kg, 1)} kg</span>` : ""}${esc(x.text)}</li>`).join("")}</ol></div>` : "";
     const flags = r.findings.length ? `<ul class="flags">${r.findings.map((x) => `<li><span class="tag ${x.severity}">${x.severity}</span>

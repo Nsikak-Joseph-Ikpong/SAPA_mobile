@@ -827,13 +827,16 @@
     const stc = comps.filter((c) => RULES.not_cheese_prefixes.some((p) => c.material.toUpperCase().startsWith(p)));
     let consBlk = 0, consOff = 0;
     for (const [m, q] of byMat) { if (isOff(m)) consOff += q; else consBlk += q; }
+    // open = planned - actual, worked out here (the order sheet's open quantity isn't reliable).
+    // Actual cheese and starch are what the journal shows consumed; product and offcuts as made on the order.
+    const jOr = (jv, sheet) => (hasCons ? jv : sheet), src = hasCons ? "consumed in the journal" : "issued on the order";
     const openStatus = [
-      { item: "Product", unit: "cases", planned: planned_out || 0, done: order_out, open: isNaN(o.out_open) ? null : o.out_open, journal: journal_out },
-      { item: "Offcuts made", unit: "kg", planned: tot(offcuts, "planned"), done: tot(offcuts, "fulfilled"), open: tot(offcuts, "open"), journal: null },
-      { item: "Cheese blocks", unit: "kg", planned: tot(blk, "planned"), done: tot(blk, "fulfilled"), open: tot(blk, "open"), journal: hasCons ? consBlk : null },
-      { item: "Offcuts used", unit: "kg", planned: tot(offi, "planned"), done: tot(offi, "fulfilled"), open: tot(offi, "open"), journal: hasCons ? consOff : null },
-      { item: "Starch", unit: "kg", planned: tot(stc, "planned"), done: tot(stc, "fulfilled"), open: tot(stc, "open"), journal: hasCons ? ctx.starchUsed.get(oid) || 0 : null },
-    ].filter((r) => r.planned || r.done || r.open || r.journal);
+      { item: "Product", unit: "cases", planned: planned_out || 0, actual: order_out, source: "made on the order" },
+      { item: "Offcuts made", unit: "kg", planned: tot(offcuts, "planned"), actual: tot(offcuts, "fulfilled"), source: "by-products on the order" },
+      { item: "Cheese blocks", unit: "kg", planned: tot(blk, "planned"), actual: jOr(consBlk, tot(blk, "fulfilled")), source: src },
+      { item: "Offcuts used", unit: "kg", planned: tot(offi, "planned"), actual: jOr(consOff, tot(offi, "fulfilled")), source: src },
+      { item: "Starch", unit: "kg", planned: tot(stc, "planned"), actual: jOr(ctx.starchUsed.get(oid) || 0, tot(stc, "fulfilled")), source: src },
+    ].filter((r) => r.planned || r.actual).map((r) => ({ ...r, open: r.planned - r.actual }));
     const variance = varianceView(o, comps, cheeseComps, offcuts, order_out, journal_out, cheeseSource, consumed, ctx.starchUsed.get(oid) || 0, issued, used, ctx.codeWeights, rec);
     let reasons = [];
     if (variance) {
