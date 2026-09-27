@@ -477,18 +477,20 @@
     const [cw, cwFrom] = caseWeight(o.fg_text, recipeNet, o.fg, codeWeights);
     const actual = order_out || journal_out;
     if (cw === null || !actual) return null;
-    const starchSheet = sum(starchComps.map((c) => (isNaN(c.fulfilled) ? 0 : c.fulfilled)));
+    // cheese only: starch is left out of actual and expected cheese, and out of the output side
+    // (a 200 kg dolav holds 197 kg of cheese and 3 kg of starch)
     let actualCheese, cheeseFrom;
-    if (cheeseSource === "consumed") { actualCheese = consumed + starchIn; cheeseFrom = "cheese consumed in the journal + starch"; }
-    else if (cheeseSource === "order") { actualCheese = issued + starchSheet; cheeseFrom = "cheese issued on the order sheet + starch"; }
-    else if (cheeseSource === "journal") { actualCheese = usedEst + starchSheet; cheeseFrom = "estimate from cheese moved to the line + starch"; }
+    if (cheeseSource === "consumed") { actualCheese = consumed; cheeseFrom = "cheese consumed in the journal (no starch)"; }
+    else if (cheeseSource === "order") { actualCheese = issued; cheeseFrom = "cheese issued on the order sheet (no starch)"; }
+    else if (cheeseSource === "journal") { actualCheese = usedEst; cheeseFrom = "estimate from cheese moved to the line (no starch)"; }
     else return null;
-    const nominalOut = actual * cw, expected = rec ? actual * rec.in_pc : (actual * (pCheese + pStarch)) / planned_out, expOff = rec ? actual * rec.off_pc : (actual * pOff) / planned_out;
-    const gaExp = expected - nominalOut - expOff, gaAct = actualCheese - nominalOut - madeOff, outOff = nominalOut + madeOff, diff = outOff - actualCheese;
+    const nominalOut = actual * cw, starchOut = actual * (rec ? rec.starch_pc : pStarch / planned_out), nominalCheese = nominalOut - starchOut;
+    const expected = rec ? actual * rec.cheese_pc : (actual * pCheese) / planned_out, expOff = rec ? actual * rec.off_pc : (actual * pOff) / planned_out;
+    const gaExp = expected - nominalCheese - expOff, gaAct = actualCheese - nominalCheese - madeOff, outOff = nominalCheese + madeOff, diff = outOff - actualCheese;
     return { case_weight: cw, case_weight_from: cwFrom, uom: cwFrom.startsWith("output counted in kg") ? "kg" : "Case", planned_fg: planned_out, actual_fg: actual, nominal_planned: planned_out * cw,
-      nominal_output: nominalOut, expected_cheese: expected, actual_cheese: actualCheese, actual_cheese_from: cheeseFrom,
+      nominal_output: nominalOut, starch_in_output: starchOut, nominal_cheese_output: nominalCheese, expected_cheese: expected, actual_cheese: actualCheese, actual_cheese_from: cheeseFrom,
       expected_offcuts: expOff, actual_offcuts: madeOff, ga_expected: gaExp, ga_actual: gaAct, output_plus_offcuts: outOff,
-      difference: diff, diff_pct: actualCheese ? diff / actualCheese : null, planned_input_pct: nominalOut ? expected / nominalOut : null,
+      difference: diff, diff_pct: actualCheese ? diff / actualCheese : null, planned_input_pct: nominalCheese ? expected / nominalCheese : null,
       variance_kg: gaAct - gaExp, tolerance: Math.max(RULES.tolerance_pct * expected, RULES.tolerance_kg), recipe_kg_per_case: recipeNet };
   }
 
@@ -744,14 +746,13 @@
       for (const c of cheeseComps) { plan.set(c.material, (plan.get(c.material) || 0) + c.planned); pt += c.planned; }
       const mats = [...plan.keys()].sort();
       const share = new Map(mats.map((m) => [m, plan.get(m) / pt]));
-      // what goes in per case is cheese and starch (197 + 3 kg for a 200 kg dolav): both sides include starch
-      const stPc = rec.starch_pc, inPc = rec.in_pc;
+      // cheese only: starch is shown but not counted
+      const stPc = rec.starch_pc, inPc = perCase;
       const starchUsedO = ctx.starchUsed.get(oid) || 0;
-      consumedIn = r6(consumed + starchUsedO);
-      needIn = inPc * estOut;
-      const cheeseNeed = perCase * estOut;
-      let matsTxt = mats.map((m) => `${m} ${f(byMat.get(m) || 0, 1)} of ${f(share.get(m) * cheeseNeed, 1)} kg`).join("; ");
-      if (stPc) matsTxt += `; starch ${f(starchUsedO, 1)} of ${f(stPc * estOut, 1)} kg`;
+      consumedIn = consumed;
+      needIn = perCase * estOut;
+      const cheeseNeed = needIn;
+      const matsTxt = mats.map((m) => `${m} ${f(byMat.get(m) || 0, 1)} of ${f(share.get(m) * cheeseNeed, 1)} kg`).join("; ");
       const others = [...byMat.keys()].filter((m) => !share.has(m)).sort();
       const sheet = issued ? ` The order sheet shows ${f(issued, 1)} kg of cheese issued.` : " None of the cheese shows on the order sheet.";
       const otherOut = journal_out && order_out !== journal_out ? ` (the order shows ${f(order_out)} cases, which need ${f(inPc * order_out, 1)} kg)` : "";
@@ -773,13 +774,14 @@
       if (!cons.length) {
         mass = null;
         const moved = sent ? ` ${f(sent, 1)} kg was moved to ${area} during the run.` : "";
-        flag("HIGH", "CHEESE_NOT_CONSUMED", `No cheese consumption in the journal for this run: the ${f(estOut)} cases need ${f(needIn, 1)} kg of cheese and starch (${fixed(inPc, 3)} kg/case)${otherOut}.${moved}${sheet}`);
+        flag("HIGH", "CHEESE_NOT_CONSUMED", `No cheese consumption in the journal for this run: the ${f(estOut)} cases need ${f(needIn, 1)} kg of cheese (${fixed(inPc, 3)} kg/case)${otherOut}.${moved}${sheet}`);
       } else {
         const tol = Math.max(RULES.tolerance_pct * needIn, RULES.tolerance_kg);
         cheese_diff = consumedIn - needIn; cheese_tol = tol;
-        const msg = `Cheese and starch consumed ${f(consumedIn, 1)} kg, the ${f(estOut)} cases ${journal_out ? "in the journal " : ""}need ${f(needIn, 1)} kg (${fixed(inPc, 3)} kg/case)${otherOut}: ${matsTxt}`
+        const msg = `Cheese consumed ${f(consumedIn, 1)} kg, the ${f(estOut)} cases ${journal_out ? "in the journal " : ""}need ${f(needIn, 1)} kg (${fixed(inPc, 3)} kg/case)${otherOut}: ${matsTxt}`
           + (others.length ? `; also ${others.map((m) => `${m} ${f(byMat.get(m), 1)} kg`).join(", ")}` : "") + "." + sheet
-          + (rec.corrected ? ` The recipe plans ${f(rec.recipe_net, 3)} kg per case for a ${f(rec.case_weight, 3)} kg case, so it's scaled to the case weight.` : "");
+          + (rec.corrected ? ` The recipe plans ${f(rec.recipe_net, 3)} kg per case for a ${f(rec.case_weight, 3)} kg case, so it's scaled to the case weight.` : "")
+          + (stPc ? ` Starch (${f(starchUsedO, 1)} of ${f(stPc * estOut, 1)} kg) isn't counted.` : "");
         const cheeseOff = Math.abs(cheese_diff) > tol;
         if (!cheeseOff) flag("INFO", "CHEESE_BALANCES", msg + ` Difference ${fs(cheese_diff, 1)} kg is within tolerance.`);
         else if (pOff > 0 && Math.abs(unacc) <= massTol) {
@@ -849,7 +851,7 @@
       planned_out, order_out, journal_out, output_confirmations: confs.length, cheese_kg_per_case: perCase,
       cheese_source: cheeseSource, cheese_issued_kg: issued, cheese_needed_kg: needed, cheese_open_kg: cheeseOpen,
       cheese_sent_kg: sent, cheese_returned_kg: back, cheese_used_kg: used, cheese_est_needed_kg: cheeseSource === "consumed" ? needIn : estNeeded, cheese_est_output: estOut, cheese_consumed_kg: consumed, cheese_consumed_by_material: Object.fromEntries(byMat), mass, variance, variance_reasons: reasons,
-      cheese_planned_kg: sum(cheeseComps.map((c) => c.planned)), starch_planned_kg: sum(comps.filter((c) => RULES.not_cheese_prefixes.some((p) => c.material.toUpperCase().startsWith(p))).map((c) => c.planned)), input_kg_per_case: rec ? rec.in_pc : null, offcut_kg_per_case: rec ? rec.off_pc : null, input_consumed_kg: cheeseSource === "consumed" ? consumed + (ctx.starchUsed.get(oid) || 0) : null, cheese_planned_offcuts_kg: sum(cheeseComps.filter((c) => RULES.offcut_pattern.test(c.material.toUpperCase())).map((c) => c.planned)), consumption: cons.slice().sort((a, b) => a.time - b.time), offcuts_kg: sum(offcuts.map((b) => (isNaN(b.fulfilled) ? 0 : b.fulfilled))),
+      cheese_planned_kg: sum(cheeseComps.map((c) => c.planned)), starch_planned_kg: sum(comps.filter((c) => RULES.not_cheese_prefixes.some((p) => c.material.toUpperCase().startsWith(p))).map((c) => c.planned)), input_kg_per_case: rec ? rec.in_pc : null, offcut_kg_per_case: rec ? rec.off_pc : null, starch_kg_per_case: rec ? rec.starch_pc : null, input_consumed_kg: cheeseSource === "consumed" ? consumed + (ctx.starchUsed.get(oid) || 0) : null, cheese_planned_offcuts_kg: sum(cheeseComps.filter((c) => RULES.offcut_pattern.test(c.material.toUpperCase())).map((c) => c.planned)), consumption: cons.slice().sort((a, b) => a.time - b.time), offcuts_kg: sum(offcuts.map((b) => (isNaN(b.fulfilled) ? 0 : b.fulfilled))),
       cheese_diff_kg: cheese_diff, cheese_tolerance_kg: cheese_tol, components: compRows,
       outputs: out.slice().sort((a, b) => a.time - b.time), confirmations: confs, cheese_moves: cheese.slice().sort((a, b) => a.time - b.time),
     };

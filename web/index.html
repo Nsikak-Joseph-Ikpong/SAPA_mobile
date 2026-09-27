@@ -356,24 +356,27 @@
     const sub = `${esc(s.fg)} ${esc(s.fg_text || "")} · ${esc(s.line || "")} · status ${esc(s.status || "n/a")}${!isNaN(s.start) ? ` · production began ${esc(dmy(s.start))}` : ""}`;
 
     const outBad = Math.abs(s.journal_out - s.order_out) > Math.max(2, 0.02 * Math.max(s.journal_out, s.order_out));
+    // cheese only: starch is shown for reference but never added to the cheese figures
     const po = s.cheese_planned_offcuts_kg, ps = s.starch_planned_kg || 0;
-    const pc = s.cheese_planned_kg ? s.cheese_planned_kg + ps : 0;   // cheese + starch, as SAP plans the input
-    const plannedParts = [po ? `blocks ${kg(s.cheese_planned_kg - po)}` : `cheese ${kg(s.cheese_planned_kg)}`, po ? `offcuts ${kg(po)}` : "", ps ? `starch ${kg(ps)}` : ""].filter(Boolean).join(" + ");
-    const plannedCheese = pc ? `<div class="fig"><dt>Cheese + starch planned</dt><dd>${kg(pc)}<small>${plannedParts} · for ${n0(s.planned_out)} cases</small></dd></div>` : "";
-    // what goes in per case, split into product, offcuts and giveaway so it isn't read as the case weight
+    const pc = s.cheese_planned_kg || 0;
+    const plannedParts = [po ? `blocks ${kg(pc - po)} + offcuts ${kg(po)}` : "cheese blocks", ps ? `starch ${kg(ps)} not included` : ""].filter(Boolean).join(" · ");
+    const plannedCheese = pc ? `<div class="fig"><dt>Cheese planned</dt><dd>${kg(pc)}<small>${plannedParts} · for ${n0(s.planned_out)} cases</small></dd></div>` : "";
+    // cheese per case, split into cheese in the product, offcuts and giveaway so it isn't read as the case weight
     const perCaseText = (x) => {
-      const inPc = x.input_kg_per_case, cw = x.variance ? x.variance.case_weight : null, off = x.offcut_kg_per_case || 0;
-      if (!cw) return `${inPc.toFixed(3)} kg cheese + starch per case`;
-      const ga = inPc - cw - off, unit = x.variance.uom === "kg" ? "kg of product" : "case";
-      const parts = [`${cw.toFixed(3)} product`, off ? `${off.toFixed(3)} offcuts` : "", Math.abs(ga) >= 0.0005 ? `${ga.toFixed(3)} giveaway` : ""].filter(Boolean);
-      return `${inPc.toFixed(3)} kg cheese + starch per ${unit}${parts.length > 1 ? ` (${parts.join(" + ")})` : ""}`;
+      const chPc = x.cheese_kg_per_case, v = x.variance, off = x.offcut_kg_per_case || 0, st = x.starch_kg_per_case || 0;
+      if (!v || !v.case_weight) return `${chPc.toFixed(3)} kg cheese per case`;
+      const inProduct = v.case_weight - st, ga = chPc - inProduct - off, unit = v.uom === "kg" ? "kg of product" : "case";
+      const extra = [off ? `${off.toFixed(3)} offcuts` : "", Math.abs(ga) >= 0.0005 ? `${ga.toFixed(3)} giveaway` : ""].filter(Boolean);
+      const starchNote = st ? `${v.case_weight.toFixed(3)} kg case less ${st.toFixed(3)} starch` : "";
+      if (!extra.length) return `${chPc.toFixed(3)} kg cheese per ${unit}${starchNote ? ` (${starchNote})` : ""}`;
+      return `${chPc.toFixed(3)} kg cheese per ${unit} (${inProduct.toFixed(3)} in the product + ${extra.join(" + ")}${starchNote ? `; ${starchNote}` : ""})`;
     };
     let cheeseLine = "";
     if (s.cheese_kg_per_case && s.cheese_source === "consumed") {
       const bad = s.cheese_consumed_kg === 0 || (s.cheese_diff_kg !== null && Math.abs(s.cheese_diff_kg) > s.cheese_tolerance_kg);
-      const inUsed = s.input_consumed_kg, starchUsed = s.mass ? s.mass.starch_in : inUsed - s.cheese_consumed_kg;
-      cheeseLine = `<div class="fig"><dt>Cheese + starch needed for cases made</dt><dd>${kg(s.cheese_est_needed_kg)}<small>${perCaseText(s)} × ${n0(s.cheese_est_output)} cases</small></dd></div>
-         <div class="fig"><dt>Cheese + starch consumed</dt><dd class="${bad ? "bad" : "good"}">${kg(inUsed)}<small>cheese ${kg(s.cheese_consumed_kg)}${starchUsed ? ` + starch ${kg(starchUsed)}` : ""} · ${s.consumption.length} posting${s.consumption.length === 1 ? "" : "s"}${pc ? ` · ${fs(inUsed - pc, 1)} kg vs the full plan` : ""}</small></dd></div>`;
+      const starchUsed = s.mass ? s.mass.starch_in : 0;
+      cheeseLine = `<div class="fig"><dt>Cheese needed for cases made</dt><dd>${kg(s.cheese_est_needed_kg)}<small>${perCaseText(s)} × ${n0(s.cheese_est_output)} cases</small></dd></div>
+         <div class="fig"><dt>Cheese consumed</dt><dd class="${bad ? "bad" : "good"}">${kg(s.cheese_consumed_kg)}<small>${s.consumption.length} posting${s.consumption.length === 1 ? "" : "s"}${starchUsed ? ` · starch ${kg(starchUsed)} not included` : ""}${pc ? ` · ${fs(s.cheese_consumed_kg - pc, 1)} kg vs the full plan` : ""}</small></dd></div>`;
     } else if (s.cheese_kg_per_case && s.cheese_source === "journal") {
       const bad = s.cheese_diff_kg !== null && Math.abs(s.cheese_diff_kg) > s.cheese_tolerance_kg;
       cheeseLine = `<div class="fig"><dt>Cheese used (journal estimate)</dt><dd class="${bad ? "bad" : s.cheese_sent_kg ? "good" : ""}">${kg(s.cheese_used_kg)}<small>moved to line ${kg(s.cheese_sent_kg)}, away ${kg(s.cheese_returned_kg)}</small></dd></div>
@@ -407,9 +410,9 @@
     const va = s.variance;
     const pctTxt = (x) => (x === null || x === undefined || isNaN(x) ? "" : (100 * x).toFixed(1) + "%");
     const varHtml = va ? `<div class="var"><h3>Variance</h3><div class="scroll"><table>
-        <thead><tr><th>Case weight</th><th>Planned FG qty</th><th>Actual FG qty</th><th>Nominal weight planned</th><th>Nominal weight of output</th><th>Expected cheese</th><th>Actual cheese issued</th><th>Expected offcuts output</th><th>Actual offcuts output</th><th>GA expected</th><th>GA actual</th><th>Output weight + offcuts</th><th>Difference to cheese issued</th><th>Diff %</th><th>Cheese planned input %</th></tr></thead>
-        <tbody><tr><td class="n">${f(va.case_weight, 3)}</td><td class="n">${f(va.planned_fg, 1)}</td><td class="n">${f(va.actual_fg, 1)}</td><td class="n">${f(va.nominal_planned, 1)}</td><td class="n">${f(va.nominal_output, 1)}</td><td class="n">${f(va.expected_cheese, 1)}</td><td class="n">${f(va.actual_cheese, 1)}</td><td class="n">${va.expected_offcuts ? f(va.expected_offcuts, 1) : "-"}</td><td class="n">${va.actual_offcuts ? f(va.actual_offcuts, 1) : "-"}</td><td class="n">${f(va.ga_expected, 1)}</td><td class="n hl">${f(va.ga_actual, 1)}</td><td class="n">${f(va.output_plus_offcuts, 1)}</td><td class="n hl">${f(va.difference, 1)}</td><td class="n hl">${pctTxt(va.diff_pct)}</td><td class="n">${va.planned_input_pct ? Math.round(100 * va.planned_input_pct) + "%" : ""}</td></tr></tbody></table></div>
-        <p class="src">Case weight from the ${esc(va.case_weight_from)}; actual cheese is ${esc(va.actual_cheese_from)}. GA = giveaway: cheese in, less nominal output and offcuts. Against the plan, GA is ${fs(va.variance_kg, 1)} kg.</p></div>` : "";
+        <thead><tr><th>Case weight</th><th>Planned FG qty</th><th>Actual FG qty</th><th>Nominal weight planned</th><th>Nominal weight of output</th><th>Starch in output</th><th>Nominal cheese of output</th><th>Expected cheese</th><th>Actual cheese issued</th><th>Expected offcuts output</th><th>Actual offcuts output</th><th>GA expected</th><th>GA actual</th><th>Output cheese + offcuts</th><th>Difference to cheese issued</th><th>Diff %</th><th>Cheese planned input %</th></tr></thead>
+        <tbody><tr><td class="n">${f(va.case_weight, 3)}</td><td class="n">${f(va.planned_fg, 1)}</td><td class="n">${f(va.actual_fg, 1)}</td><td class="n">${f(va.nominal_planned, 1)}</td><td class="n">${f(va.nominal_output, 1)}</td><td class="n">${va.starch_in_output ? f(va.starch_in_output, 1) : "-"}</td><td class="n">${f(va.nominal_cheese_output, 1)}</td><td class="n">${f(va.expected_cheese, 1)}</td><td class="n">${f(va.actual_cheese, 1)}</td><td class="n">${va.expected_offcuts ? f(va.expected_offcuts, 1) : "-"}</td><td class="n">${va.actual_offcuts ? f(va.actual_offcuts, 1) : "-"}</td><td class="n">${f(va.ga_expected, 1)}</td><td class="n hl">${f(va.ga_actual, 1)}</td><td class="n">${f(va.output_plus_offcuts, 1)}</td><td class="n hl">${f(va.difference, 1)}</td><td class="n hl">${pctTxt(va.diff_pct)}</td><td class="n">${va.planned_input_pct ? Math.round(100 * va.planned_input_pct) + "%" : ""}</td></tr></tbody></table></div>
+        <p class="src">Case weight from the ${esc(va.case_weight_from)}; actual cheese is ${esc(va.actual_cheese_from)}. Cheese only, no starch: GA = giveaway = cheese in, less the cheese in the nominal output (case weight less planned starch) and offcuts. Against the plan, GA is ${fs(va.variance_kg, 1)} kg.</p></div>` : "";
     const os = s.open_status || [];
     const q1 = (x) => (x === null || x === undefined ? "-" : f(x, 1));
     const openHtml = os.length ? `<div class="var"><h3>Planned, actual and open</h3><div class="scroll"><table>
@@ -473,9 +476,9 @@
           "Production Order ID (Requested End Date)": isNaN(o.latest_end) ? "" : dmy(o.latest_end).slice(0, 10),
           "Material ID": s.fg, "Material ID (Text)": s.fg_text || "", "Material ID (Base UoM)": v.uom, "Production Order Status": s.status, "Line": s.line,
           "Case Weight": v.case_weight, "Planned FG Qty": v.planned_fg, "Actual FG Qty": v.actual_fg, "Nominal Weight Planned": v.nominal_planned,
-          "Nominal Weight of Output": v.nominal_output, "Expected Cheese": v.expected_cheese, "Actual Cheese Issued": v.actual_cheese,
+          "Nominal Weight of Output": v.nominal_output, "Starch in Output": v.starch_in_output, "Nominal Cheese of Output": v.nominal_cheese_output, "Expected Cheese": v.expected_cheese, "Actual Cheese Issued": v.actual_cheese,
           "Expected Offcuts Output": v.expected_offcuts, "Actual Offcuts Output": v.actual_offcuts, "GA Expected": v.ga_expected, "GA Actual": v.ga_actual,
-          "Output Weight + Offcuts": v.output_plus_offcuts, "Difference to Cheese Issued": v.difference, "Diff %": v.diff_pct, "Cheese Planned Input %": v.planned_input_pct,
+          "Output Cheese + Offcuts": v.output_plus_offcuts, "Difference to Cheese Issued": v.difference, "Diff %": v.diff_pct, "Cheese Planned Input %": v.planned_input_pct,
           ...Object.fromEntries((s.open_status || []).map((x) => [`Open ${x.item} (${x.unit})`, x.open])),
           "Verdict": r.verdict, "Possible reasons": (s.variance_reasons || []).map((x) => (x.kg ? `[${f(x.kg, 1)} kg] ` : "") + x.text).join("\n"),
           "Case weight from": v.case_weight_from, "Actual cheese from": v.actual_cheese_from,

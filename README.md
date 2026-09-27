@@ -206,8 +206,9 @@ planned output):
   40x5kg, 12x160g; a size with a unit wins over a slice size like 90x90), else the pack code in the job code
   (MAGR200GB -> 200 kg, MOGR2122EU -> 12 kg, MAGR155EF -> 5 kg: learnt from other products with the same
   code whose text states the pack size), else the recipe. Products whose recipe needs about 1 kg per unit
-  (the CW lines) are counted in kg. Cheese needed and consumed both include starch (197 + 3 kg for a
-  200 kg dolav). When the recipe's weight per case is more than 5% off the case weight (e.g. two
+  (the CW lines) are counted in kg. The variance is cheese only: actual and expected cheese leave out
+  starch, and the output side is the cheese in the nominal output (case weight less the planned starch:
+  197 kg in a 200 kg dolav), so GA measures cheese giveaway only. When the recipe's weight per case is more than 5% off the case weight (e.g. two
   alternative cheeses both planned for the full case), the cheese is scaled to the case weight and the
   reasons say to check the BOM. Each order gets a list of possible reasons with the
   journal evidence: cheese moved to the line but never consumed, consumption on the line tied to no job

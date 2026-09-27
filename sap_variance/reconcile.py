@@ -569,30 +569,33 @@ def variance_view(o, comps, cheese_comps, offc, order_out, journal_out, cheese_s
     actual = order_out or journal_out
     if cw is None or not actual:
         return None
+    # cheese only: starch is left out of actual and expected cheese, and out of the output side
+    # (a 200 kg dolav holds 197 kg of cheese and 3 kg of starch)
     if cheese_source == "consumed":
-        actual_cheese, cheese_from = consumed + starch_in, "cheese consumed in the journal + starch"
+        actual_cheese, cheese_from = consumed, "cheese consumed in the journal (no starch)"
     elif cheese_source == "order":
-        actual_cheese = issued + float(starch_comps["fulfilled"].fillna(0).sum())
-        cheese_from = "cheese issued on the order sheet + starch"
+        actual_cheese, cheese_from = issued, "cheese issued on the order sheet (no starch)"
     elif cheese_source == "journal":
-        actual_cheese = used_est + float(starch_comps["fulfilled"].fillna(0).sum())
-        cheese_from = "estimate from cheese moved to the line + starch"
+        actual_cheese, cheese_from = used_est, "estimate from cheese moved to the line (no starch)"
     else:
         return None
     nominal_out = actual * cw
-    expected = actual * rec["in_pc"] if rec else actual * (p_cheese + p_starch) / planned_out
+    starch_out = actual * (rec["starch_pc"] if rec else p_starch / planned_out)
+    nominal_cheese = nominal_out - starch_out
+    expected = actual * rec["cheese_pc"] if rec else actual * p_cheese / planned_out
     exp_off = actual * rec["off_pc"] if rec else actual * p_off / planned_out
-    ga_exp = expected - nominal_out - exp_off
-    ga_act = actual_cheese - nominal_out - made_off
-    out_off = nominal_out + made_off
+    ga_exp = expected - nominal_cheese - exp_off
+    ga_act = actual_cheese - nominal_cheese - made_off
+    out_off = nominal_cheese + made_off
     diff = out_off - actual_cheese
     return {"case_weight": cw, "case_weight_from": cw_from, "uom": "kg" if cw_from.startswith("output counted in kg") else "Case",
             "planned_fg": planned_out, "actual_fg": actual,
-            "nominal_planned": planned_out * cw, "nominal_output": nominal_out, "expected_cheese": expected,
+            "nominal_planned": planned_out * cw, "nominal_output": nominal_out, "starch_in_output": starch_out,
+            "nominal_cheese_output": nominal_cheese, "expected_cheese": expected,
             "actual_cheese": actual_cheese, "actual_cheese_from": cheese_from, "expected_offcuts": exp_off,
             "actual_offcuts": made_off, "ga_expected": ga_exp, "ga_actual": ga_act, "output_plus_offcuts": out_off,
             "difference": diff, "diff_pct": diff / actual_cheese if actual_cheese else None,
-            "planned_input_pct": expected / nominal_out if nominal_out else None,
+            "planned_input_pct": expected / nominal_cheese if nominal_cheese else None,
             "variance_kg": ga_act - ga_exp, "tolerance": max(rules.tolerance_pct * expected, rules.tolerance_kg),
             "recipe_kg_per_case": recipe_net}
 
@@ -918,16 +921,15 @@ def check_order(oid: str, wb: Workbook, windows: pd.DataFrame, outputs: pd.DataF
         cheese_source = "consumed"
         est_out = journal_out or order_out
         # what goes in per case is cheese and starch (197 + 3 kg for a 200 kg dolav): both sides include starch
+        # cheese only: starch is shown but not counted
         st_pc = rec["starch_pc"]
-        in_pc = rec["in_pc"]
+        in_pc = per_case
         starch_used_o = float((starch_used or {}).get(oid, 0.0))
-        consumed_in = round(consumed + starch_used_o, 6)
-        est_needed = in_pc * est_out
-        cheese_need = per_case * est_out
+        consumed_in = consumed
+        est_needed = per_case * est_out
+        cheese_need = est_needed
         share = cheese_comps.groupby("material")["planned"].sum() / cheese_comps["planned"].sum()
         mats = "; ".join(f"{m} {by_mat.get(m, 0.0):,.1f} of {sh * cheese_need:,.1f} kg" for m, sh in share.items())
-        if st_pc:
-            mats += f"; starch {starch_used_o:,.1f} of {st_pc * est_out:,.1f} kg"
         others = [m for m in by_mat.index if m not in share.index]
         sheet = f" The order sheet shows {issued:,.1f} kg of cheese issued." if issued else " None of the cheese shows on the order sheet."
         other_out = (f" (the order shows {order_out:,.0f} cases, which need {in_pc * order_out:,.1f} kg)"
@@ -959,16 +961,17 @@ def check_order(oid: str, wb: Workbook, windows: pd.DataFrame, outputs: pd.DataF
             moved = f" {sent:,.1f} kg was moved to {area} during the run." if sent else ""
             flag("HIGH", "CHEESE_NOT_CONSUMED",
                  f"No cheese consumption in the journal for this run: the {est_out:,.0f} cases need "
-                 f"{est_needed:,.1f} kg of cheese and starch ({in_pc:.3f} kg/case){other_out}.{moved}{sheet}")
+                 f"{est_needed:,.1f} kg of cheese ({in_pc:.3f} kg/case){other_out}.{moved}{sheet}")
         else:
             tol = max(rules.tolerance_pct * est_needed, rules.tolerance_kg)
             cheese_diff, cheese_tol = consumed_in - est_needed, tol
-            msg = (f"Cheese and starch consumed {consumed_in:,.1f} kg, the {est_out:,.0f} cases "
+            msg = (f"Cheese consumed {consumed_in:,.1f} kg, the {est_out:,.0f} cases "
                    f"{'in the journal ' if journal_out else ''}need {est_needed:,.1f} kg ({in_pc:.3f} kg/case){other_out}: {mats}"
                    + (f"; also {', '.join(f'{m} {by_mat[m]:,.1f} kg' for m in others)}" if others else "") + "."
                    + sheet
                    + (f" The recipe plans {rec['recipe_net']:,.3f} kg per case for a {rec['case_weight']:,.3f} kg case, "
-                      f"so it's scaled to the case weight." if rec["corrected"] else ""))
+                      f"so it's scaled to the case weight." if rec["corrected"] else "")
+                   + (f" Starch ({starch_used_o:,.1f} of {st_pc * est_out:,.1f} kg) isn't counted." if st_pc else ""))
             cheese_off = abs(cheese_diff) > tol
             if not cheese_off:
                 flag("INFO", "CHEESE_BALANCES", msg + f" Difference {cheese_diff:+,.1f} kg is within tolerance.")
@@ -1079,6 +1082,7 @@ def check_order(oid: str, wb: Workbook, windows: pd.DataFrame, outputs: pd.DataF
         "starch_planned_kg": float(comps.loc[comps["material"].str.upper().str.startswith(rules.not_cheese_prefixes), "planned"].sum()),
         "input_kg_per_case": rec["in_pc"] if rec else None,
         "offcut_kg_per_case": rec["off_pc"] if rec else None,
+        "starch_kg_per_case": rec["starch_pc"] if rec else None,
         "input_consumed_kg": (consumed + float((starch_used or {}).get(oid, 0.0))) if cheese_source == "consumed" else None,
         "cheese_planned_offcuts_kg": float(cheese_comps.loc[cheese_comps["material"].str.upper().str.match(rules.offcut_pattern), "planned"].sum())
         if not cheese_comps.empty else 0.0,
@@ -1283,10 +1287,11 @@ def write_excel(res: Result, path: str) -> str:
             "Material ID": sm["fg"], "Material ID (Text)": sm.get("fg_text") or "", "Material ID (Base UoM)": v["uom"],
             "Production Order Status": sm["status"], "Line": sm["line"], "Case Weight": v["case_weight"],
             "Planned FG Qty": v["planned_fg"], "Actual FG Qty": v["actual_fg"], "Nominal Weight Planned": v["nominal_planned"],
-            "Nominal Weight of Output": v["nominal_output"], "Expected Cheese": v["expected_cheese"],
+            "Nominal Weight of Output": v["nominal_output"], "Starch in Output": v["starch_in_output"],
+            "Nominal Cheese of Output": v["nominal_cheese_output"], "Expected Cheese": v["expected_cheese"],
             "Actual Cheese Issued": v["actual_cheese"], "Expected Offcuts Output": v["expected_offcuts"],
             "Actual Offcuts Output": v["actual_offcuts"], "GA Expected": v["ga_expected"], "GA Actual": v["ga_actual"],
-            "Output Weight + Offcuts": v["output_plus_offcuts"], "Difference to Cheese Issued": v["difference"],
+            "Output Cheese + Offcuts": v["output_plus_offcuts"], "Difference to Cheese Issued": v["difference"],
             "Diff %": v["diff_pct"], "Cheese Planned Input %": v["planned_input_pct"],
             **{f"Open {r['item']} ({r['unit']})": r["open"] for r in sm["open_status"]},
             "Verdict": verdict(by_order.get(sm["order_id"], [])),
