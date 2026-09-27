@@ -203,7 +203,13 @@ planned output):
   quantity, nominal weight planned and of output, expected and actual cheese, expected and actual
   offcuts, giveaway (GA) expected and actual, output weight + offcuts, the difference to cheese issued, its
   % and the cheese planned input %. Case weight comes from the pack size in the product text (6x1kg,
-  40x5kg, 12x160g) or, when there is none, the recipe. Each order gets a list of possible reasons with the
+  40x5kg, 12x160g; a size with a unit wins over a slice size like 90x90), else the pack code in the job code
+  (MAGR200GB -> 200 kg, MOGR2122EU -> 12 kg, MAGR155EF -> 5 kg: learnt from other products with the same
+  code whose text states the pack size), else the recipe. Products whose recipe needs about 1 kg per unit
+  (the CW lines) are counted in kg. Cheese needed and consumed both include starch (197 + 3 kg for a
+  200 kg dolav). When the recipe's weight per case is more than 5% off the case weight (e.g. two
+  alternative cheeses both planned for the full case), the cheese is scaled to the case weight and the
+  reasons say to check the BOM. Each order gets a list of possible reasons with the
   journal evidence: cheese moved to the line but never consumed, consumption on the line tied to no job
   or given to a neighbouring job, a recipe cheese not consumed at all, cheese moved back off the line
   without the consumption being reversed, offcuts above or below expected, output findings. The page can

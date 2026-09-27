@@ -483,25 +483,78 @@ def assign_cheese(wb: Workbook, windows: pd.DataFrame, outputs: pd.DataFrame, ru
 
 
 
-PACK = re.compile(r"(\d+)\s*[xX]\s*(\d+(?:[.,]\d+)?)\s*(kg|g|gr|grm)?(?![A-Za-z])", re.I)
+PACK = re.compile(r"(\d+)\s*[xX]\s*(\d+(?:[.,]\d+)?)(?![\d.,])\s*(kg|k|grm|gr|g)?(?![A-Za-z])", re.I)
 
 
-def case_weight(text, recipe_net) -> tuple:
-    """Nominal case weight: from the pack size in the product text (6x1kg, 40x5kg, 12x160g), else the
-    recipe's product weight per case. A text size far from the recipe (over 25%) is not trusted."""
-    m = PACK.search(str(text or ""))
-    if m:
-        n, q, unit = int(m.group(1)), float(m.group(2).replace(",", ".")), (m.group(3) or "kg").lower()
-        w = n * q / 1000 if unit.startswith("g") else n * q
-        if not recipe_net or recipe_net <= 0 or abs(w - recipe_net) / recipe_net <= 0.25:
-            return w, "pack size in the product text"
+def pack_weight(text):
+    """Case weight from a pack size in the product text: 6x1kg, 40x5kg, 12x160g, 4x2.88k, 10 x 180 (grams when
+    a bare number is 50 or more). A size with a unit wins over a bare one (90x90 is a slice size)."""
+    found = list(PACK.finditer(str(text or "")))
+    if not found:
+        return None
+    m = next((x for x in found if x.group(3)), found[0])
+    n, q, unit = int(m.group(1)), float(m.group(2).replace(",", ".")), (m.group(3) or "").lower()
+    grams = unit.startswith("g") or (not unit and q >= 50)
+    w = n * q / 1000 if grams else n * q
+    return w if 0.05 <= w <= 1000 else None
+
+
+PACK_CODE = re.compile(r"\d{2,}")
+
+
+def pack_code(fg):
+    """The pack code in a job code: the first run of two or more digits (MAGR200GB -> 200,
+    MOGR2122EU -> 2122, MCGR155EF7030 -> 155)."""
+    m = PACK_CODE.search(str(fg or ""))
+    return m.group(0) if m else None
+
+
+def learn_pack_codes(orders: pd.DataFrame) -> dict:
+    """Case weight per pack code, learnt from products whose text states the pack size. A code whose
+    products disagree is left out."""
+    seen: dict = {}
+    for fg, text in orders[["fg", "fg_text"]].drop_duplicates().itertuples(index=False):
+        code, w = pack_code(fg), pack_weight(text)
+        if code and w:
+            seen.setdefault(code, set()).add(round(w, 3))
+    return {c: next(iter(ws)) for c, ws in seen.items() if len(ws) == 1}
+
+
+def case_weight(text, recipe_net, fg=None, code_weights=None) -> tuple:
+    """Nominal weight per unit of output. Products whose recipe needs about 1 kg per unit are counted in kg.
+    Otherwise the pack size in the product text, else the pack code in the job code (as other products with
+    that code), else the recipe. A text or code weight more than about 2x away from the recipe isn't trusted."""
+    if recipe_net and abs(recipe_net - 1) <= 0.03:
+        return 1.0, "output counted in kg (the recipe needs about 1 kg per unit)"
+    plausible = lambda w: not recipe_net or recipe_net <= 0 or 0.45 <= recipe_net / w <= 2.2
+    w = pack_weight(text)
+    if w and plausible(w):
+        return w, "pack size in the product text"
+    code = pack_code(fg)
+    if code and code_weights and code in code_weights and plausible(code_weights[code]):
+        return code_weights[code], f"job code (pack code {code}, as other products with that code)"
     if recipe_net and recipe_net > 0:
         return round(recipe_net, 3), "recipe (cheese + starch less offcuts, per case)"
     return None, None
 
 
+def recipe_per_case(p_cheese, p_starch, p_off, planned_out, cw) -> dict:
+    """Cheese, starch and offcuts per case from the recipe. When the recipe's product weight per case
+    (cheese + starch less offcuts) is more than 5% away from the case weight, the recipe is scaled to the
+    case weight (e.g. two alternative cheeses both planned for the full case)."""
+    cheese_pc, starch_pc, off_pc = p_cheese / planned_out, p_starch / planned_out, p_off / planned_out
+    net = cheese_pc + starch_pc - off_pc
+    k = 1.0
+    if cw and net > 0 and abs(net - cw) / cw > 0.05 and cheese_pc - off_pc > 0:
+        # scale the cheese (and the offcuts that come from it); starch stays as planned
+        k = (cw - starch_pc) / (cheese_pc - off_pc) if cw > starch_pc else cw / net
+    return {"cheese_pc": cheese_pc * k, "starch_pc": starch_pc, "off_pc": off_pc * k,
+            "in_pc": cheese_pc * k + starch_pc, "net_pc": cheese_pc * k + starch_pc - off_pc * k, "recipe_net": net,
+            "scale": k, "corrected": k != 1.0, "case_weight": cw}
+
+
 def variance_view(o, comps, cheese_comps, offc, order_out, journal_out, cheese_source, consumed, starch_in,
-                  issued, used_est, rules) -> dict | None:
+                  issued, used_est, rules, code_weights=None, rec=None) -> dict | None:
     """The variance in the layout of the plant's variance report."""
     planned_out = o["planned_out"] if not pd.isna(o["planned_out"]) else None
     if not planned_out:
@@ -510,7 +563,8 @@ def variance_view(o, comps, cheese_comps, offc, order_out, journal_out, cheese_s
     p_cheese, p_starch = float(cheese_comps["planned"].sum()), float(starch_comps["planned"].sum())
     p_off = float(offc["planned"].fillna(0).sum())
     made_off = float(offc["fulfilled"].fillna(0).sum())
-    cw, cw_from = case_weight(o.get("fg_text"), (p_cheese + p_starch - p_off) / planned_out)
+    recipe_net = (p_cheese + p_starch - p_off) / planned_out
+    cw, cw_from = case_weight(o.get("fg_text"), recipe_net, o["fg"], code_weights)
     actual = order_out or journal_out
     if cw is None or not actual:
         return None
@@ -525,28 +579,35 @@ def variance_view(o, comps, cheese_comps, offc, order_out, journal_out, cheese_s
     else:
         return None
     nominal_out = actual * cw
-    expected = actual * (p_cheese + p_starch) / planned_out
-    exp_off = actual * p_off / planned_out
+    expected = actual * rec["in_pc"] if rec else actual * (p_cheese + p_starch) / planned_out
+    exp_off = actual * rec["off_pc"] if rec else actual * p_off / planned_out
     ga_exp = expected - nominal_out - exp_off
     ga_act = actual_cheese - nominal_out - made_off
     out_off = nominal_out + made_off
     diff = out_off - actual_cheese
-    return {"case_weight": cw, "case_weight_from": cw_from, "planned_fg": planned_out, "actual_fg": actual,
+    return {"case_weight": cw, "case_weight_from": cw_from, "uom": "kg" if cw_from.startswith("output counted in kg") else "Case",
+            "planned_fg": planned_out, "actual_fg": actual,
             "nominal_planned": planned_out * cw, "nominal_output": nominal_out, "expected_cheese": expected,
             "actual_cheese": actual_cheese, "actual_cheese_from": cheese_from, "expected_offcuts": exp_off,
             "actual_offcuts": made_off, "ga_expected": ga_exp, "ga_actual": ga_act, "output_plus_offcuts": out_off,
             "difference": diff, "diff_pct": diff / actual_cheese if actual_cheese else None,
             "planned_input_pct": expected / nominal_out if nominal_out else None,
-            "variance_kg": ga_act - ga_exp, "tolerance": max(rules.tolerance_pct * expected, rules.tolerance_kg)}
+            "variance_kg": ga_act - ga_exp, "tolerance": max(rules.tolerance_pct * expected, rules.tolerance_kg),
+            "recipe_kg_per_case": recipe_net}
 
 
 def variance_reasons(oid, v, cons, sends_o, window, consumption, codes, recipe_blocks, info, rules) -> list:
     """Possible reasons for the variance, with the journal evidence behind each."""
     out = []
     var = v["variance_kg"]
+    rn, cw = v["recipe_kg_per_case"], v["case_weight"]
+    if rn and cw and abs(rn - cw) / cw > 0.05:
+        out.append({"kg": None, "text": f"The recipe plans {rn:,.3f} kg of cheese and starch per case (less offcuts) "
+                    f"for a {cw:,.3f} kg case ({rn / cw - 1:+.0%}), so expected cheese uses the case weight instead: "
+                    f"check the recipe (BOM)."})
     if abs(var) <= v["tolerance"]:
-        return [{"kg": None, "text": f"Cheese is within tolerance of the plan ({var:+,.1f} kg against the giveaway "
-                                     f"the recipe allows), so there's nothing to explain."}]
+        return out + [{"kg": None, "text": f"Cheese is within tolerance of the plan ({var:+,.1f} kg against the "
+                                           f"giveaway the recipe allows), so there's nothing to explain."}]
     area, begin, end = window["area"], window["begin"], window["end"]
     ctype = info["ctype"]
     types = {ctype(m) for m in info["recipe"]}
@@ -755,6 +816,14 @@ def check_order(oid: str, wb: Workbook, windows: pd.DataFrame, outputs: pd.DataF
 
     # ---- cheese issued to the order ----
     per_case = (cheese_comps["planned"].sum() / planned_out) if planned_out and not cheese_comps.empty else None
+    rec = None
+    if per_case:
+        st_c = comps[comps["material"].str.upper().str.startswith(rules.not_cheese_prefixes)]
+        off_c = wb.byproducts[wb.byproducts["order_id"] == oid]
+        p_ch, p_st, p_of = float(cheese_comps["planned"].sum()), float(st_c["planned"].sum()), float(off_c["planned"].fillna(0).sum())
+        cw_o, _ = case_weight(o.get("fg_text"), (p_ch + p_st - p_of) / planned_out, o["fg"], (info or {}).get("code_weights"))
+        rec = recipe_per_case(p_ch, p_st, p_of, planned_out, cw_o)
+        per_case = rec["cheese_pc"]
     issued = float(cheese_comps["fulfilled"].fillna(0).sum()) if not cheese_comps.empty else 0.0
     cheese_open = float(cheese_comps["open"].fillna(0).sum()) if not cheese_comps.empty else 0.0
     needed = per_case * order_out if per_case else None
@@ -847,12 +916,20 @@ def check_order(oid: str, wb: Workbook, windows: pd.DataFrame, outputs: pd.DataF
     if has_cons and per_case and (journal_out or order_out):
         cheese_source = "consumed"
         est_out = journal_out or order_out
-        est_needed = per_case * est_out
+        # what goes in per case is cheese and starch (197 + 3 kg for a 200 kg dolav): both sides include starch
+        st_pc = rec["starch_pc"]
+        in_pc = rec["in_pc"]
+        starch_used_o = float((starch_used or {}).get(oid, 0.0))
+        consumed_in = round(consumed + starch_used_o, 6)
+        est_needed = in_pc * est_out
+        cheese_need = per_case * est_out
         share = cheese_comps.groupby("material")["planned"].sum() / cheese_comps["planned"].sum()
-        mats = "; ".join(f"{m} {by_mat.get(m, 0.0):,.1f} of {sh * est_needed:,.1f} kg" for m, sh in share.items())
+        mats = "; ".join(f"{m} {by_mat.get(m, 0.0):,.1f} of {sh * cheese_need:,.1f} kg" for m, sh in share.items())
+        if st_pc:
+            mats += f"; starch {starch_used_o:,.1f} of {st_pc * est_out:,.1f} kg"
         others = [m for m in by_mat.index if m not in share.index]
-        sheet = f" The order sheet shows {issued:,.1f} kg issued." if issued else " None of it shows on the order sheet."
-        other_out = (f" (the order shows {order_out:,.0f} cases, which need {per_case * order_out:,.1f} kg)"
+        sheet = f" The order sheet shows {issued:,.1f} kg of cheese issued." if issued else " None of the cheese shows on the order sheet."
+        other_out = (f" (the order shows {order_out:,.0f} cases, which need {in_pc * order_out:,.1f} kg)"
                      if journal_out and order_out != journal_out else "")
         # ---- mass balance: everything in (cheese blocks, offcuts, starch) vs everything out
         # (product, offcuts made). Product weight per case comes from the recipe: cheese + starch
@@ -861,7 +938,7 @@ def check_order(oid: str, wb: Workbook, windows: pd.DataFrame, outputs: pd.DataF
         p_cheese, p_starch = float(cheese_comps["planned"].sum()), float(starch_comps["planned"].sum())
         offc = wb.byproducts[wb.byproducts["order_id"] == oid]
         p_off, made_off = float(offc["planned"].fillna(0).sum()), float(offc["fulfilled"].fillna(0).sum())
-        net_pc = (p_cheese + p_starch - p_off) / planned_out
+        net_pc = rec["net_pc"]
         starch_in = float((starch_used or {}).get(oid, 0.0))
         offcut_in = float(sum(v for m, v in by_mat.items() if re.match(rules.offcut_pattern, m.upper())))
         mass_in = consumed + starch_in
@@ -869,7 +946,7 @@ def check_order(oid: str, wb: Workbook, windows: pd.DataFrame, outputs: pd.DataF
         mass_out = product_kg + made_off
         unacc = mass_in - mass_out
         mass_tol = max(rules.tolerance_pct * mass_in, rules.tolerance_kg)
-        off_scale = est_out / planned_out                  # planned offcuts for the cases made
+        off_scale = est_out * rec["off_pc"] / p_off if p_off else 0.0   # planned offcuts for the cases made
         mass = {"in": mass_in, "blocks_in": consumed - offcut_in, "offcuts_in": offcut_in, "starch_in": starch_in,
                 "out": mass_out, "product": product_kg, "kg_per_case": net_pc, "cases": est_out,
                 "offcuts_made": made_off, "offcuts_planned": p_off * off_scale, "unaccounted": unacc, "tolerance": mass_tol}
@@ -881,14 +958,16 @@ def check_order(oid: str, wb: Workbook, windows: pd.DataFrame, outputs: pd.DataF
             moved = f" {sent:,.1f} kg was moved to {area} during the run." if sent else ""
             flag("HIGH", "CHEESE_NOT_CONSUMED",
                  f"No cheese consumption in the journal for this run: the {est_out:,.0f} cases need "
-                 f"{est_needed:,.1f} kg ({per_case:.3f} kg/case){other_out}.{moved}{sheet}")
+                 f"{est_needed:,.1f} kg of cheese and starch ({in_pc:.3f} kg/case){other_out}.{moved}{sheet}")
         else:
             tol = max(rules.tolerance_pct * est_needed, rules.tolerance_kg)
-            cheese_diff, cheese_tol = consumed - est_needed, tol
-            msg = (f"Cheese consumed {consumed:,.1f} kg, the {est_out:,.0f} cases {'in the journal ' if journal_out else ''}"
-                   f"need {est_needed:,.1f} kg ({per_case:.3f} kg/case){other_out}: {mats}"
+            cheese_diff, cheese_tol = consumed_in - est_needed, tol
+            msg = (f"Cheese and starch consumed {consumed_in:,.1f} kg, the {est_out:,.0f} cases "
+                   f"{'in the journal ' if journal_out else ''}need {est_needed:,.1f} kg ({in_pc:.3f} kg/case){other_out}: {mats}"
                    + (f"; also {', '.join(f'{m} {by_mat[m]:,.1f} kg' for m in others)}" if others else "") + "."
-                   + sheet)
+                   + sheet
+                   + (f" The recipe plans {rec['recipe_net']:,.3f} kg per case for a {rec['case_weight']:,.3f} kg case, "
+                      f"so it's scaled to the case weight." if rec["corrected"] else ""))
             cheese_off = abs(cheese_diff) > tol
             if not cheese_off:
                 flag("INFO", "CHEESE_BALANCES", msg + f" Difference {cheese_diff:+,.1f} kg is within tolerance.")
@@ -949,7 +1028,8 @@ def check_order(oid: str, wb: Workbook, windows: pd.DataFrame, outputs: pd.DataF
 
     offcuts = wb.byproducts[wb.byproducts["order_id"] == oid]
     variance = variance_view(o, comps, cheese_comps, offcuts, order_out, journal_out, cheese_source, consumed,
-                             float((starch_used or {}).get(oid, 0.0)), issued, used, rules)
+                             float((starch_used or {}).get(oid, 0.0)), issued, used, rules,
+                             (info or {}).get("code_weights"), rec)
     reasons = []
     if variance and info is not None:
         blocks = sorted(m for m in set(cheese_comps["material"]) if not re.match(rules.offcut_pattern, m.upper()))
@@ -967,6 +1047,9 @@ def check_order(oid: str, wb: Workbook, windows: pd.DataFrame, outputs: pd.DataF
         "cheese_est_needed_kg": est_needed, "cheese_est_output": est_out, "cheese_consumed_kg": consumed,
         "cheese_consumed_by_material": {k: float(v) for k, v in by_mat.items()},
         "cheese_planned_kg": float(cheese_comps["planned"].sum()) if not cheese_comps.empty else 0.0,
+        "starch_planned_kg": float(comps.loc[comps["material"].str.upper().str.startswith(rules.not_cheese_prefixes), "planned"].sum()),
+        "input_kg_per_case": rec["in_pc"] if rec else None,
+        "input_consumed_kg": (consumed + float((starch_used or {}).get(oid, 0.0))) if cheese_source == "consumed" else None,
         "cheese_planned_offcuts_kg": float(cheese_comps.loc[cheese_comps["material"].str.upper().str.match(rules.offcut_pattern), "planned"].sum())
         if not cheese_comps.empty else 0.0,
         "mass": mass, "variance": variance, "variance_reasons": reasons,
@@ -1001,7 +1084,7 @@ def run(wb: Workbook, order_ids: list[str] | None = None, rules: Rules | None = 
     consumption = assign_consumption(wb, windows, outputs, rules) if has_cons else None
     over_batches = over_consumed_batches(wb.journal, rules) if has_cons else {}
     starch_used = starch_consumed(wb.journal, outputs, rules) if has_cons else {}
-    info = {"ctype": lambda m: m.upper()[:4] if not re.match(rules.offcut_pattern, m.upper()) else m.upper(),
+    info = {"code_weights": learn_pack_codes(wb.orders), "ctype": lambda m: m.upper()[:4] if not re.match(rules.offcut_pattern, m.upper()) else m.upper(),
             "consumed_by_batch": ((-raw_cons.groupby(["material", "batch"])["qty"].sum()).to_dict() if has_cons else {}),
             "moves_by_batch": {k: g.sort_values("time", kind="stable") for k, g in
                                wb.journal[~wb.journal["is_prod"] & (wb.journal["qty"] > 0)].groupby(["material", "batch"])}}
@@ -1165,7 +1248,7 @@ def write_excel(res: Result, path: str) -> str:
             continue
         var_rows.append({
             "FG Lookup": f"{sm['order_id']}FG", "Production Order ID": sm["order_id"],
-            "Material ID": sm["fg"], "Material ID (Text)": sm.get("fg_text") or "", "Material ID (Base UoM)": "Case",
+            "Material ID": sm["fg"], "Material ID (Text)": sm.get("fg_text") or "", "Material ID (Base UoM)": v["uom"],
             "Production Order Status": sm["status"], "Line": sm["line"], "Case Weight": v["case_weight"],
             "Planned FG Qty": v["planned_fg"], "Actual FG Qty": v["actual_fg"], "Nominal Weight Planned": v["nominal_planned"],
             "Nominal Weight of Output": v["nominal_output"], "Expected Cheese": v["expected_cheese"],

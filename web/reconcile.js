@@ -407,7 +407,7 @@
     for (const [fg, m] of Object.entries(per)) {
       if (m.size < 5) continue;
       const counts = new Map();
-      for (const v of m.values()) { const k = Math.round(v); counts.set(k, (counts.get(k) || 0) + 1); }
+      for (const v of m.values()) { const k = Number(fixed(v, 0)); counts.set(k, (counts.get(k) || 0) + 1); }
       let best = null, bc = -1;
       for (const [v, c] of counts) if (c > bc || (c === bc && v < best)) { best = v; bc = c; }
       if (best >= 10) out[fg] = best;
@@ -416,27 +416,65 @@
   }
 
   // ------------------------------------------------------------ variance (plant variance report layout)
-  const PACK = /(\d+)\s*[xX]\s*(\d+(?:[.,]\d+)?)\s*(kg|g|gr|grm)?(?![A-Za-z])/i;
-  // Nominal case weight: from the pack size in the product text (6x1kg, 40x5kg, 12x160g), else the recipe's
-  // product weight per case. A text size far from the recipe (over 25%) is not trusted.
-  function caseWeight(text, recipeNet) {
-    const m = PACK.exec(String(text ?? ""));
-    if (m) {
-      const n = parseInt(m[1], 10), q = parseFloat(m[2].replace(",", ".")), unit = (m[3] || "kg").toLowerCase();
-      const w = unit.startsWith("g") ? (n * q) / 1000 : n * q;
-      if (!(recipeNet > 0) || Math.abs(w - recipeNet) / recipeNet <= 0.25) return [w, "pack size in the product text"];
+  const PACK = /(\d+)\s*[xX]\s*(\d+(?:[.,]\d+)?)(?![\d.,])\s*(kg|k|grm|gr|g)?(?![A-Za-z])/gi;
+  // Case weight from a pack size in the product text: 6x1kg, 40x5kg, 12x160g, 4x2.88k, 10 x 180 (grams when a bare
+  // number is 50 or more). A size with a unit wins over a bare one (90x90 is a slice size).
+  function packWeight(text) {
+    const found = [...String(text ?? "").matchAll(PACK)];
+    if (!found.length) return null;
+    const m = found.find((x) => x[3]) || found[0];
+    const n = parseInt(m[1], 10), q = parseFloat(m[2].replace(",", ".")), unit = (m[3] || "").toLowerCase();
+    const grams = unit.startsWith("g") || (!unit && q >= 50);
+    const w = grams ? (n * q) / 1000 : n * q;
+    return w >= 0.05 && w <= 1000 ? w : null;
+  }
+  // the pack code in a job code: the first run of two or more digits (MAGR200GB -> 200, MOGR2122EU -> 2122)
+  const packCode = (fg) => { const m = /\d{2,}/.exec(String(fg ?? "")); return m ? m[0] : null; };
+  // case weight per pack code, learnt from products whose text states the pack size; codes whose products disagree are left out
+  function learnPackCodes(orders) {
+    const seen = new Map(), done = new Set();
+    for (const o of orders) {
+      const key = o.fg + "\u0000" + o.fg_text;
+      if (done.has(key)) continue; done.add(key);
+      const code = packCode(o.fg), w = packWeight(o.fg_text);
+      if (code && w) { if (!seen.has(code)) seen.set(code, new Set()); seen.get(code).add(Number(fixed(w, 3))); }
     }
+    const out = new Map();
+    for (const [c, ws] of seen) if (ws.size === 1) out.set(c, [...ws][0]);
+    return out;
+  }
+  // Nominal weight per unit of output. Products whose recipe needs about 1 kg per unit are counted in kg. Otherwise the pack
+  // size in the product text, else the pack code in the job code, else the recipe. A text or code weight more than about 2x
+  // away from the recipe isn't trusted.
+  function caseWeight(text, recipeNet, fg, codeWeights) {
+    if (recipeNet && Math.abs(recipeNet - 1) <= 0.03) return [1, "output counted in kg (the recipe needs about 1 kg per unit)"];
+    const plausible = (w) => !recipeNet || recipeNet <= 0 || (recipeNet / w >= 0.45 && recipeNet / w <= 2.2);
+    const w = packWeight(text);
+    if (w && plausible(w)) return [w, "pack size in the product text"];
+    const code = packCode(fg);
+    if (code && codeWeights && codeWeights.has(code) && plausible(codeWeights.get(code))) return [codeWeights.get(code), `job code (pack code ${code}, as other products with that code)`];
     if (recipeNet > 0) return [Number(fixed(recipeNet, 3)), "recipe (cheese + starch less offcuts, per case)"];
     return [null, null];
   }
+  // Cheese, starch and offcuts per case from the recipe. When the recipe's product weight per case is more than 5%
+  // away from the case weight, the cheese (and its offcuts) is scaled to the case weight; starch stays as planned.
+  function recipePerCase(pCheese, pStarch, pOff, plannedOut, cw) {
+    const cheesePc = pCheese / plannedOut, starchPc = pStarch / plannedOut, offPc = pOff / plannedOut;
+    const net = cheesePc + starchPc - offPc;
+    let k = 1;
+    if (cw && net > 0 && Math.abs(net - cw) / cw > 0.05 && cheesePc - offPc > 0) k = cw > starchPc ? (cw - starchPc) / (cheesePc - offPc) : cw / net;
+    return { cheese_pc: cheesePc * k, starch_pc: starchPc, off_pc: offPc * k, in_pc: cheesePc * k + starchPc, net_pc: cheesePc * k + starchPc - offPc * k,
+      recipe_net: net, scale: k, corrected: k !== 1, case_weight: cw };
+  }
 
-  function varianceView(o, comps, cheeseComps, offc, order_out, journal_out, cheeseSource, consumed, starchIn, issued, usedEst) {
+  function varianceView(o, comps, cheeseComps, offc, order_out, journal_out, cheeseSource, consumed, starchIn, issued, usedEst, codeWeights, rec) {
     const planned_out = isNaN(o.planned_out) ? null : o.planned_out;
     if (!planned_out) return null;
     const starchComps = comps.filter((c) => RULES.not_cheese_prefixes.some((p) => c.material.toUpperCase().startsWith(p)));
     const pCheese = sum(cheeseComps.map((c) => c.planned)), pStarch = sum(starchComps.map((c) => c.planned));
     const pOff = sum(offc.map((b) => (isNaN(b.planned) ? 0 : b.planned))), madeOff = sum(offc.map((b) => (isNaN(b.fulfilled) ? 0 : b.fulfilled)));
-    const [cw, cwFrom] = caseWeight(o.fg_text, (pCheese + pStarch - pOff) / planned_out);
+    const recipeNet = (pCheese + pStarch - pOff) / planned_out;
+    const [cw, cwFrom] = caseWeight(o.fg_text, recipeNet, o.fg, codeWeights);
     const actual = order_out || journal_out;
     if (cw === null || !actual) return null;
     const starchSheet = sum(starchComps.map((c) => (isNaN(c.fulfilled) ? 0 : c.fulfilled)));
@@ -445,13 +483,13 @@
     else if (cheeseSource === "order") { actualCheese = issued + starchSheet; cheeseFrom = "cheese issued on the order sheet + starch"; }
     else if (cheeseSource === "journal") { actualCheese = usedEst + starchSheet; cheeseFrom = "estimate from cheese moved to the line + starch"; }
     else return null;
-    const nominalOut = actual * cw, expected = (actual * (pCheese + pStarch)) / planned_out, expOff = (actual * pOff) / planned_out;
+    const nominalOut = actual * cw, expected = rec ? actual * rec.in_pc : (actual * (pCheese + pStarch)) / planned_out, expOff = rec ? actual * rec.off_pc : (actual * pOff) / planned_out;
     const gaExp = expected - nominalOut - expOff, gaAct = actualCheese - nominalOut - madeOff, outOff = nominalOut + madeOff, diff = outOff - actualCheese;
-    return { case_weight: cw, case_weight_from: cwFrom, planned_fg: planned_out, actual_fg: actual, nominal_planned: planned_out * cw,
+    return { case_weight: cw, case_weight_from: cwFrom, uom: cwFrom.startsWith("output counted in kg") ? "kg" : "Case", planned_fg: planned_out, actual_fg: actual, nominal_planned: planned_out * cw,
       nominal_output: nominalOut, expected_cheese: expected, actual_cheese: actualCheese, actual_cheese_from: cheeseFrom,
       expected_offcuts: expOff, actual_offcuts: madeOff, ga_expected: gaExp, ga_actual: gaAct, output_plus_offcuts: outOff,
       difference: diff, diff_pct: actualCheese ? diff / actualCheese : null, planned_input_pct: nominalOut ? expected / nominalOut : null,
-      variance_kg: gaAct - gaExp, tolerance: Math.max(RULES.tolerance_pct * expected, RULES.tolerance_kg) };
+      variance_kg: gaAct - gaExp, tolerance: Math.max(RULES.tolerance_pct * expected, RULES.tolerance_kg), recipe_kg_per_case: recipeNet };
   }
 
   const cmpStr = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
@@ -464,7 +502,9 @@
   // Possible reasons for the variance, with the journal evidence behind each
   function varianceReasons(oid, v, cons, sendsO, w, consumption, codes, recipeBlocks, recipe, consumedByMaterial, ctx) {
     const out = [], v0 = v.variance_kg;
-    if (Math.abs(v0) <= v.tolerance) return [{ kg: null, text: `Cheese is within tolerance of the plan (${fs(v0, 1)} kg against the giveaway the recipe allows), so there's nothing to explain.` }];
+    const rn = v.recipe_kg_per_case, cwv = v.case_weight;
+    if (rn && cwv && Math.abs(rn - cwv) / cwv > 0.05) out.push({ kg: null, text: `The recipe plans ${f(rn, 3)} kg of cheese and starch per case (less offcuts) for a ${f(cwv, 3)} kg case (${pct(rn / cwv - 1, 0, true)}), so expected cheese uses the case weight instead: check the recipe (BOM).` });
+    if (Math.abs(v0) <= v.tolerance) return out.concat([{ kg: null, text: `Cheese is within tolerance of the plan (${fs(v0, 1)} kg against the giveaway the recipe allows), so there's nothing to explain.` }]);
     const area = w.area, types = new Set([...recipe].map(ctype));
     const lineAreas = new Set(Object.values(RULES.line_areas));
     if (v0 < 0) {
@@ -613,7 +653,16 @@
     if (over.length) flag("LOW", "INPUTS_OVER_FOR_OUTPUT", `More issued than the ${f(order_out)} cases need: ` + over.map(([m, fl, e]) => `${m} ${f(fl, 2)} issued vs ${f(e, 2)} needed`).join("; ") + ".");
 
     // cheese issued to the order
-    const perCase = planned_out && cheeseComps.length ? sum(cheeseComps.map((c) => c.planned)) / planned_out : null;
+    let perCase = planned_out && cheeseComps.length ? sum(cheeseComps.map((c) => c.planned)) / planned_out : null;
+    let rec = null;
+    if (perCase) {
+      const stC = comps.filter((c) => RULES.not_cheese_prefixes.some((p) => c.material.toUpperCase().startsWith(p)));
+      const offC = idx.byp.get(oid) || [];
+      const pCh = sum(cheeseComps.map((c) => c.planned)), pSt = sum(stC.map((c) => c.planned)), pOf = sum(offC.map((b) => (isNaN(b.planned) ? 0 : b.planned)));
+      const [cwO] = caseWeight(o.fg_text, (pCh + pSt - pOf) / planned_out, o.fg, ctx.codeWeights);
+      rec = recipePerCase(pCh, pSt, pOf, planned_out, cwO);
+      perCase = rec.cheese_pc;
+    }
     const issued = sum(cheeseComps.map((c) => (isNaN(c.fulfilled) ? 0 : c.fulfilled)));
     const cheeseOpen = sum(cheeseComps.map((c) => (isNaN(c.open) ? 0 : c.open)));
     const needed = perCase ? perCase * order_out : null;
@@ -682,7 +731,7 @@
     }
 
     // cheese consumed, from the journal's production confirmations
-    let mass = null;
+    let mass = null, consumedIn = null, needIn = null;
     // sums rounded to 6 decimals so the float summing order can't tip a displayed figure
     const r6 = (x) => Number(x.toFixed(6));
     const consumed = r6(sum(cons.map((c) => c.consumed)));
@@ -695,40 +744,48 @@
       for (const c of cheeseComps) { plan.set(c.material, (plan.get(c.material) || 0) + c.planned); pt += c.planned; }
       const mats = [...plan.keys()].sort();
       const share = new Map(mats.map((m) => [m, plan.get(m) / pt]));
-      const matsTxt = mats.map((m) => `${m} ${f(byMat.get(m) || 0, 1)} of ${f(share.get(m) * estNeeded, 1)} kg`).join("; ");
+      // what goes in per case is cheese and starch (197 + 3 kg for a 200 kg dolav): both sides include starch
+      const stPc = rec.starch_pc, inPc = rec.in_pc;
+      const starchUsedO = ctx.starchUsed.get(oid) || 0;
+      consumedIn = r6(consumed + starchUsedO);
+      needIn = inPc * estOut;
+      const cheeseNeed = perCase * estOut;
+      let matsTxt = mats.map((m) => `${m} ${f(byMat.get(m) || 0, 1)} of ${f(share.get(m) * cheeseNeed, 1)} kg`).join("; ");
+      if (stPc) matsTxt += `; starch ${f(starchUsedO, 1)} of ${f(stPc * estOut, 1)} kg`;
       const others = [...byMat.keys()].filter((m) => !share.has(m)).sort();
-      const sheet = issued ? ` The order sheet shows ${f(issued, 1)} kg issued.` : " None of it shows on the order sheet.";
-      const otherOut = journal_out && order_out !== journal_out ? ` (the order shows ${f(order_out)} cases, which need ${f(perCase * order_out, 1)} kg)` : "";
+      const sheet = issued ? ` The order sheet shows ${f(issued, 1)} kg of cheese issued.` : " None of the cheese shows on the order sheet.";
+      const otherOut = journal_out && order_out !== journal_out ? ` (the order shows ${f(order_out)} cases, which need ${f(inPc * order_out, 1)} kg)` : "";
       // mass balance: everything in (cheese blocks, offcuts, starch) vs everything out (product, offcuts made).
       // Product weight per case comes from the recipe: cheese + starch planned, less the offcuts planned, over the planned cases.
       const starchComps = comps.filter((c) => RULES.not_cheese_prefixes.some((p) => c.material.toUpperCase().startsWith(p)));
       const pCheese = sum(cheeseComps.map((c) => c.planned)), pStarch = sum(starchComps.map((c) => c.planned));
       const offc = idx.byp.get(oid) || [];
       const pOff = sum(offc.map((b) => (isNaN(b.planned) ? 0 : b.planned))), madeOff = sum(offc.map((b) => (isNaN(b.fulfilled) ? 0 : b.fulfilled)));
-      const netPc = (pCheese + pStarch - pOff) / planned_out;
+      const netPc = rec.net_pc;
       const starchIn = ctx.starchUsed.get(oid) || 0;
       const offcutIn = sum([...byMat.keys()].sort().filter((m) => RULES.offcut_pattern.test(m.toUpperCase())).map((m) => byMat.get(m)));
       const massIn = consumed + starchIn, productKg = estOut * netPc, massOut = productKg + madeOff, unacc = massIn - massOut;
       const massTol = Math.max(RULES.tolerance_pct * massIn, RULES.tolerance_kg);
-      const offScale = estOut / planned_out;
+      const offScale = pOff ? (estOut * rec.off_pc) / pOff : 0;
       mass = { in: massIn, blocks_in: consumed - offcutIn, offcuts_in: offcutIn, starch_in: starchIn, out: massOut, product: productKg,
         kg_per_case: netPc, cases: estOut, offcuts_made: madeOff, offcuts_planned: pOff * offScale, unaccounted: unacc, tolerance: massTol };
       const massText = `In ${f(massIn, 1)} kg (cheese blocks ${f(consumed - offcutIn, 1)}, offcuts ${f(offcutIn, 1)}, starch ${f(starchIn, 1)}); out ${f(massOut, 1)} kg (product ${f(estOut)} cases × ${fixed(netPc, 3)} kg = ${f(productKg, 1)}, offcuts made ${f(madeOff, 1)}).`;
       if (!cons.length) {
         mass = null;
         const moved = sent ? ` ${f(sent, 1)} kg was moved to ${area} during the run.` : "";
-        flag("HIGH", "CHEESE_NOT_CONSUMED", `No cheese consumption in the journal for this run: the ${f(estOut)} cases need ${f(estNeeded, 1)} kg (${fixed(perCase, 3)} kg/case)${otherOut}.${moved}${sheet}`);
+        flag("HIGH", "CHEESE_NOT_CONSUMED", `No cheese consumption in the journal for this run: the ${f(estOut)} cases need ${f(needIn, 1)} kg of cheese and starch (${fixed(inPc, 3)} kg/case)${otherOut}.${moved}${sheet}`);
       } else {
-        const tol = Math.max(RULES.tolerance_pct * estNeeded, RULES.tolerance_kg);
-        cheese_diff = consumed - estNeeded; cheese_tol = tol;
-        const msg = `Cheese consumed ${f(consumed, 1)} kg, the ${f(estOut)} cases ${journal_out ? "in the journal " : ""}need ${f(estNeeded, 1)} kg (${fixed(perCase, 3)} kg/case)${otherOut}: ${matsTxt}`
-          + (others.length ? `; also ${others.map((m) => `${m} ${f(byMat.get(m), 1)} kg`).join(", ")}` : "") + "." + sheet;
+        const tol = Math.max(RULES.tolerance_pct * needIn, RULES.tolerance_kg);
+        cheese_diff = consumedIn - needIn; cheese_tol = tol;
+        const msg = `Cheese and starch consumed ${f(consumedIn, 1)} kg, the ${f(estOut)} cases ${journal_out ? "in the journal " : ""}need ${f(needIn, 1)} kg (${fixed(inPc, 3)} kg/case)${otherOut}: ${matsTxt}`
+          + (others.length ? `; also ${others.map((m) => `${m} ${f(byMat.get(m), 1)} kg`).join(", ")}` : "") + "." + sheet
+          + (rec.corrected ? ` The recipe plans ${f(rec.recipe_net, 3)} kg per case for a ${f(rec.case_weight, 3)} kg case, so it's scaled to the case weight.` : "");
         const cheeseOff = Math.abs(cheese_diff) > tol;
         if (!cheeseOff) flag("INFO", "CHEESE_BALANCES", msg + ` Difference ${fs(cheese_diff, 1)} kg is within tolerance.`);
         else if (pOff > 0 && Math.abs(unacc) <= massTol) {
           // the extra (or missing) cheese came out as more (or fewer) offcuts than planned
-          flag("LOW", cheese_diff > 0 ? "CHEESE_OVER_USED" : "CHEESE_UNDER_USED", msg + ` Difference ${fs(cheese_diff, 1)} kg (${pct(cheese_diff / estNeeded, 1, true)}). Everything that went in came out as product or offcuts (offcuts made ${f(madeOff, 1)} kg against ${f(pOff * offScale, 1)} planned for these cases), so this is offcut yield, not missing cheese.`);
-        } else flag(Math.abs(cheese_diff) > Math.max(3 * tol, 500) ? "HIGH" : "MEDIUM", cheese_diff > 0 ? "CHEESE_OVER_USED" : "CHEESE_UNDER_USED", msg + ` Difference ${fs(cheese_diff, 1)} kg (${pct(cheese_diff / estNeeded, 1, true)}).`);
+          flag("LOW", cheese_diff > 0 ? "CHEESE_OVER_USED" : "CHEESE_UNDER_USED", msg + ` Difference ${fs(cheese_diff, 1)} kg (${pct(cheese_diff / needIn, 1, true)}). Everything that went in came out as product or offcuts (offcuts made ${f(madeOff, 1)} kg against ${f(pOff * offScale, 1)} planned for these cases), so this is offcut yield, not missing cheese.`);
+        } else flag(Math.abs(cheese_diff) > Math.max(3 * tol, 500) ? "HIGH" : "MEDIUM", cheese_diff > 0 ? "CHEESE_OVER_USED" : "CHEESE_UNDER_USED", msg + ` Difference ${fs(cheese_diff, 1)} kg (${pct(cheese_diff / needIn, 1, true)}).`);
         if (Math.abs(unacc) <= massTol) flag("INFO", "MASS_BALANCES", massText + ` Unaccounted ${fs(unacc, 1)} kg is within tolerance.`);
         else {
           const same = cheeseOff && (cheese_diff > 0) === (unacc > 0);
@@ -763,7 +820,7 @@
     }
 
     const offcuts = idx.byp.get(oid) || [];
-    const variance = varianceView(o, comps, cheeseComps, offcuts, order_out, journal_out, cheeseSource, consumed, ctx.starchUsed.get(oid) || 0, issued, used);
+    const variance = varianceView(o, comps, cheeseComps, offcuts, order_out, journal_out, cheeseSource, consumed, ctx.starchUsed.get(oid) || 0, issued, used, ctx.codeWeights, rec);
     let reasons = [];
     if (variance) {
       const blocks = [...new Set(cheeseComps.map((c) => c.material))].filter((m) => !RULES.offcut_pattern.test(m.toUpperCase())).sort();
@@ -774,8 +831,8 @@
       order_id: oid, status: o.status, fg, fg_text: o.fg_text, line: o.resource, area, start: o.start, last_regular_output: last,
       planned_out, order_out, journal_out, output_confirmations: confs.length, cheese_kg_per_case: perCase,
       cheese_source: cheeseSource, cheese_issued_kg: issued, cheese_needed_kg: needed, cheese_open_kg: cheeseOpen,
-      cheese_sent_kg: sent, cheese_returned_kg: back, cheese_used_kg: used, cheese_est_needed_kg: estNeeded, cheese_est_output: estOut, cheese_consumed_kg: consumed, cheese_consumed_by_material: Object.fromEntries(byMat), mass, variance, variance_reasons: reasons,
-      cheese_planned_kg: sum(cheeseComps.map((c) => c.planned)), cheese_planned_offcuts_kg: sum(cheeseComps.filter((c) => RULES.offcut_pattern.test(c.material.toUpperCase())).map((c) => c.planned)), consumption: cons.slice().sort((a, b) => a.time - b.time), offcuts_kg: sum(offcuts.map((b) => (isNaN(b.fulfilled) ? 0 : b.fulfilled))),
+      cheese_sent_kg: sent, cheese_returned_kg: back, cheese_used_kg: used, cheese_est_needed_kg: cheeseSource === "consumed" ? needIn : estNeeded, cheese_est_output: estOut, cheese_consumed_kg: consumed, cheese_consumed_by_material: Object.fromEntries(byMat), mass, variance, variance_reasons: reasons,
+      cheese_planned_kg: sum(cheeseComps.map((c) => c.planned)), starch_planned_kg: sum(comps.filter((c) => RULES.not_cheese_prefixes.some((p) => c.material.toUpperCase().startsWith(p))).map((c) => c.planned)), input_kg_per_case: rec ? rec.in_pc : null, input_consumed_kg: cheeseSource === "consumed" ? consumed + (ctx.starchUsed.get(oid) || 0) : null, cheese_planned_offcuts_kg: sum(cheeseComps.filter((c) => RULES.offcut_pattern.test(c.material.toUpperCase())).map((c) => c.planned)), consumption: cons.slice().sort((a, b) => a.time - b.time), offcuts_kg: sum(offcuts.map((b) => (isNaN(b.fulfilled) ? 0 : b.fulfilled))),
       cheese_diff_kg: cheese_diff, cheese_tolerance_kg: cheese_tol, components: compRows,
       outputs: out.slice().sort((a, b) => a.time - b.time), confirmations: confs, cheese_moves: cheese.slice().sort((a, b) => a.time - b.time),
     };
@@ -840,7 +897,7 @@
     let jmin = Infinity, jmax = -Infinity;
     for (const r of wb.journal) { if (r.time < jmin) jmin = r.time; if (r.time > jmax) jmax = r.time; }
     const journalRange = wb.journal.length ? [jmin, jmax] : null;
-    return { wb, orders, outputs, sends, idx, active, seqByRes, hasCons, overBatches, starchUsed, consumption, consumedByBatch, movesByBatch, typical: typicalPallets(outputs), journalRange,
+    return { wb, orders, outputs, sends, idx, active, seqByRes, hasCons, overBatches, starchUsed, codeWeights: learnPackCodes(wb.orders), consumption, consumedByBatch, movesByBatch, typical: typicalPallets(outputs), journalRange,
       unassigned: outputs.filter((r) => r.order_id === null) };
   }
 
