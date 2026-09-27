@@ -402,6 +402,12 @@
         <thead><tr><th>Case weight</th><th>Planned FG qty</th><th>Actual FG qty</th><th>Nominal weight planned</th><th>Nominal weight of output</th><th>Expected cheese</th><th>Actual cheese issued</th><th>Expected offcuts output</th><th>Actual offcuts output</th><th>GA expected</th><th>GA actual</th><th>Output weight + offcuts</th><th>Difference to cheese issued</th><th>Diff %</th><th>Cheese planned input %</th></tr></thead>
         <tbody><tr><td class="n">${f(va.case_weight, 3)}</td><td class="n">${f(va.planned_fg, 1)}</td><td class="n">${f(va.actual_fg, 1)}</td><td class="n">${f(va.nominal_planned, 1)}</td><td class="n">${f(va.nominal_output, 1)}</td><td class="n">${f(va.expected_cheese, 1)}</td><td class="n">${f(va.actual_cheese, 1)}</td><td class="n">${va.expected_offcuts ? f(va.expected_offcuts, 1) : "-"}</td><td class="n">${va.actual_offcuts ? f(va.actual_offcuts, 1) : "-"}</td><td class="n">${f(va.ga_expected, 1)}</td><td class="n hl">${f(va.ga_actual, 1)}</td><td class="n">${f(va.output_plus_offcuts, 1)}</td><td class="n hl">${f(va.difference, 1)}</td><td class="n hl">${pctTxt(va.diff_pct)}</td><td class="n">${va.planned_input_pct ? Math.round(100 * va.planned_input_pct) + "%" : ""}</td></tr></tbody></table></div>
         <p class="src">Case weight from the ${esc(va.case_weight_from)}; actual cheese is ${esc(va.actual_cheese_from)}. GA = giveaway: cheese in, less nominal output and offcuts. Against the plan, GA is ${fs(va.variance_kg, 1)} kg.</p></div>` : "";
+    const os = s.open_status || [];
+    const q1 = (x) => (x === null || x === undefined ? "-" : f(x, 1));
+    const openHtml = os.length ? `<div class="var"><h3>Planned, done and open on the order</h3><div class="scroll"><table>
+        <thead><tr><th></th><th>Unit</th><th>Planned</th><th>Done on the order</th><th>Open on the order</th><th>In the journal</th></tr></thead>
+        <tbody>${os.map((r) => `<tr><td>${esc(r.item)}</td><td>${esc(r.unit)}</td><td class="n">${q1(r.planned)}</td><td class="n">${q1(r.done)}</td><td class="n${r.open ? " hl" : ""}">${q1(r.open)}</td><td class="n">${q1(r.journal)}</td></tr>`).join("")}</tbody></table></div>
+        <p class="src">Done and open are from the order sheets (fulfilled and open quantity). "In the journal" is output posted, or cheese and starch consumed, per the confirmation journal.</p></div>` : "";
     const why = s.variance_reasons || [];
     const whyHtml = why.length ? `<div class="why"><h3>Possible reasons</h3><ol>${why.map((x) => `<li>${x.kg ? `<span class="kg">${f(x.kg, 1)} kg</span>` : ""}${esc(x.text)}</li>`).join("")}</ol></div>` : "";
     const flags = r.findings.length ? `<ul class="flags">${r.findings.map((x) => `<li><span class="tag ${x.severity}">${x.severity}</span>
@@ -441,7 +447,7 @@
 
     return `<article class="card" data-v="${v}">
       <div class="verdict"><span class="badge">${v}</span><div class="vt">Order <span class="mono">${esc(s.order_id)}</span>: ${esc(headline)}</div><div class="vs">${sub}</div></div>
-      <div class="body">${figs}${varHtml}${whyHtml}${massHtml}${note}${flags}${ev}</div></article>`;
+      <div class="body">${figs}${openHtml}${varHtml}${whyHtml}${massHtml}${note}${flags}${ev}</div></article>`;
   }
 
   // ---------------------------------------------------------------- variance report (every order, plant layout)
@@ -462,6 +468,7 @@
           "Nominal Weight of Output": v.nominal_output, "Expected Cheese": v.expected_cheese, "Actual Cheese Issued": v.actual_cheese,
           "Expected Offcuts Output": v.expected_offcuts, "Actual Offcuts Output": v.actual_offcuts, "GA Expected": v.ga_expected, "GA Actual": v.ga_actual,
           "Output Weight + Offcuts": v.output_plus_offcuts, "Difference to Cheese Issued": v.difference, "Diff %": v.diff_pct, "Cheese Planned Input %": v.planned_input_pct,
+          ...Object.fromEntries((s.open_status || []).map((x) => [`Open ${x.item} (${x.unit})`, x.open])),
           "Verdict": r.verdict, "Possible reasons": (s.variance_reasons || []).map((x) => (x.kg ? `[${f(x.kg, 1)} kg] ` : "") + x.text).join("\n"),
           "Case weight from": v.case_weight_from, "Actual cheese from": v.actual_cheese_from,
         });

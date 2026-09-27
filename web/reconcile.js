@@ -153,7 +153,7 @@
       for (const r of o) {
         const x = {
           order_id: id(r.productionorder), fg: str(r.productionorderoutputproduct), fg_text: r.productionorderoutputproducttext,
-          material: str(r.product), text: r.producttext, planned: num(r.plannedquantity), fulfilled: num(r.fulfilledquantity),
+          material: str(r.product), text: r.producttext, planned: num(r.plannedquantity), fulfilled: num(r.fulfilledquantity), open: num(r.openquantity),
           start_actual: time(r.productionstartdatetime), latest_end: time(r.productionorderlatestenddatetime),
         };
         if (x.material === x.fg) {
@@ -820,6 +820,20 @@
     }
 
     const offcuts = idx.byp.get(oid) || [];
+    // planned / done / open on the order, with what the journal shows consumed next to it
+    const tot = (rows, k) => sum(rows.map((x) => (isNaN(x[k]) ? 0 : x[k])));
+    const isOff = (m) => RULES.offcut_pattern.test(m.toUpperCase());
+    const blk = cheeseComps.filter((c) => !isOff(c.material)), offi = cheeseComps.filter((c) => isOff(c.material));
+    const stc = comps.filter((c) => RULES.not_cheese_prefixes.some((p) => c.material.toUpperCase().startsWith(p)));
+    let consBlk = 0, consOff = 0;
+    for (const [m, q] of byMat) { if (isOff(m)) consOff += q; else consBlk += q; }
+    const openStatus = [
+      { item: "Product", unit: "cases", planned: planned_out || 0, done: order_out, open: isNaN(o.out_open) ? null : o.out_open, journal: journal_out },
+      { item: "Offcuts made", unit: "kg", planned: tot(offcuts, "planned"), done: tot(offcuts, "fulfilled"), open: tot(offcuts, "open"), journal: null },
+      { item: "Cheese blocks", unit: "kg", planned: tot(blk, "planned"), done: tot(blk, "fulfilled"), open: tot(blk, "open"), journal: hasCons ? consBlk : null },
+      { item: "Offcuts used", unit: "kg", planned: tot(offi, "planned"), done: tot(offi, "fulfilled"), open: tot(offi, "open"), journal: hasCons ? consOff : null },
+      { item: "Starch", unit: "kg", planned: tot(stc, "planned"), done: tot(stc, "fulfilled"), open: tot(stc, "open"), journal: hasCons ? ctx.starchUsed.get(oid) || 0 : null },
+    ].filter((r) => r.planned || r.done || r.open || r.journal);
     const variance = varianceView(o, comps, cheeseComps, offcuts, order_out, journal_out, cheeseSource, consumed, ctx.starchUsed.get(oid) || 0, issued, used, ctx.codeWeights, rec);
     let reasons = [];
     if (variance) {
@@ -828,7 +842,7 @@
         hasCons ? blocks : [], new Set(cheeseComps.map((c) => c.material)), byMat, ctx);
     }
     const summary = {
-      order_id: oid, status: o.status, fg, fg_text: o.fg_text, line: o.resource, area, start: o.start, last_regular_output: last,
+      order_id: oid, status: o.status, open_status: openStatus, fg, fg_text: o.fg_text, line: o.resource, area, start: o.start, last_regular_output: last,
       planned_out, order_out, journal_out, output_confirmations: confs.length, cheese_kg_per_case: perCase,
       cheese_source: cheeseSource, cheese_issued_kg: issued, cheese_needed_kg: needed, cheese_open_kg: cheeseOpen,
       cheese_sent_kg: sent, cheese_returned_kg: back, cheese_used_kg: used, cheese_est_needed_kg: cheeseSource === "consumed" ? needIn : estNeeded, cheese_est_output: estOut, cheese_consumed_kg: consumed, cheese_consumed_by_material: Object.fromEntries(byMat), mass, variance, variance_reasons: reasons,

@@ -202,7 +202,7 @@ def read_workbook(paths: list[str]) -> Workbook:
     comp = comp[comp["order_id"].notna()]
 
     # --- outputs and by-products per order ---
-    byp = pd.DataFrame(columns=["order_id", "material", "text", "planned", "fulfilled"])
+    byp = pd.DataFrame(columns=["order_id", "material", "text", "planned", "fulfilled", "open"])
     head = pd.DataFrame(columns=["order_id", "planned_out", "fulfilled_out", "start_actual", "latest_end", "fg_text"])
     if "outputs" in found:
         o = found["outputs"]
@@ -212,13 +212,14 @@ def read_workbook(paths: list[str]) -> Workbook:
             "order_id": _id(o["productionorder"]), "fg": o["productionorderoutputproduct"].astype(str).str.strip(),
             "fg_text": o["productionorderoutputproducttext"], "material": o["product"].astype(str).str.strip(),
             "text": o["producttext"], "planned": _num(o["plannedquantity"]), "fulfilled": _num(o["fulfilledquantity"]),
+            "open": _num(o["openquantity"]) if "openquantity" in o else float("nan"),
             "start_actual": _time(o["productionstartdatetime"]), "latest_end": _time(o["productionorderlatestenddatetime"]),
         })
         main = o[o["material"] == o["fg"]]
         head = main.groupby("order_id").agg(planned_out=("planned", "sum"), fulfilled_out=("fulfilled", "sum"),
                                              start_actual=("start_actual", "min"), latest_end=("latest_end", "max"),
                                              fg_text=("fg_text", "first")).reset_index()
-        byp = o[o["material"] != o["fg"]][["order_id", "material", "text", "planned", "fulfilled"]]
+        byp = o[o["material"] != o["fg"]][["order_id", "material", "text", "planned", "fulfilled", "open"]]
 
     orders = (comp.groupby("order_id", sort=False)
               .agg(status=("status", "first"), fg=("fg", "first"), resource=("resource", "first"),
@@ -1037,8 +1038,29 @@ def check_order(oid: str, wb: Workbook, windows: pd.DataFrame, outputs: pd.DataF
                      consumed_by_material={k: float(v) for k, v in by_mat.items()})
         reasons = variance_reasons(oid, variance, cons, cheese, w, consumption, {f.code for f in findings},
                                    blocks if has_cons else [], oinfo, rules)
+    # planned / done / open on the order, with what the journal shows consumed next to it
+    def _tot(df, col):
+        return float(df[col].fillna(0).sum()) if not df.empty else 0.0
+    is_off = cheese_comps["material"].str.upper().str.match(rules.offcut_pattern) if not cheese_comps.empty else pd.Series(dtype=bool)
+    blk, offi = cheese_comps[~is_off] if not cheese_comps.empty else cheese_comps, cheese_comps[is_off] if not cheese_comps.empty else cheese_comps
+    stc = comps[comps["material"].str.upper().str.startswith(rules.not_cheese_prefixes)]
+    cons_blk = float(sum(v for m, v in by_mat.items() if not re.match(rules.offcut_pattern, m.upper())))
+    cons_off = float(sum(v for m, v in by_mat.items() if re.match(rules.offcut_pattern, m.upper())))
+    open_status = [
+        {"item": "Product", "unit": "cases", "planned": planned_out or 0.0, "done": order_out,
+         "open": float(o["out_open"]) if not pd.isna(o["out_open"]) else None, "journal": journal_out},
+        {"item": "Offcuts made", "unit": "kg", "planned": _tot(offcuts, "planned"), "done": _tot(offcuts, "fulfilled"),
+         "open": _tot(offcuts, "open"), "journal": None},
+        {"item": "Cheese blocks", "unit": "kg", "planned": _tot(blk, "planned"), "done": _tot(blk, "fulfilled"),
+         "open": _tot(blk, "open"), "journal": cons_blk if has_cons else None},
+        {"item": "Offcuts used", "unit": "kg", "planned": _tot(offi, "planned"), "done": _tot(offi, "fulfilled"),
+         "open": _tot(offi, "open"), "journal": cons_off if has_cons else None},
+        {"item": "Starch", "unit": "kg", "planned": _tot(stc, "planned"), "done": _tot(stc, "fulfilled"),
+         "open": _tot(stc, "open"), "journal": float((starch_used or {}).get(oid, 0.0)) if has_cons else None},
+    ]
+    open_status = [r for r in open_status if r["planned"] or r["done"] or r["open"] or r["journal"]]
     summary = {
-        "order_id": oid, "status": o["status"], "fg": fg, "fg_text": o.get("fg_text"), "line": o["resource"],
+        "order_id": oid, "status": o["status"], "open_status": open_status, "fg": fg, "fg_text": o.get("fg_text"), "line": o["resource"],
         "area": area, "start": o["start"], "last_regular_output": last_regular,
         "planned_out": planned_out, "order_out": order_out, "journal_out": journal_out,
         "output_confirmations": len(confs), "cheese_kg_per_case": per_case,
@@ -1219,7 +1241,9 @@ def write_excel(res: Result, path: str) -> str:
         for k, v in s.items():
             if k == "components":
                 continue
-            if k in ("mass", "variance"):
+            if k == "open_status":
+                row.update({f"open_{r['item'].lower().replace(' ', '_')}": r["open"] for r in v})
+            elif k in ("mass", "variance"):
                 row.update({f"{k}_{mk}": mv for mk, mv in (v or {}).items()})
             elif k == "variance_reasons":
                 row[k] = " | ".join(x["text"] for x in v)
@@ -1256,6 +1280,7 @@ def write_excel(res: Result, path: str) -> str:
             "Actual Offcuts Output": v["actual_offcuts"], "GA Expected": v["ga_expected"], "GA Actual": v["ga_actual"],
             "Output Weight + Offcuts": v["output_plus_offcuts"], "Difference to Cheese Issued": v["difference"],
             "Diff %": v["diff_pct"], "Cheese Planned Input %": v["planned_input_pct"],
+            **{f"Open {r['item']} ({r['unit']})": r["open"] for r in sm["open_status"]},
             "Verdict": verdict(by_order.get(sm["order_id"], [])),
             "Possible reasons": "\n".join((f"[{x['kg']:,.1f} kg] " if x["kg"] else "") + x["text"] for x in sm["variance_reasons"]),
             "Case weight from": v["case_weight_from"], "Actual cheese from": v["actual_cheese_from"]})
