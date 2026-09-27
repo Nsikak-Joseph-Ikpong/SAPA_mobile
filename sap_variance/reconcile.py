@@ -948,6 +948,9 @@ def write_excel(res: Result, path: str) -> str:
     sends = res.sends[res.sends["order_id"].isin(ids)].sort_values(["order_id", "time"])
     cons = (res.consumption[res.consumption["order_id"].isin(ids)].sort_values(["order_id", "time"])
             if res.consumption is not None else pd.DataFrame())
+    if not cons.empty:
+        # as in the SAP journal: negative for consumption, positive for a reversal
+        cons = cons.assign(effective_qty=-cons["consumed"])
     with pd.ExcelWriter(path, engine="openpyxl") as xw:
         for name, df in (("Flags", flags), ("Orders", orders), ("Inputs vs recipe", comps),
                          ("Output postings", outs), ("Cheese consumed", cons), ("Cheese to line", sends),
