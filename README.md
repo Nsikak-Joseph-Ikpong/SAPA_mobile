@@ -183,8 +183,11 @@ planned output):
   *Confirmation Journal* export with negative rows). Cheese consumption is posted as its own production
   confirmation (a negative cheese row, no order ID). Each posting on a line is tied to the order running
   there, as for output; a reversal (a positive block-cheese row) goes back to the order that consumed
-  that batch; a posting made after an order's last output and within 30 minutes of the next job's start
-  on the same line goes to the next job. Consumption vs needed (recipe × cases), the split between the
+  that batch; a posting at an order's production start (its first confirmation) belongs to it; nothing
+  is owned by a job more than 15 minutes after its last pallet; a posting made after an order's last
+  output and within 30 minutes of the next job's start on the same line goes to the next job; a cheese
+  in no running job's recipe goes to a job using the same type of cheese (first four letters, e.g.
+  RMMA20GB for RMMA20GR) as a substitute. Consumption vs needed (recipe × cases), the split between the
   block cheeses, no consumption at all (`CHEESE_NOT_CONSUMED`) and batches consumed for more than the
   pallet held (`BATCH_OVER_CONSUMED`) are checked;
 * **mass balance** (with consumption): everything in (cheese blocks and offcuts consumed, plus starch
@@ -196,6 +199,15 @@ planned output):
   (`MASS_OUT_EXCEEDS_IN`), offcut rate more than 3 points over plan (`OFFCUTS_OVER_PLAN`), no offcuts
   declared (`OFFCUTS_NOT_DECLARED`). When cheese is over or under the recipe but the balance closes, the
   difference is offcut yield and the cheese flag drops to LOW;
+* **variance**, in the layout of the plant's variance report: case weight, planned and actual FG
+  quantity, nominal weight planned and of output, expected and actual cheese, expected and actual
+  offcuts, giveaway (GA) expected and actual, output weight + offcuts, the difference to cheese issued, its
+  % and the cheese planned input %. Case weight comes from the pack size in the product text (6x1kg,
+  40x5kg, 12x160g) or, when there is none, the recipe. Each order gets a list of possible reasons with the
+  journal evidence: cheese moved to the line but never consumed, consumption on the line tied to no job
+  or given to a neighbouring job, a recipe cheese not consumed at all, cheese moved back off the line
+  without the consumption being reversed, offcuts above or below expected, output findings. The page can
+  download the variance report for every order; the Excel report has it as its first sheet;
 * when the journal has no consumption lines: cheese issued on the order sheet vs needed, or, when the
   sheet shows none, an estimate from cheese moved to the job's line during its run minus what was moved
   away again (never worse than CHECK; `CHEESE_CARRIED_OVER` when one job's surplus matches the next

@@ -48,7 +48,9 @@ class Rules:
         "SLICING_L1": "SL_1", "SLICING_L2": "SL_2", "SLICING_L3": "SL_3",
         "GRATING_L4": "GRATINGLINES", "GRATING_L5": "GRATINGLINES",
     })
-    handoff_minutes: int = 30                        # cheese consumed this soon before the next job starts is for it
+    consumption_grace_minutes: int = 15             # consumption this long after a job's last pallet can still be its
+    handoff_minutes: int = 30
+    start_anchor_seconds: int = 2                    # a posting this close to an order's start is its first                        # cheese consumed this soon before the next job starts is for it
     skip_resources: tuple = ("FLOOR_WASTE", "LINE_RECOVERY")
     cheese_prefixes: tuple = ("RM",)
     not_cheese_prefixes: tuple = ("RMPS",)          # potato starch
@@ -354,18 +356,47 @@ def consumption_rows(journal: pd.DataFrame, rules: Rules) -> pd.DataFrame:
 def assign_consumption(wb: Workbook, windows: pd.DataFrame, outputs: pd.DataFrame, rules: Rules) -> pd.DataFrame:
     """Cheese consumption postings on a line, each tied to the order most likely to own it."""
     wins, recipe_by_order, next_out, starts, resources = _line_context(wb, windows, outputs, rules)
+    # Cheese isn't consumed for a job after its last pallet: once output stops (plus a short grace),
+    # a job can no longer own consumption postings
+    last_any = outputs[outputs["qty"] > 0].groupby("order_id")["time"].max()
+    grace = pd.Timedelta(minutes=rules.consumption_grace_minutes)
+    wins = wins.copy()
+    cap = wins["order_id"].map(last_any) + grace
+    wins["end"] = wins["end"].where(cap.isna() | (wins["end"] <= cap), cap)
     cons = consumption_rows(wb.journal, rules)
     cons = cons[cons["area"].isin(set(rules.line_areas.values()))].sort_values("time", kind="stable")
     last_out = dict(zip(windows["order_id"], windows["last_regular"]))
+    areas = dict(zip(windows["order_id"], windows["area"]))
+    # SAP's production start is the time of the order's first confirmation, often its first cheese
+    # consumption: a posting at an order's start belongs to that order
+    actual_starts = wb.orders.dropna(subset=["start_actual"])
+    anchor: dict = {}
+    for oid, t in zip(actual_starts["order_id"], actual_starts["start_actual"]):
+        if oid in areas:
+            anchor.setdefault(areas[oid], []).append((t, oid))
+    tol = pd.Timedelta(seconds=rules.start_anchor_seconds)
+    # a cheese not in any running job's recipe is taken as a substitute by a job on that line
+    # using the same type of cheese (RMMA20GB for RMMA20GR: both mature)
+    ctype = lambda m: m.upper()[:4] if not re.match(rules.offcut_pattern, m.upper()) else m.upper()
+    types_by_order = {o: {ctype(m) for m in ms} for o, ms in recipe_by_order.items()}
     last_user: dict = {}
     rows = []
     for r in cons.itertuples():
         key = (r.material, r.batch)
+        substitute = False
+        anchored = [o for t, o in anchor.get(r.area, []) if abs(t - r.time) <= tol
+                    and ctype(r.material) in types_by_order.get(o, set())]
         if r.qty > 0 and key in last_user:
             # a reversal goes back to the job that consumed the batch
             owner, cands = last_user[key], [last_user[key]]
+        elif anchored:
+            owner, cands = anchored[0], anchored
         else:
             picked = _pick_owner(r, wins, recipe_by_order, next_out, starts, resources)
+            if not picked:
+                typed = type("Posting", (), {"area": r.area, "time": r.time, "material": ctype(r.material)})
+                picked = _pick_owner(typed, wins, types_by_order, next_out, starts, resources)
+                substitute = picked is not None
             owner, cands = picked if picked else (None, [])
             if owner is not None:
                 # posted after the owner's last output and just before the next job on that line starts:
@@ -375,13 +406,14 @@ def assign_consumption(wb: Workbook, windows: pd.DataFrame, outputs: pd.DataFram
                        and r.time < starts[c] <= r.time + pd.Timedelta(minutes=rules.handoff_minutes)]
                 if not pd.isna(lo) and r.time > lo and nxt:
                     owner = min(nxt, key=lambda c: starts[c])
-            if r.qty < 0 and owner is not None:
-                last_user[key] = owner
+        if r.qty < 0 and owner is not None:
+            last_user[key] = owner
         rows.append({"order_id": owner, "material": r.material, "batch": r.batch, "area": r.area,
                      "time": r.time, "conf": r.conf, "consumed": -r.qty, "candidates": len(cands),
-                     "other_orders": ", ".join(c for c in cands if c != owner)})
+                     "other_orders": ", ".join(c for c in cands if c != owner), "substitute": substitute})
     return pd.DataFrame(rows, columns=["order_id", "material", "batch", "area", "time", "conf", "consumed",
-                                       "candidates", "other_orders"])
+                                       "candidates", "other_orders", "substitute"])
+
 
 
 def starch_consumed(journal: pd.DataFrame, outputs: pd.DataFrame, rules: Rules) -> dict:
@@ -450,11 +482,167 @@ def assign_cheese(wb: Workbook, windows: pd.DataFrame, outputs: pd.DataFrame, ru
     return sends
 
 
+
+PACK = re.compile(r"(\d+)\s*[xX]\s*(\d+(?:[.,]\d+)?)\s*(kg|g|gr|grm)?(?![A-Za-z])", re.I)
+
+
+def case_weight(text, recipe_net) -> tuple:
+    """Nominal case weight: from the pack size in the product text (6x1kg, 40x5kg, 12x160g), else the
+    recipe's product weight per case. A text size far from the recipe (over 25%) is not trusted."""
+    m = PACK.search(str(text or ""))
+    if m:
+        n, q, unit = int(m.group(1)), float(m.group(2).replace(",", ".")), (m.group(3) or "kg").lower()
+        w = n * q / 1000 if unit.startswith("g") else n * q
+        if not recipe_net or recipe_net <= 0 or abs(w - recipe_net) / recipe_net <= 0.25:
+            return w, "pack size in the product text"
+    if recipe_net and recipe_net > 0:
+        return round(recipe_net, 3), "recipe (cheese + starch less offcuts, per case)"
+    return None, None
+
+
+def variance_view(o, comps, cheese_comps, offc, order_out, journal_out, cheese_source, consumed, starch_in,
+                  issued, used_est, rules) -> dict | None:
+    """The variance in the layout of the plant's variance report."""
+    planned_out = o["planned_out"] if not pd.isna(o["planned_out"]) else None
+    if not planned_out:
+        return None
+    starch_comps = comps[comps["material"].str.upper().str.startswith(rules.not_cheese_prefixes)]
+    p_cheese, p_starch = float(cheese_comps["planned"].sum()), float(starch_comps["planned"].sum())
+    p_off = float(offc["planned"].fillna(0).sum())
+    made_off = float(offc["fulfilled"].fillna(0).sum())
+    cw, cw_from = case_weight(o.get("fg_text"), (p_cheese + p_starch - p_off) / planned_out)
+    actual = order_out or journal_out
+    if cw is None or not actual:
+        return None
+    if cheese_source == "consumed":
+        actual_cheese, cheese_from = consumed + starch_in, "cheese consumed in the journal + starch"
+    elif cheese_source == "order":
+        actual_cheese = issued + float(starch_comps["fulfilled"].fillna(0).sum())
+        cheese_from = "cheese issued on the order sheet + starch"
+    elif cheese_source == "journal":
+        actual_cheese = used_est + float(starch_comps["fulfilled"].fillna(0).sum())
+        cheese_from = "estimate from cheese moved to the line + starch"
+    else:
+        return None
+    nominal_out = actual * cw
+    expected = actual * (p_cheese + p_starch) / planned_out
+    exp_off = actual * p_off / planned_out
+    ga_exp = expected - nominal_out - exp_off
+    ga_act = actual_cheese - nominal_out - made_off
+    out_off = nominal_out + made_off
+    diff = out_off - actual_cheese
+    return {"case_weight": cw, "case_weight_from": cw_from, "planned_fg": planned_out, "actual_fg": actual,
+            "nominal_planned": planned_out * cw, "nominal_output": nominal_out, "expected_cheese": expected,
+            "actual_cheese": actual_cheese, "actual_cheese_from": cheese_from, "expected_offcuts": exp_off,
+            "actual_offcuts": made_off, "ga_expected": ga_exp, "ga_actual": ga_act, "output_plus_offcuts": out_off,
+            "difference": diff, "diff_pct": diff / actual_cheese if actual_cheese else None,
+            "planned_input_pct": expected / nominal_out if nominal_out else None,
+            "variance_kg": ga_act - ga_exp, "tolerance": max(rules.tolerance_pct * expected, rules.tolerance_kg)}
+
+
+def variance_reasons(oid, v, cons, sends_o, window, consumption, codes, recipe_blocks, info, rules) -> list:
+    """Possible reasons for the variance, with the journal evidence behind each."""
+    out = []
+    var = v["variance_kg"]
+    if abs(var) <= v["tolerance"]:
+        return [{"kg": None, "text": f"Cheese is within tolerance of the plan ({var:+,.1f} kg against the giveaway "
+                                     f"the recipe allows), so there's nothing to explain."}]
+    area, begin, end = window["area"], window["begin"], window["end"]
+    ctype = info["ctype"]
+    types = {ctype(m) for m in info["recipe"]}
+    if var < 0:
+        # less cheese recorded than the product and offcuts need
+        if not sends_o.empty:
+            g = sends_o.assign(net=sends_o["sent"] - sends_o["returned"]).groupby(["material", "batch"], sort=True)["net"].sum()
+            left = []
+            for (m, b), moved in g.items():
+                used = info["consumed_by_batch"].get((m, b), 0.0)
+                if moved - used > 1:
+                    left.append((m, b, moved - used))
+            if left:
+                kg = sum(x[2] for x in left)
+                out.append({"kg": kg, "text": f"{kg:,.1f} kg of cheese was moved to {area} for this run but never "
+                            f"consumed in SAP: " + ", ".join(f"{m} {b} {q:,.1f} kg" for m, b, q in left[:8])
+                            + (f" and {len(left) - 8} more" if len(left) > 8 else "") + ". If it went into the product, "
+                            "its consumption is missing."})
+        if consumption is not None:
+            un = consumption[consumption["order_id"].isna() & (consumption["area"] == area)
+                             & (consumption["time"] >= begin) & (consumption["time"] <= end)]
+            un = un[un["material"].map(lambda m: ctype(m) in types)]
+            if not un.empty and un["consumed"].sum() > 1:
+                kg = float(un["consumed"].sum())
+                out.append({"kg": kg, "text": f"{kg:,.1f} kg of similar cheese was consumed on {area} during the run "
+                            f"but couldn't be tied to any job: " + ", ".join(sorted(set(un["material"]))) + "."})
+            amb = consumption[(consumption["order_id"] != oid) & consumption["order_id"].notna()
+                              & consumption["other_orders"].fillna("").str.split(", ").map(lambda xs: oid in xs)]
+            if not amb.empty:
+                by = amb.groupby("order_id")["consumed"].sum()
+                kg = float(amb["consumed"].sum())
+                out.append({"kg": kg, "text": f"{kg:,.1f} kg consumed on {area} was given to "
+                            + ", ".join(f"order {k} ({q:,.1f} kg)" for k, q in by.items())
+                            + " but could belong to this order (both were on the line at the time)."})
+        for m in recipe_blocks:
+            if info["consumed_by_material"].get(m, 0.0) <= 0 and consumption is not None:
+                out.append({"kg": None, "text": f"{m} is in the recipe but none was consumed for this run: it was "
+                            f"used without a consumption posting, or the product was made without it."})
+        if "OUTPUT_NOT_ON_ORDER" in codes or "PALLET_CONFIRMED_MORE_THAN_ONCE" in codes or "UNUSUAL_PALLET_SIZE" in codes:
+            out.append({"kg": None, "text": "Output may be overstated: see the pallet and output findings below."})
+        if v["actual_offcuts"] - v["expected_offcuts"] > 25:
+            out.append({"kg": v["actual_offcuts"] - v["expected_offcuts"],
+                        "text": f"Offcuts declared are {v['actual_offcuts'] - v['expected_offcuts']:,.1f} kg above "
+                        f"expected; if they're overstated, less cheese is missing."})
+        if not out:
+            out.append({"kg": None, "text": "No trace in the journal: cheese was used without being moved or "
+                        "consumed in SAP, or the output is overstated."})
+    else:
+        # more cheese recorded than the product and offcuts account for
+        amb = cons[cons["candidates"] > 1] if not cons.empty else cons
+        if not amb.empty:
+            kg = float(amb["consumed"].sum())
+            others = sorted(set(", ".join(amb["other_orders"]).split(", ")) - {""})
+            out.append({"kg": kg, "text": f"{kg:,.1f} kg of this order's consumption could belong to "
+                        f"order(s) {', '.join(others)}, on the line at the same time."})
+        if not cons.empty:
+            ret = []
+            for (m, b), net in cons.groupby(["material", "batch"], sort=True)["consumed"].sum().items():
+                if net <= 1:
+                    continue
+                last = cons[(cons["material"] == m) & (cons["batch"] == b)]["time"].max()
+                later = info["moves_by_batch"].get((m, b))
+                if later is None:
+                    continue
+                later = later[(later["time"] > last) & (later["time"] <= last + pd.Timedelta(hours=rules.return_hours))
+                              & ~later["area"].isin(set(rules.line_areas.values())) & ~later["area"].str.startswith("#")]
+                if not later.empty:
+                    # what was already reversed on this batch doesn't count as unreversed
+                    b_rows = cons[(cons["material"] == m) & (cons["batch"] == b)]
+                    rev = float(-b_rows.loc[b_rows["consumed"] < 0, "consumed"].sum())
+                    q = min(max(0.0, float(later["qty"].sum()) - rev), float(net))
+                    if q <= 1:
+                        continue
+                    ret.append((m, b, q, later["area"].iloc[0], later["time"].iloc[0]))
+            if ret:
+                kg = sum(x[2] for x in ret)
+                out.append({"kg": kg, "text": f"{kg:,.1f} kg was moved back off the line after being consumed, "
+                            f"without the consumption being reversed: " + ", ".join(
+                                f"{m} {b} {q:,.1f} kg to {a} at {t:%d.%m %H:%M}" for m, b, q, a, t in ret[:8]) + "."})
+        if v["expected_offcuts"] - v["actual_offcuts"] > 25:
+            out.append({"kg": v["expected_offcuts"] - v["actual_offcuts"],
+                        "text": f"Offcuts declared are {v['expected_offcuts'] - v['actual_offcuts']:,.1f} kg below "
+                        f"expected: offcuts not declared, or more cheese went to waste."})
+        if "OUTPUT_NOT_IN_JOURNAL" in codes or "OUTPUT_NOT_ON_ORDER" in codes:
+            out.append({"kg": None, "text": "Output may be understated: see the output findings below."})
+        out.append({"kg": None, "text": "Otherwise: giveaway (overfill above the nominal case weight) or waste on "
+                    "the line that wasn't posted."})
+    return sorted(out, key=lambda x: -(x["kg"] or 0))
+
+
 # ---------------------------------------------------------------- checks
 
 def check_order(oid: str, wb: Workbook, windows: pd.DataFrame, outputs: pd.DataFrame, per_conf: pd.DataFrame,
                 sends: pd.DataFrame, typical_pallet: dict, rules: Rules, consumption: pd.DataFrame | None = None,
-                over_batches: dict | None = None, starch_used: dict | None = None) -> tuple[dict, list[Finding]]:
+                over_batches: dict | None = None, starch_used: dict | None = None,
+                info: dict | None = None) -> tuple[dict, list[Finding]]:
     o = wb.orders[wb.orders["order_id"] == oid].iloc[0]
     comps = wb.components[wb.components["order_id"] == oid]
     w = windows[windows["order_id"] == oid].iloc[0]
@@ -653,8 +841,9 @@ def check_order(oid: str, wb: Workbook, windows: pd.DataFrame, outputs: pd.DataF
 
     # ---- cheese consumed, from the journal's production confirmations ----
     mass = None
-    consumed = float(cons["consumed"].sum()) if not cons.empty else 0.0
-    by_mat = cons.groupby("material")["consumed"].sum() if not cons.empty else pd.Series(dtype=float)
+    # sums rounded to 6 decimals so the float summing order can't tip a displayed figure
+    consumed = round(float(cons["consumed"].sum()), 6) if not cons.empty else 0.0
+    by_mat = cons.groupby("material")["consumed"].sum().round(6) if not cons.empty else pd.Series(dtype=float)
     if has_cons and per_case and (journal_out or order_out):
         cheese_source = "consumed"
         est_out = journal_out or order_out
@@ -759,6 +948,15 @@ def check_order(oid: str, wb: Workbook, windows: pd.DataFrame, outputs: pd.DataF
                 f"largest quantity posted for it {sz:,.2f} kg" for m, b, u, sz in over) + ".")
 
     offcuts = wb.byproducts[wb.byproducts["order_id"] == oid]
+    variance = variance_view(o, comps, cheese_comps, offcuts, order_out, journal_out, cheese_source, consumed,
+                             float((starch_used or {}).get(oid, 0.0)), issued, used, rules)
+    reasons = []
+    if variance and info is not None:
+        blocks = sorted(m for m in set(cheese_comps["material"]) if not re.match(rules.offcut_pattern, m.upper()))
+        oinfo = dict(info, recipe=set(cheese_comps["material"]),
+                     consumed_by_material={k: float(v) for k, v in by_mat.items()})
+        reasons = variance_reasons(oid, variance, cons, cheese, w, consumption, {f.code for f in findings},
+                                   blocks if has_cons else [], oinfo, rules)
     summary = {
         "order_id": oid, "status": o["status"], "fg": fg, "fg_text": o.get("fg_text"), "line": o["resource"],
         "area": area, "start": o["start"], "last_regular_output": last_regular,
@@ -771,7 +969,7 @@ def check_order(oid: str, wb: Workbook, windows: pd.DataFrame, outputs: pd.DataF
         "cheese_planned_kg": float(cheese_comps["planned"].sum()) if not cheese_comps.empty else 0.0,
         "cheese_planned_offcuts_kg": float(cheese_comps.loc[cheese_comps["material"].str.upper().str.match(rules.offcut_pattern), "planned"].sum())
         if not cheese_comps.empty else 0.0,
-        "mass": mass,
+        "mass": mass, "variance": variance, "variance_reasons": reasons,
         "offcuts_kg": float(offcuts["fulfilled"].sum()) if not offcuts.empty else 0.0,
         "cheese_diff_kg": cheese_diff, "cheese_tolerance_kg": cheese_tol,
         "components": comp_rows,
@@ -803,6 +1001,10 @@ def run(wb: Workbook, order_ids: list[str] | None = None, rules: Rules | None = 
     consumption = assign_consumption(wb, windows, outputs, rules) if has_cons else None
     over_batches = over_consumed_batches(wb.journal, rules) if has_cons else {}
     starch_used = starch_consumed(wb.journal, outputs, rules) if has_cons else {}
+    info = {"ctype": lambda m: m.upper()[:4] if not re.match(rules.offcut_pattern, m.upper()) else m.upper(),
+            "consumed_by_batch": ((-raw_cons.groupby(["material", "batch"])["qty"].sum()).to_dict() if has_cons else {}),
+            "moves_by_batch": {k: g.sort_values("time", kind="stable") for k, g in
+                               wb.journal[~wb.journal["is_prod"] & (wb.journal["qty"] > 0)].groupby(["material", "batch"])}}
     pos = outputs[outputs["qty"] > 0]
     typical = {}
     for fg, g in pos.groupby("material"):
@@ -828,7 +1030,7 @@ def run(wb: Workbook, order_ids: list[str] | None = None, rules: Rules | None = 
             findings.append(Finding(oid, "INFO", "ORDER_NOT_FOUND", "Order not found in the order sheets."))
     for oid in to_check:
         s, f = check_order(oid, wb, windows, outputs, per_conf, sends, typical, rules, consumption, over_batches,
-                           starch_used)
+                           starch_used, info)
         summaries.append(s)
         findings.extend(f)
     findings = pair_carry_over(summaries, findings, orders, rules)
@@ -934,8 +1136,10 @@ def write_excel(res: Result, path: str) -> str:
         for k, v in s.items():
             if k == "components":
                 continue
-            if k == "mass":
-                row.update({f"mass_{mk}": mv for mk, mv in (v or {}).items()})
+            if k in ("mass", "variance"):
+                row.update({f"{k}_{mk}": mv for mk, mv in (v or {}).items()})
+            elif k == "variance_reasons":
+                row[k] = " | ".join(x["text"] for x in v)
             elif isinstance(v, dict):
                 row[k] = ", ".join(f"{m} {q:,.1f}" for m, q in v.items())
             else:
@@ -951,8 +1155,30 @@ def write_excel(res: Result, path: str) -> str:
     if not cons.empty:
         # as in the SAP journal: negative for consumption, positive for a reversal
         cons = cons.assign(effective_qty=-cons["consumed"])
+    by_order = {}
+    for f in res.findings:
+        by_order.setdefault(f.order_id, []).append(f)
+    var_rows = []
+    for sm in res.summaries:
+        v = sm.get("variance")
+        if not v:
+            continue
+        var_rows.append({
+            "FG Lookup": f"{sm['order_id']}FG", "Production Order ID": sm["order_id"],
+            "Material ID": sm["fg"], "Material ID (Text)": sm.get("fg_text") or "", "Material ID (Base UoM)": "Case",
+            "Production Order Status": sm["status"], "Line": sm["line"], "Case Weight": v["case_weight"],
+            "Planned FG Qty": v["planned_fg"], "Actual FG Qty": v["actual_fg"], "Nominal Weight Planned": v["nominal_planned"],
+            "Nominal Weight of Output": v["nominal_output"], "Expected Cheese": v["expected_cheese"],
+            "Actual Cheese Issued": v["actual_cheese"], "Expected Offcuts Output": v["expected_offcuts"],
+            "Actual Offcuts Output": v["actual_offcuts"], "GA Expected": v["ga_expected"], "GA Actual": v["ga_actual"],
+            "Output Weight + Offcuts": v["output_plus_offcuts"], "Difference to Cheese Issued": v["difference"],
+            "Diff %": v["diff_pct"], "Cheese Planned Input %": v["planned_input_pct"],
+            "Verdict": verdict(by_order.get(sm["order_id"], [])),
+            "Possible reasons": "\n".join((f"[{x['kg']:,.1f} kg] " if x["kg"] else "") + x["text"] for x in sm["variance_reasons"]),
+            "Case weight from": v["case_weight_from"], "Actual cheese from": v["actual_cheese_from"]})
+    variance = pd.DataFrame(var_rows)
     with pd.ExcelWriter(path, engine="openpyxl") as xw:
-        for name, df in (("Flags", flags), ("Orders", orders), ("Inputs vs recipe", comps),
+        for name, df in (("Variance", variance), ("Flags", flags), ("Orders", orders), ("Inputs vs recipe", comps),
                          ("Output postings", outs), ("Cheese consumed", cons), ("Cheese to line", sends),
                          ("Unmatched output", res.unassigned)):
             df.to_excel(xw, sheet_name=name, index=False)

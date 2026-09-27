@@ -87,6 +87,12 @@
   .mass td { white-space: normal; }
   .mass tr.tot td { font-weight: 600; border-top: 1.5px solid var(--ink); }
   .mass .un { grid-column: 1 / -1; font-size: 13.5px; }
+  .var h3, .why h3 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin: 0 0 6px; font-weight: 600; }
+  .var th { white-space: normal; min-width: 72px; vertical-align: bottom; }
+  .var td.hl { background: var(--medium-soft); font-weight: 600; }
+  .var .src { font-size: 12px; color: var(--muted); margin: 6px 0 0; }
+  .why ol { margin: 0; padding-left: 20px; display: grid; gap: 6px; font-size: 13.5px; }
+  .why .kg { font: 600 12px var(--mono); color: var(--high); margin-right: 6px; }
   .flags { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
   .flags li { display: grid; grid-template-columns: 76px minmax(0, 1fr); gap: 2px 12px; }
   .tag { font: 600 10.5px var(--mono); letter-spacing: 0.04em; padding: 3px 0; border-radius: 4px; text-align: center; align-self: start; margin-top: 2px; }
@@ -139,6 +145,7 @@
         <button type="submit">Check</button>
       </form>
       <div class="examples" id="examples"></div>
+      <div class="row"><button class="quiet" id="report" type="button" hidden>Download variance report (.xlsx)</button></div>
       <p class="hint">Check several at once by separating the numbers with commas.</p>
     </section>
   </div>
@@ -248,6 +255,7 @@
       <span class="pill ${state.demo ? "" : "real"}">${state.demo ? "demo" : "your data"}</span>`;
     $("forget").hidden = state.demo;
     $("add").hidden = state.demo;
+    $("report").hidden = typeof XLSX === "undefined";
     const ex = state.demo ? ["A1", "B2", "C3"] : pickExamples();
     $("examples").innerHTML = ex.length ? `Try: ${ex.map((o) => `<button type="button" data-o="${esc(o)}">${esc(o)}</button>`).join("")}` : "";
     $("examples").querySelectorAll("button").forEach((b) => (b.onclick = () => { $("oid").value = b.dataset.o; run(); }));
@@ -385,6 +393,14 @@
           <tr class="tot"><td>Total out</td><td class="n">${kg(m.out)}</td></tr></tbody></table>
         <div class="un">Unaccounted (in − out): <strong class="mono ${massBad ? "bad" : "good"}">${fs(m.unaccounted, 1)} kg</strong>${m.in ? ` (${(100 * m.unaccounted / m.in).toFixed(1)}% of what went in)` : ""}</div>
       </div>` : "";
+    const va = s.variance;
+    const pctTxt = (x) => (x === null || x === undefined || isNaN(x) ? "" : (100 * x).toFixed(1) + "%");
+    const varHtml = va ? `<div class="var"><h3>Variance</h3><div class="scroll"><table>
+        <thead><tr><th>Case weight</th><th>Planned FG qty</th><th>Actual FG qty</th><th>Nominal weight planned</th><th>Nominal weight of output</th><th>Expected cheese</th><th>Actual cheese issued</th><th>Expected offcuts output</th><th>Actual offcuts output</th><th>GA expected</th><th>GA actual</th><th>Output weight + offcuts</th><th>Difference to cheese issued</th><th>Diff %</th><th>Cheese planned input %</th></tr></thead>
+        <tbody><tr><td class="n">${f(va.case_weight, 3)}</td><td class="n">${f(va.planned_fg, 1)}</td><td class="n">${f(va.actual_fg, 1)}</td><td class="n">${f(va.nominal_planned, 1)}</td><td class="n">${f(va.nominal_output, 1)}</td><td class="n">${f(va.expected_cheese, 1)}</td><td class="n">${f(va.actual_cheese, 1)}</td><td class="n">${va.expected_offcuts ? f(va.expected_offcuts, 1) : "-"}</td><td class="n">${va.actual_offcuts ? f(va.actual_offcuts, 1) : "-"}</td><td class="n">${f(va.ga_expected, 1)}</td><td class="n hl">${f(va.ga_actual, 1)}</td><td class="n">${f(va.output_plus_offcuts, 1)}</td><td class="n hl">${f(va.difference, 1)}</td><td class="n hl">${pctTxt(va.diff_pct)}</td><td class="n">${va.planned_input_pct ? Math.round(100 * va.planned_input_pct) + "%" : ""}</td></tr></tbody></table></div>
+        <p class="src">Case weight from the ${esc(va.case_weight_from)}; actual cheese is ${esc(va.actual_cheese_from)}. GA = giveaway: cheese in, less nominal output and offcuts. Against the plan, GA is ${fs(va.variance_kg, 1)} kg.</p></div>` : "";
+    const why = s.variance_reasons || [];
+    const whyHtml = why.length ? `<div class="why"><h3>Possible reasons</h3><ol>${why.map((x) => `<li>${x.kg ? `<span class="kg">${f(x.kg, 1)} kg</span>` : ""}${esc(x.text)}</li>`).join("")}</ol></div>` : "";
     const flags = r.findings.length ? `<ul class="flags">${r.findings.map((x) => `<li><span class="tag ${x.severity}">${x.severity}</span>
         <span class="ft">${esc(TITLES[x.code] || x.code)}</span><span class="fm">${esc(x.message)}</span><span class="fc">${esc(x.code)}</span></li>`).join("")}</ul>`
       : `<p class="good">Nothing flagged.</p>`;
@@ -422,7 +438,44 @@
 
     return `<article class="card" data-v="${v}">
       <div class="verdict"><span class="badge">${v}</span><div class="vt">Order <span class="mono">${esc(s.order_id)}</span>: ${esc(headline)}</div><div class="vs">${sub}</div></div>
-      <div class="body">${figs}${massHtml}${note}${flags}${ev}</div></article>`;
+      <div class="body">${figs}${varHtml}${whyHtml}${massHtml}${note}${flags}${ev}</div></article>`;
+  }
+
+  // ---------------------------------------------------------------- variance report (every order, plant layout)
+  async function downloadReport() {
+    const ids = [...state.ctx.active].filter((o) => state.ctx.idx.orders.has(o)).sort((a, b) => Number(a) - Number(b) || (a < b ? -1 : 1));
+    toast(`Building the variance report for ${ids.length} orders…`);
+    await pause();
+    const rows = [];
+    for (let i = 0; i < ids.length; i += 100) {
+      for (const r of R.check(state.ctx, ids.slice(i, i + 100)).results) {
+        const s = r.summary, v = s.variance, o = state.ctx.idx.orders.get(s.order_id);
+        if (!v) continue;
+        rows.push({
+          "FG Lookup": `${s.order_id}FG`, "Production Order ID": s.order_id,
+          "Production Order ID (Requested End Date)": isNaN(o.latest_end) ? "" : dmy(o.latest_end).slice(0, 10),
+          "Material ID": s.fg, "Material ID (Text)": s.fg_text || "", "Material ID (Base UoM)": "Case", "Production Order Status": s.status, "Line": s.line,
+          "Case Weight": v.case_weight, "Planned FG Qty": v.planned_fg, "Actual FG Qty": v.actual_fg, "Nominal Weight Planned": v.nominal_planned,
+          "Nominal Weight of Output": v.nominal_output, "Expected Cheese": v.expected_cheese, "Actual Cheese Issued": v.actual_cheese,
+          "Expected Offcuts Output": v.expected_offcuts, "Actual Offcuts Output": v.actual_offcuts, "GA Expected": v.ga_expected, "GA Actual": v.ga_actual,
+          "Output Weight + Offcuts": v.output_plus_offcuts, "Difference to Cheese Issued": v.difference, "Diff %": v.diff_pct, "Cheese Planned Input %": v.planned_input_pct,
+          "Verdict": r.verdict, "Possible reasons": (s.variance_reasons || []).map((x) => (x.kg ? `[${f(x.kg, 1)} kg] ` : "") + x.text).join("\n"),
+          "Case weight from": v.case_weight_from, "Actual cheese from": v.actual_cheese_from,
+        });
+      }
+      await pause();
+    }
+    const ws = XLSX.utils.json_to_sheet(rows);
+    const cols = Object.keys(rows[0] || {});
+    ws["!cols"] = cols.map((c) => ({ wch: c === "Possible reasons" ? 90 : c === "Material ID (Text)" ? 40 : Math.max(10, Math.min(c.length + 2, 24)) }));
+    const fmt = { "Case Weight": "0.000", "Diff %": "0.0%", "Cheese Planned Input %": "0%" };
+    for (let r = 1; r <= rows.length; r++) cols.forEach((c, j) => {
+      const cell = ws[XLSX.utils.encode_cell({ r, c: j })];
+      if (cell && cell.t === "n") cell.z = fmt[c] || (/(Qty)$/.test(c) ? "#,##0.0" : "#,##0.0");
+    });
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Variance");
+    XLSX.writeFile(wb, `Cheese variance ${new Date().toISOString().slice(0, 10)}.xlsx`);
   }
 
   // ---------------------------------------------------------------- wiring
@@ -435,6 +488,7 @@
   ["dragenter", "dragover"].forEach((ev) => drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.add("over"); }));
   ["dragleave", "drop"].forEach((ev) => drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.remove("over"); }));
   drop.addEventListener("drop", (e) => onFiles([...e.dataTransfer.files]));
+  $("report").onclick = () => downloadReport().catch((e) => toast("Couldn't build the report: " + e.message));
   $("ask").addEventListener("submit", (e) => { e.preventDefault(); run(); });
   $("forget").onclick = async () => { await forgetFiles(); state.files = null; startDemo(); toast("Saved files removed from this browser."); };
 
