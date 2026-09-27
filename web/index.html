@@ -360,11 +360,19 @@
     const pc = s.cheese_planned_kg ? s.cheese_planned_kg + ps : 0;   // cheese + starch, as SAP plans the input
     const plannedParts = [po ? `blocks ${kg(s.cheese_planned_kg - po)}` : `cheese ${kg(s.cheese_planned_kg)}`, po ? `offcuts ${kg(po)}` : "", ps ? `starch ${kg(ps)}` : ""].filter(Boolean).join(" + ");
     const plannedCheese = pc ? `<div class="fig"><dt>Cheese + starch planned</dt><dd>${kg(pc)}<small>${plannedParts} · for ${n0(s.planned_out)} cases</small></dd></div>` : "";
+    // what goes in per case, split into product, offcuts and giveaway so it isn't read as the case weight
+    const perCaseText = (x) => {
+      const inPc = x.input_kg_per_case, cw = x.variance ? x.variance.case_weight : null, off = x.offcut_kg_per_case || 0;
+      if (!cw) return `${inPc.toFixed(3)} kg cheese + starch per case`;
+      const ga = inPc - cw - off, unit = x.variance.uom === "kg" ? "kg of product" : "case";
+      const parts = [`${cw.toFixed(3)} product`, off ? `${off.toFixed(3)} offcuts` : "", Math.abs(ga) >= 0.0005 ? `${ga.toFixed(3)} giveaway` : ""].filter(Boolean);
+      return `${inPc.toFixed(3)} kg cheese + starch per ${unit}${parts.length > 1 ? ` (${parts.join(" + ")})` : ""}`;
+    };
     let cheeseLine = "";
     if (s.cheese_kg_per_case && s.cheese_source === "consumed") {
       const bad = s.cheese_consumed_kg === 0 || (s.cheese_diff_kg !== null && Math.abs(s.cheese_diff_kg) > s.cheese_tolerance_kg);
       const inUsed = s.input_consumed_kg, starchUsed = s.mass ? s.mass.starch_in : inUsed - s.cheese_consumed_kg;
-      cheeseLine = `<div class="fig"><dt>Cheese + starch needed for cases made</dt><dd>${kg(s.cheese_est_needed_kg)}<small>${s.input_kg_per_case.toFixed(3)} kg/case × ${n0(s.cheese_est_output)} cases</small></dd></div>
+      cheeseLine = `<div class="fig"><dt>Cheese + starch needed for cases made</dt><dd>${kg(s.cheese_est_needed_kg)}<small>${perCaseText(s)} × ${n0(s.cheese_est_output)} cases</small></dd></div>
          <div class="fig"><dt>Cheese + starch consumed</dt><dd class="${bad ? "bad" : "good"}">${kg(inUsed)}<small>cheese ${kg(s.cheese_consumed_kg)}${starchUsed ? ` + starch ${kg(starchUsed)}` : ""} · ${s.consumption.length} posting${s.consumption.length === 1 ? "" : "s"}${pc ? ` · ${fs(inUsed - pc, 1)} kg vs the full plan` : ""}</small></dd></div>`;
     } else if (s.cheese_kg_per_case && s.cheese_source === "journal") {
       const bad = s.cheese_diff_kg !== null && Math.abs(s.cheese_diff_kg) > s.cheese_tolerance_kg;

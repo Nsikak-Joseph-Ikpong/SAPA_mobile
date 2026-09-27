@@ -1078,6 +1078,7 @@ def check_order(oid: str, wb: Workbook, windows: pd.DataFrame, outputs: pd.DataF
         "cheese_planned_kg": float(cheese_comps["planned"].sum()) if not cheese_comps.empty else 0.0,
         "starch_planned_kg": float(comps.loc[comps["material"].str.upper().str.startswith(rules.not_cheese_prefixes), "planned"].sum()),
         "input_kg_per_case": rec["in_pc"] if rec else None,
+        "offcut_kg_per_case": rec["off_pc"] if rec else None,
         "input_consumed_kg": (consumed + float((starch_used or {}).get(oid, 0.0))) if cheese_source == "consumed" else None,
         "cheese_planned_offcuts_kg": float(cheese_comps.loc[cheese_comps["material"].str.upper().str.match(rules.offcut_pattern), "planned"].sum())
         if not cheese_comps.empty else 0.0,
