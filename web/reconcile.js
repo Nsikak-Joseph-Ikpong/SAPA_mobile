@@ -363,14 +363,23 @@
     const recipe = {};
     for (const c of wb.components) if (isCheese(c.material)) (recipe[c.order_id] ||= new Set()).add(c.material);
     const byKey = new Map();
-    for (const r of wb.journal) if (r.is_prod) { const k = r.conf + "\u0000" + r.material; if (!byKey.has(k)) byKey.set(k, []); byKey.get(k).push(r); }
+    // issues can also be warehouse or goods-and-activity confirmations (from the regrading site or straight from a store bin):
+    // their issuing (negative) rows carry the batch
+    const byKeyNeg = new Map();
+    for (const r of wb.journal) {
+      const k = r.conf + "\u0000" + r.material;
+      if (r.is_prod) { if (!byKey.has(k)) byKey.set(k, []); byKey.get(k).push(r); }
+      if (r.qty < 0) { if (!byKeyNeg.has(k)) byKeyNeg.set(k, []); byKeyNeg.get(k).push(r); }
+    }
     const rows = [];
     for (const r of wb.fulfilment) {
       if (!isCheese(r.material)) continue;
-      const g = byKey.get(r.conf + "\u0000" + r.material);
+      let g = byKey.get(r.conf + "\u0000" + r.material);
+      const gn = byKeyNeg.get(r.conf + "\u0000" + r.material);
       const base = { order_id: r.order_id, material: r.material, conf: r.conf, candidates: 1, other_orders: "", substitute: !recipe[r.order_id]?.has(r.material), via: "fulfilment" };
       if (g && Math.abs(-sum(g.map((x) => x.qty)) - r.kg) < 0.01) for (const x of g) rows.push({ ...base, batch: x.batch, area: x.area, time: x.time, consumed: -x.qty });
-      else rows.push({ ...base, batch: null, area: g ? g[0].area : "", time: g ? Math.min(...g.map((x) => x.time)) : NaN, consumed: r.kg });
+      else if (gn && Math.abs(-sum(gn.map((x) => x.qty)) - r.kg) < 0.01) for (const x of gn) rows.push({ ...base, batch: x.batch, area: x.area, time: x.time, consumed: -x.qty });
+      else if ((g = g || gn), true) rows.push({ ...base, batch: null, area: g ? g[0].area : "", time: g ? Math.min(...g.map((x) => x.time)) : NaN, consumed: r.kg });
     }
     return rows;
   }

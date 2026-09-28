@@ -453,16 +453,25 @@ def fulfilment_consumption(wb: Workbook, rules: Rules) -> pd.DataFrame:
     recipe_by_order = recipe.groupby("order_id")["material"].apply(set).to_dict()
     jp = wb.journal[wb.journal["is_prod"]]
     by_key = {k: g for k, g in jp.groupby(["conf", "material"], sort=False)}
+    # issues can also be warehouse or goods-and-activity confirmations (e.g. from the regrading site or
+    # straight from a store bin): their issuing (negative) rows carry the batch
+    jn = wb.journal[wb.journal["qty"] < 0]
+    by_key_neg = {k: g for k, g in jn.groupby(["conf", "material"], sort=False)}
     rows = []
     for r in f[f["material"].map(lambda m: is_cheese(m, rules))].itertuples():
         sub = r.material not in recipe_by_order.get(r.order_id, set())
         g = by_key.get((r.conf, r.material))
         base = {"order_id": r.order_id, "material": r.material, "conf": r.conf, "candidates": 1, "other_orders": "",
                 "substitute": sub, "via": "fulfilment"}
+        gn = by_key_neg.get((r.conf, r.material))
         if g is not None and abs(float(-g["qty"].sum()) - float(r.kg)) < 0.01:
             for x in g.itertuples():
                 rows.append({**base, "batch": x.batch, "area": x.area, "time": x.time, "consumed": -x.qty})
+        elif gn is not None and abs(float(-gn["qty"].sum()) - float(r.kg)) < 0.01:
+            for x in gn.itertuples():
+                rows.append({**base, "batch": x.batch, "area": x.area, "time": x.time, "consumed": -x.qty})
         else:
+            g = g if g is not None else gn
             rows.append({**base, "batch": None, "area": g["area"].iloc[0] if g is not None else "",
                          "time": g["time"].min() if g is not None else pd.NaT, "consumed": float(r.kg)})
     return pd.DataFrame(rows, columns=cols)
