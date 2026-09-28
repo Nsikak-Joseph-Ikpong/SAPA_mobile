@@ -179,6 +179,11 @@ For the output and every input the order sheet says what was planned, what was f
 issued) and what is still open. Inputs are judged against what the cases made need (planned × made ÷
 planned output):
 
+* **cheese consumed per order from the production order fulfilment export** when it's loaded: it lists every
+  input confirmation with its production lot (order), Conf.ID and quantity. The Inventory Valuation Qty
+  column is used (kg; Confirmed Qty can be in blocks). Each row is matched to the journal by Conf.ID and
+  product for the batch and time. Orders the export doesn't cover (it tends to leave out orders still
+  Started) fall back to the journal matching below, without the postings the export already assigns;
 * **cheese consumed, from the confirmation journal** (when the journal export has both sides, e.g. the
   *Confirmation Journal* export with negative rows). Cheese consumption is posted as its own production
   confirmation (a negative cheese row, no order ID). Each posting on a line is tied to the order running

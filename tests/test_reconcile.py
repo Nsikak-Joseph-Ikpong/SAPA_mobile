@@ -193,3 +193,36 @@ def test_mass_balance_with_offcuts(full):
 def test_offcuts_used_as_input_count_as_cheese(full):
     a = next(s for s in full.summaries if s["order_id"] == "A1")
     assert a["mass"]["blocks_in"] == pytest.approx(1925) and a["mass"]["offcuts_in"] == 0
+
+
+def write_fulfilment(path):
+    """A production order fulfilment export: input confirmations per production lot, quantities in kg in the
+    Inventory Valuation Qty column (Confirmed Qty can be in blocks)."""
+    head = ["Production Lot", "Output Product", "Output Product (Text)", "Input Product", "Conf.ID",
+            "Input Product Planned Quantity", "Confirmed Qty", "Inventory Valuation Qty"]
+    rows = [["Production Order Fulfillment"] + [None] * 7, head,
+            ["B2", "FGMOZZ", "Mozz 5x1kg", "RMMOZZ", "500", 1723.75, 50, 1000],       # in the journal (batch M1)
+            [None, None, None, None, "999", 1723.75, 45, 950],                        # posted after the journal export
+            [None, None, None, "BOBOX", "310", 350, 100, 100]]
+    pd.DataFrame(rows).to_excel(path, sheet_name="Production Order Fulfillment", header=False, index=False)
+
+
+@pytest.fixture(scope="module")
+def with_fulfilment(tmp_path_factory):
+    d = tmp_path_factory.mktemp("fulfil")
+    write_workbook(d / "SAP_Info.xlsx")
+    write_full_journal(d / "Confirmation_Journal.xlsx")
+    write_fulfilment(d / "fulfilment.xlsx")
+    return run(read_workbook([str(d / p) for p in ("SAP_Info.xlsx", "Confirmation_Journal.xlsx", "fulfilment.xlsx")]))
+
+
+def test_fulfilment_gives_consumption_per_order(with_fulfilment):
+    b = next(s for s in with_fulfilment.summaries if s["order_id"] == "B2")
+    assert b["consumption_from"] == "order fulfilment report"
+    # 1,000 kg matched to batch M1 in the journal + 950 kg not in the journal; the 900 kg posting the time
+    # matching gave B2 before isn't counted (the report doesn't tie it to B2)
+    assert b["cheese_consumed_kg"] == pytest.approx(1950)
+    rows = with_fulfilment.consumption[with_fulfilment.consumption["order_id"] == "B2"]
+    assert set(rows["batch"].dropna()) == {"M1"} and set(rows["via"]) == {"fulfilment"}
+    a = next(s for s in with_fulfilment.summaries if s["order_id"] == "A1")
+    assert a["consumption_from"] == "matched by line and time" and a["cheese_consumed_kg"] == pytest.approx(1925)

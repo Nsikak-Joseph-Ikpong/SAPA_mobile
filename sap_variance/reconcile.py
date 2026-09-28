@@ -81,6 +81,7 @@ SHEET_SIGNATURES = {
     "outputs": {"productionorderoutputproduct", "product", "productionstartdatetime"},
     "inputs": {"inputproduct", "operationid"},
     "stock": {"onhandstock", "logisticsarea"},
+    "fulfilment": {"productionlot", "inputproduct", "confid", "inventoryvaluationqty"},
 }
 
 
@@ -133,6 +134,7 @@ class Workbook:
     journal: pd.DataFrame
     stock: pd.DataFrame
     sheets: dict
+    fulfilment: pd.DataFrame | None = None
 
 
 def _journal(j: pd.DataFrame) -> pd.DataFrame:
@@ -240,7 +242,20 @@ def read_workbook(paths: list[str]) -> Workbook:
         stock = pd.DataFrame({"area": s["logisticsarea"].astype(str), "material": s["material"].astype(str).str.strip(),
                               "batch": _id(s[[c for c in s.columns if c.startswith("identifiedstockidentifiedstockid")][0]]),
                               "qty": _num(s["onhandstock"])})
-    return Workbook(orders, comp, byp, journal, stock, names)
+    # --- production order fulfilment: every input confirmation with its production order (lot) ---
+    fulfil = None
+    if "fulfilment" in found:
+        f = found["fulfilment"]
+        for col in ("productionlot", "outputproduct", "inputproduct"):
+            f[col] = f[col].ffill()
+        fulfil = pd.DataFrame({
+            "order_id": _id(f["productionlot"]), "material": f["inputproduct"].astype(str).str.strip(),
+            "conf": _id(f["confid"]), "kg": _num(f["inventoryvaluationqty"]),     # in kg (Confirmed Qty can be in blocks)
+            "planned": _num(f.get("inputproductplannedquantity")),
+        })
+        fulfil = fulfil[fulfil["order_id"].notna() & ~fulfil["material"].isin(["#", "Result", "nan"])
+                        & fulfil["conf"].notna() & (fulfil["conf"] != "#") & fulfil["kg"].notna()].reset_index(drop=True)
+    return Workbook(orders, comp, byp, journal, stock, names, fulfil)
 
 
 # ---------------------------------------------------------------- matching
@@ -354,9 +369,14 @@ def consumption_rows(journal: pd.DataFrame, rules: Rules) -> pd.DataFrame:
     return journal[ch & ~offcut_made]
 
 
-def assign_consumption(wb: Workbook, windows: pd.DataFrame, outputs: pd.DataFrame, rules: Rules) -> pd.DataFrame:
-    """Cheese consumption postings on a line, each tied to the order most likely to own it."""
+def assign_consumption(wb: Workbook, windows: pd.DataFrame, outputs: pd.DataFrame, rules: Rules,
+                       exclude_pairs: set | None = None, exclude_orders: set | None = None) -> pd.DataFrame:
+    """Cheese consumption postings on a line, each tied to the order most likely to own it. Postings the
+    order fulfilment report already ties to an order (exclude_pairs: Conf.ID + product) and the orders it
+    covers (exclude_orders) are left out."""
+    exclude_pairs, exclude_orders = exclude_pairs or set(), exclude_orders or set()
     wins, recipe_by_order, next_out, starts, resources = _line_context(wb, windows, outputs, rules)
+    wins = wins[~wins["order_id"].isin(exclude_orders)]
     # Cheese isn't consumed for a job after its last pallet: once output stops (plus a short grace),
     # a job can no longer own consumption postings
     last_any = outputs[outputs["qty"] > 0].groupby("order_id")["time"].max()
@@ -365,7 +385,10 @@ def assign_consumption(wb: Workbook, windows: pd.DataFrame, outputs: pd.DataFram
     cap = wins["order_id"].map(last_any) + grace
     wins["end"] = wins["end"].where(cap.isna() | (wins["end"] <= cap), cap)
     cons = consumption_rows(wb.journal, rules)
-    cons = cons[cons["area"].isin(set(rules.line_areas.values()))].sort_values("time", kind="stable")
+    cons = cons[cons["area"].isin(set(rules.line_areas.values()))]
+    if exclude_pairs:
+        cons = cons[[(c, m) not in exclude_pairs for c, m in zip(cons["conf"], cons["material"])]]
+    cons = cons.sort_values("time", kind="stable")
     last_out = dict(zip(windows["order_id"], windows["last_regular"]))
     areas = dict(zip(windows["order_id"], windows["area"]))
     # SAP's production start is the time of the order's first confirmation, often its first cheese
@@ -373,7 +396,7 @@ def assign_consumption(wb: Workbook, windows: pd.DataFrame, outputs: pd.DataFram
     actual_starts = wb.orders.dropna(subset=["start_actual"])
     anchor: dict = {}
     for oid, t in zip(actual_starts["order_id"], actual_starts["start_actual"]):
-        if oid in areas:
+        if oid in areas and oid not in exclude_orders:
             anchor.setdefault(areas[oid], []).append((t, oid))
     tol = pd.Timedelta(seconds=rules.start_anchor_seconds)
     # a cheese not in any running job's recipe is taken as a substitute by a job on that line
@@ -411,9 +434,38 @@ def assign_consumption(wb: Workbook, windows: pd.DataFrame, outputs: pd.DataFram
             last_user[key] = owner
         rows.append({"order_id": owner, "material": r.material, "batch": r.batch, "area": r.area,
                      "time": r.time, "conf": r.conf, "consumed": -r.qty, "candidates": len(cands),
-                     "other_orders": ", ".join(c for c in cands if c != owner), "substitute": substitute})
+                     "other_orders": ", ".join(c for c in cands if c != owner), "substitute": substitute,
+                     "via": "time"})
     return pd.DataFrame(rows, columns=["order_id", "material", "batch", "area", "time", "conf", "consumed",
-                                       "candidates", "other_orders", "substitute"])
+                                       "candidates", "other_orders", "substitute", "via"])
+
+
+def fulfilment_consumption(wb: Workbook, rules: Rules) -> pd.DataFrame:
+    """Cheese consumed per order straight from the order fulfilment report (in kg). Each confirmation is
+    matched to its journal rows by Conf.ID and product for the batch, area and time; if the journal doesn't
+    have it (posted after the export) it's kept as one row without a batch."""
+    f = wb.fulfilment
+    cols = ["order_id", "material", "batch", "area", "time", "conf", "consumed", "candidates", "other_orders",
+            "substitute", "via"]
+    if f is None or f.empty:
+        return pd.DataFrame(columns=cols)
+    recipe = wb.components[wb.components["material"].map(lambda m: is_cheese(m, rules))]
+    recipe_by_order = recipe.groupby("order_id")["material"].apply(set).to_dict()
+    jp = wb.journal[wb.journal["is_prod"]]
+    by_key = {k: g for k, g in jp.groupby(["conf", "material"], sort=False)}
+    rows = []
+    for r in f[f["material"].map(lambda m: is_cheese(m, rules))].itertuples():
+        sub = r.material not in recipe_by_order.get(r.order_id, set())
+        g = by_key.get((r.conf, r.material))
+        base = {"order_id": r.order_id, "material": r.material, "conf": r.conf, "candidates": 1, "other_orders": "",
+                "substitute": sub, "via": "fulfilment"}
+        if g is not None and abs(float(-g["qty"].sum()) - float(r.kg)) < 0.01:
+            for x in g.itertuples():
+                rows.append({**base, "batch": x.batch, "area": x.area, "time": x.time, "consumed": -x.qty})
+        else:
+            rows.append({**base, "batch": None, "area": g["area"].iloc[0] if g is not None else "",
+                         "time": g["time"].min() if g is not None else pd.NaT, "consumed": float(r.kg)})
+    return pd.DataFrame(rows, columns=cols)
 
 
 
@@ -1070,7 +1122,9 @@ def check_order(oid: str, wb: Workbook, windows: pd.DataFrame, outputs: pd.DataF
         r_["open"] = r_["planned"] - r_["actual"]
     open_status = [r for r in open_status if r["planned"] or r["actual"]]
     summary = {
-        "order_id": oid, "status": o["status"], "open_status": open_status, "fg": fg, "fg_text": o.get("fg_text"), "line": o["resource"],
+        "order_id": oid, "status": o["status"], "open_status": open_status,
+        "consumption_from": ("order fulfilment report" if oid in (info or {}).get("covered", set())
+                             else "matched by line and time") if has_cons else None, "fg": fg, "fg_text": o.get("fg_text"), "line": o["resource"],
         "area": area, "start": o["start"], "last_regular_output": last_regular,
         "planned_out": planned_out, "order_out": order_out, "journal_out": journal_out,
         "output_confirmations": len(confs), "cheese_kg_per_case": per_case,
@@ -1114,12 +1168,28 @@ def run(wb: Workbook, order_ids: list[str] | None = None, rules: Rules | None = 
     sends = assign_cheese(wb, windows, outputs, rules)
     # Journals exported with both sides carry cheese consumption; receiving-only exports don't
     raw_cons = consumption_rows(wb.journal, rules)
-    has_cons = bool(((raw_cons["qty"] < 0) & ~raw_cons["material"].str.upper().str.match(rules.offcut_pattern)).any())
-    consumption = assign_consumption(wb, windows, outputs, rules) if has_cons else None
-    over_batches = over_consumed_batches(wb.journal, rules) if has_cons else {}
-    starch_used = starch_consumed(wb.journal, outputs, rules) if has_cons else {}
-    info = {"code_weights": learn_pack_codes(wb.orders), "ctype": lambda m: m.upper()[:4] if not re.match(rules.offcut_pattern, m.upper()) else m.upper(),
-            "consumed_by_batch": ((-raw_cons.groupby(["material", "batch"])["qty"].sum()).to_dict() if has_cons else {}),
+    journal_cons = bool(((raw_cons["qty"] < 0) & ~raw_cons["material"].str.upper().str.match(rules.offcut_pattern)).any())
+    fulfil = wb.fulfilment if wb.fulfilment is not None and not wb.fulfilment.empty else None
+    has_cons = journal_cons or fulfil is not None
+    # orders in the order fulfilment report take their consumption from it; the rest are matched by line and time
+    covered = set(fulfil["order_id"]) if fulfil is not None else set()
+    owned = set(zip(fulfil["conf"], fulfil["material"])) if fulfil is not None else set()
+    consumption = None
+    if has_cons:
+        parts = [fulfilment_consumption(wb, rules)]
+        if journal_cons:
+            parts.append(assign_consumption(wb, windows, outputs, rules, owned, covered))
+        consumption = pd.concat([p for p in parts if not p.empty], ignore_index=True) if any(not p.empty for p in parts) \
+            else parts[0]
+    over_batches = over_consumed_batches(wb.journal, rules) if journal_cons else {}
+    starch_used = starch_consumed(wb.journal, outputs, rules) if journal_cons else {}
+    if fulfil is not None:
+        st = fulfil[fulfil["material"].str.upper().str.startswith(rules.not_cheese_prefixes)]
+        st_by = st.groupby("order_id")["kg"].sum().to_dict()
+        for o in covered:
+            starch_used[o] = float(st_by.get(o, 0.0))
+    info = {"covered": covered, "code_weights": learn_pack_codes(wb.orders), "ctype": lambda m: m.upper()[:4] if not re.match(rules.offcut_pattern, m.upper()) else m.upper(),
+            "consumed_by_batch": ((-raw_cons.groupby(["material", "batch"])["qty"].sum()).to_dict() if journal_cons else {}),
             "moves_by_batch": {k: g.sort_values("time", kind="stable") for k, g in
                                wb.journal[~wb.journal["is_prod"] & (wb.journal["qty"] > 0)].groupby(["material", "batch"])}}
     pos = outputs[outputs["qty"] > 0]

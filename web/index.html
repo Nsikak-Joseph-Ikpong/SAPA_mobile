@@ -130,7 +130,7 @@
       <div class="source" id="source"><span class="loading">Loading…</span></div>
       <div class="drop" id="drop" tabindex="0" role="button">
         <strong>Load SAP files</strong>
-        <span>Drop or choose the SAP workbook (.xlsx) and the confirmation journal export, together or one at a time. Each file is added to what's loaded; a newer file of the same kind replaces the older one. Files stay in this browser and are remembered for next time.</span>
+        <span>Drop or choose the SAP workbook (.xlsx), the confirmation journal and the production order fulfilment export, together or one at a time. Each file is added to what's loaded; a newer file of the same kind replaces the older one. Files stay in this browser and are remembered for next time.</span>
       </div>
       <input type="file" id="file" accept=".xlsx,.xlsm,.xls" multiple hidden>
       <input type="file" id="addfile" accept=".xlsx,.xlsm,.xls" multiple hidden>
@@ -231,7 +231,7 @@
   const forgetFiles = () => idb("readwrite", (s) => s.delete("workbook"));
 
   // ---------------------------------------------------------------- loading
-  const KIND_TEXT = { components: "order inputs", outputs: "order outputs", inputs: "input units", journal: "journal", stock: "stock" };
+  const KIND_TEXT = { fulfilment: "order fulfilment", components: "order inputs", outputs: "order outputs", inputs: "input units", journal: "journal", stock: "stock" };
   function sheetsFromBuffer(name, buf) {
     const wb = XLSX.read(buf, { type: "array", dense: true });
     return wb.SheetNames.map((sn) => ({ file: name, sheet: sn, rows: XLSX.utils.sheet_to_json(wb.Sheets[sn], { header: 1, raw: true, defval: null, blankrows: true }) }));
@@ -376,7 +376,7 @@
       const bad = s.cheese_consumed_kg === 0 || (s.cheese_diff_kg !== null && Math.abs(s.cheese_diff_kg) > s.cheese_tolerance_kg);
       const starchUsed = s.mass ? s.mass.starch_in : 0;
       cheeseLine = `<div class="fig"><dt>Cheese needed for cases made</dt><dd>${kg(s.cheese_est_needed_kg)}<small>${perCaseText(s)} × ${n0(s.cheese_est_output)} cases</small></dd></div>
-         <div class="fig"><dt>Cheese consumed</dt><dd class="${bad ? "bad" : "good"}">${kg(s.cheese_consumed_kg)}<small>${s.consumption.length} posting${s.consumption.length === 1 ? "" : "s"}${starchUsed ? ` · starch ${kg(starchUsed)} not included` : ""}${pc ? ` · ${fs(s.cheese_consumed_kg - pc, 1)} kg vs the full plan` : ""}</small></dd></div>`;
+         <div class="fig"><dt>Cheese consumed</dt><dd class="${bad ? "bad" : "good"}">${kg(s.cheese_consumed_kg)}<small>${s.consumption_from === "order fulfilment report" ? "from the order fulfilment report" : "matched by line and time"} · ${s.consumption.length} posting${s.consumption.length === 1 ? "" : "s"}${starchUsed ? ` · starch ${kg(starchUsed)} not included` : ""}${pc ? ` · ${fs(s.cheese_consumed_kg - pc, 1)} kg vs the full plan` : ""}</small></dd></div>`;
     } else if (s.cheese_kg_per_case && s.cheese_source === "journal") {
       const bad = s.cheese_diff_kg !== null && Math.abs(s.cheese_diff_kg) > s.cheese_tolerance_kg;
       cheeseLine = `<div class="fig"><dt>Cheese used (journal estimate)</dt><dd class="${bad ? "bad" : s.cheese_sent_kg ? "good" : ""}">${kg(s.cheese_used_kg)}<small>moved to line ${kg(s.cheese_sent_kg)}, away ${kg(s.cheese_returned_kg)}</small></dd></div>
@@ -427,7 +427,7 @@
     const note = outside ? `<p class="hint">This order started outside the journal's dates, so some bookings may be missing from the check.</p>` : "";
 
     const outRows = s.outputs.map((o) => `<tr class="${o.qty < 0 ? "neg" : ""}"><td class="m">${esc(o.conf)}</td><td class="m">${esc(dm(o.time))}</td><td class="m">${esc(o.batch)}</td><td class="n">${f(o.qty)}</td><td>${esc(o.area)}</td></tr>`).join("");
-    const cheeseRows = s.cheese_moves.map((c) => `<tr><td class="m">${esc(dm(c.time))}</td><td class="m">${esc(c.material)}</td><td class="m">${esc(c.batch)}</td><td class="n">${f(c.sent, 2)}</td><td class="n">${c.returned ? f(c.returned, 2) : ""}</td><td>${esc(c.returned_to || "")}</td><td>${esc(c.other_orders || "")}</td></tr>`).join("");
+    const cheeseRows = s.cheese_moves.map((c) => `<tr><td class="m">${esc(dm(c.time))}</td><td class="m">${esc(c.material)}</td><td class="m">${esc(c.batch ?? "")}</td><td class="n">${f(c.sent, 2)}</td><td class="n">${c.returned ? f(c.returned, 2) : ""}</td><td>${esc(c.returned_to || "")}</td><td>${esc(c.other_orders || "")}</td></tr>`).join("");
     const q = (v) => (v === null || v === undefined || isNaN(v) ? "" : f(v, 2));
     const consumedCol = s.cheese_source === "consumed";
     const byMat = s.cheese_consumed_by_material || {};
@@ -441,15 +441,15 @@
     }).join("");
     // as in the SAP confirmation journal: Effective Qty negative for consumption, positive for a reversal
     const p2 = (n) => String(n).padStart(2, "0");
-    const sapTime = (t) => { const d = new Date(t); return `${p2(d.getUTCDate())}.${p2(d.getUTCMonth() + 1)}.${d.getUTCFullYear()} ${p2(d.getUTCHours())}:${p2(d.getUTCMinutes())}:${p2(d.getUTCSeconds())}`; };
-    const consRows = (s.consumption || []).map((c) => `<tr class="${c.consumed < 0 ? "neg" : ""}"><td class="m">${esc(c.material)}</td><td class="m">${esc(c.batch)}</td><td class="m">${esc(c.area)}</td><td class="m">${esc(sapTime(c.time))}</td><td>Production Confirmation</td><td class="m">${esc(c.conf)}</td><td class="n">${f(-c.consumed, 2)}</td><td>${esc(c.other_orders || "")}</td></tr>`).join("")
-      + ((s.consumption || []).length ? `<tr class="tot"><td colspan="6"><strong>Total</strong></td><td class="n"><strong>${f(-s.cheese_consumed_kg, 2)}</strong></td><td></td></tr>` : "");
+    const sapTime = (t) => { if (t === null || t === undefined || isNaN(t)) return ""; const d = new Date(t); return `${p2(d.getUTCDate())}.${p2(d.getUTCMonth() + 1)}.${d.getUTCFullYear()} ${p2(d.getUTCHours())}:${p2(d.getUTCMinutes())}:${p2(d.getUTCSeconds())}`; };
+    const consRows = (s.consumption || []).map((c) => `<tr class="${c.consumed < 0 ? "neg" : ""}"><td class="m">${esc(c.material)}</td><td class="m">${esc(c.batch ?? "")}</td><td class="m">${esc(c.area)}</td><td class="m">${esc(sapTime(c.time))}</td><td>Production Confirmation</td><td class="m">${esc(c.conf)}</td><td class="n">${f(-c.consumed, 2)}</td><td>${c.via === "fulfilment" ? "order fulfilment" : "line and time"}</td><td>${esc(c.other_orders || "")}</td></tr>`).join("")
+      + ((s.consumption || []).length ? `<tr class="tot"><td colspan="6"><strong>Total</strong></td><td class="n"><strong>${f(-s.cheese_consumed_kg, 2)}</strong></td><td></td><td></td></tr>` : "");
     const ev = `
       <details class="ev" open><summary>Inputs on the order (${s.components.length})</summary><div class="scroll"><table>
         <thead><tr><th>Material</th><th>Planned</th><th>Issued</th><th>Open</th>${consumedCol ? "<th>Consumed (journal)</th>" : ""}<th>Needed for cases made</th><th>Issued − needed</th><th></th></tr></thead><tbody>${compRows}</tbody></table></div></details>
-      ${consumedCol ? `<details class="ev"><summary>Cheese consumed in the journal (${s.consumption.length})</summary>
-        <p class="hint">Consumption postings on ${esc(s.area || "the line")} during the run, for cheese in this order's recipe, as they appear in the SAP confirmation journal: negative Effective Qty is cheese consumed, positive is a reversal (highlighted).</p><div class="scroll"><table>
-        <thead><tr><th>Product</th><th>Identified Stock ID</th><th>Logistics Area ID</th><th>Created On</th><th>Conf.Document Type</th><th>Conf.ID</th><th>Effective Qty</th><th>Could also be</th></tr></thead><tbody>${consRows || `<tr><td colspan="8">None</td></tr>`}</tbody></table></div></details>` : ""}
+      ${consumedCol ? `<details class="ev"><summary>Cheese consumed (${s.consumption.length})</summary>
+        <p class="hint">${s.consumption_from === "order fulfilment report" ? "Every cheese confirmation SAP books against this order (order fulfilment report), with the batch and time from the confirmation journal (matched on Conf.ID)." : "This order isn't in the order fulfilment report, so these are consumption postings on " + esc(s.area || "the line") + " during the run, matched to the order by line and time."} As in the SAP journal: negative Effective Qty is cheese consumed, positive is a reversal (highlighted).</p><div class="scroll"><table>
+        <thead><tr><th>Product</th><th>Identified Stock ID</th><th>Logistics Area ID</th><th>Created On</th><th>Conf.Document Type</th><th>Conf.ID</th><th>Effective Qty</th><th>Tied to the order by</th><th>Could also be</th></tr></thead><tbody>${consRows || `<tr><td colspan="9">None</td></tr>`}</tbody></table></div></details>` : ""}
       <details class="ev"><summary>Output postings in the journal (${s.outputs.length})</summary><div class="scroll"><table>
         <thead><tr><th>Conf.ID</th><th>Posted</th><th>Pallet</th><th>Cases</th><th>Area</th></tr></thead><tbody>${outRows || `<tr><td colspan="5">None</td></tr>`}</tbody></table></div></details>
       <details class="ev"><summary>Cheese moved to the line during the run (${s.cheese_moves.length})</summary>
