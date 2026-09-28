@@ -80,6 +80,9 @@
   .fig dd { margin: 0; font: 600 17px var(--mono); font-variant-numeric: tabular-nums; }
   .fig dd small { display: block; font: 400 12px var(--sans); color: var(--muted); }
   .fig.rp { border-left: 3px solid var(--accent); padding-left: 10px; }
+  .story { background: var(--accent-soft); border-left: 4px solid var(--accent); border-radius: 6px; padding: 12px 16px; margin: 0 0 18px; }
+  .story h3 { margin: 0 0 6px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
+  .story p { margin: 0; font-size: 15px; line-height: 1.55; max-width: 95ch; }
   .bad { color: var(--high); } .good { color: var(--ok); }
 
   .mass { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); }
@@ -480,7 +483,7 @@
 
     return `<article class="card" data-v="${v}">
       <div class="verdict"><span class="badge">${v}</span><div class="vt">Order <span class="mono">${esc(s.order_id)}</span>: ${esc(headline)}</div><div class="vs">${sub}</div></div>
-      <div class="body">${figs}${openHtml}${varHtml}${whyHtml}${massHtml}${note}${flags}${ev}</div></article>`;
+      <div class="body">${s.narrative ? `<section class="story"><h3>Summary</h3><p>${esc(s.narrative)}</p></section>` : ""}${figs}${openHtml}${varHtml}${whyHtml}${massHtml}${note}${flags}${ev}</div></article>`;
   }
 
   // ---------------------------------------------------------------- variance report (every order, plant layout)
@@ -494,7 +497,7 @@
         const s = r.summary, v = s.variance, o = state.ctx.idx.orders.get(s.order_id);
         if (!v) continue;
         rows.push({
-          "FG Lookup": `${s.order_id}FG`, "Production Order ID": s.order_id,
+          "FG Lookup": `${s.order_id}FG`, "Production Order ID": s.order_id, "Summary": s.narrative,
           "Production Order ID (Requested End Date)": isNaN(o.latest_end) ? "" : dmy(o.latest_end).slice(0, 10),
           "Material ID": s.fg, "Material ID (Text)": s.fg_text || "", "Material ID (Base UoM)": v.uom, "Production Order Status": s.status, "Line": s.line,
           "Case Weight": v.case_weight, "Planned FG Qty": v.planned_fg, "Actual FG Qty": v.actual_fg, "Nominal Weight Planned": v.nominal_planned,
@@ -512,7 +515,7 @@
     }
     const ws = XLSX.utils.json_to_sheet(rows);
     const cols = Object.keys(rows[0] || {});
-    ws["!cols"] = cols.map((c) => ({ wch: c === "Possible reasons" ? 90 : c === "Material ID (Text)" ? 40 : Math.max(10, Math.min(c.length + 2, 24)) }));
+    ws["!cols"] = cols.map((c) => ({ wch: c === "Possible reasons" || c === "Summary" ? 90 : c === "Material ID (Text)" ? 40 : Math.max(10, Math.min(c.length + 2, 24)) }));
     const fmt = { "Case Weight": "0.000", "Diff %": "0.0%", "Cheese Planned Input %": "0%" };
     for (let r = 1; r <= rows.length; r++) cols.forEach((c, j) => {
       const cell = ws[XLSX.utils.encode_cell({ r, c: j })];

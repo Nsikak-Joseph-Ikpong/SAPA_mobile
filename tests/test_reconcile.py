@@ -273,7 +273,7 @@ def repacked(tmp_path_factory):
 def test_repacks_counted_apart_from_cheese(repacked):
     c = next(s for s in repacked.summaries if s["order_id"] == "C3")
     # 5 cases x 6 kg (Slices 6x1kg), weighed by the product's own case weight
-    assert c["repacks"] == [{"material": "FGSLICE", "planned": 0.0, "cases": 5.0, "source": "journal", "kg_per_case": 6.0,
+    assert c["repacks"] == [{"material": "FGSLICE", "planned": 0.0, "cases": 5.0, "packs_per_case": 6, "source": "journal", "kg_per_case": 6.0,
                              "weight_from": "pack size in the product text", "kg": 30.0}]
     assert c["repack_kg"] == pytest.approx(30) and c["cheese_consumed_kg"] == pytest.approx(720)
     assert c["mass"]["repack_in"] == pytest.approx(30) and c["mass"]["in"] == pytest.approx(750)
@@ -284,3 +284,11 @@ def test_repacks_counted_apart_from_cheese(repacked):
     assert {"item": "Repack FGSLICE", "unit": "cases", "planned": 0.0, "actual": 5.0, "source": "journal",
             "open": -5.0} in c["open_status"]
     assert set(repacked.repacks["conf"]) == {"605"}
+
+
+def test_narrative_summary(repacked):
+    c = next(s for s in repacked.summaries if s["order_id"] == "C3")
+    assert c["narrative"].startswith(
+        "Regarding job C3 (FGSLICE, Slices 6x1kg), I found from consumption matched to the job by line and time that "
+        "the total input is 750 kg: 720 kg of cheese blocks and 30 kg of repacks: 30 packs of FGSLICE (5 cases).")
+    assert "The plan was 100 cases (100 × 6 kg = 600 kg) and 100 cases were made (100 × 6 kg = 600 kg), plus 110 kg of offcuts." in c["narrative"]

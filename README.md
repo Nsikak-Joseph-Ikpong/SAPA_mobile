@@ -220,11 +220,19 @@ planned output):
   or given to a neighbouring job, a recipe cheese not consumed at all, cheese moved back off the line
   without the consumption being reversed, offcuts above or below expected, output findings. The page can
   download the variance report for every order; the Excel report has it as its first sheet;
+* **summary**: each order opens with a plain-words summary of what was found, e.g. "Regarding job 1971
+  (MJFG2122EX, Finely Grated Monterey Jack 6x2kg), I found from the order fulfilment report that the total
+  input is 4,736.26 kg: 3,515.1 kg of cheese blocks, 1,137.56 kg of offcuts, 75.6 kg of starch and 8 kg of
+  repacks: 4 packs of MJFG2122EX (0.67 cases). The plan was 400 cases (400 × 12 kg = 4,800 kg) and 420 cases
+  were made (420 × 12 kg = 5,040 kg). That's 303.74 kg more out than went in, so it's not clear how 420
+  cases were made with less cheese, even counting the repack of 4 packs…", followed by the cheese-only
+  giveaway, the strongest journal lead and other problems (double-booked pallets, output mismatches). It's
+  also the Summary column of the variance report;
 * **repacks**: finished goods used as an input (a product some order makes, e.g. REMMCSL10200ALD and
   REMMRSL12160SM going into job 1868). They're taken from the order sheet when it lists them, else the
   order fulfilment report, else the journal: a production confirmation consuming finished goods (not the
-  reversal of a job's own pallet) belongs to the job that started up to 10 minutes before it and makes
-  that same product or is a repack product (`RE...`). Cases are weighed by the product's own case weight
+  reversal of a job's own pallet) belongs to the job making that same product while it runs (start to
+  last pallet plus 15 minutes), or else to a repack job (`RE...`) that started up to 10 minutes before it. Cases are weighed by the product's own case weight
   (from its text, pack code or recipe: 189 cases of a 10x200g product = 378 kg) and added to the cheese in
   the cheese check, mass balance and variance, but always shown apart: their own tile, variance columns
   (cheese consumed, repacks in, actual cheese issued = both), rows in planned/actual/open, and a table of

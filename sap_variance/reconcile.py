@@ -490,7 +490,8 @@ def repack_inputs(wb: Workbook, outputs: pd.DataFrame, rules: Rules) -> pd.DataF
     """Finished goods used as an input (repacks), in cases. From the order fulfilment report when it lists them
     (the batch from the journal by Conf.ID and product); otherwise from the journal: a production confirmation
     consuming finished goods that isn't the reversal of a job's own pallet goes to the job that started up to
-    repack_minutes before it, making that same product or a repack product (RE...)."""
+    repack_minutes before it and is a repack product (RE...), or to the job making that same product while it
+    runs (from its start to its last pallet plus the consumption grace)."""
     cols = ["order_id", "material", "batch", "area", "time", "conf", "cases", "via"]
     fgs = finished_goods(wb, rules)
     j = wb.journal
@@ -517,9 +518,15 @@ def repack_inputs(wb: Workbook, outputs: pd.DataFrame, rules: Rules) -> pd.DataF
     started = started.sort_values("start_actual", kind="stable")
     win, tol = pd.Timedelta(minutes=rules.repack_minutes), pd.Timedelta(seconds=rules.start_anchor_seconds)
     is_re = started["fg"].str.upper().str.startswith(rules.repack_prefixes)
+    last_out = outputs[outputs["qty"] > 0].groupby("order_id")["time"].max()
+    grace = pd.Timedelta(minutes=rules.consumption_grace_minutes)
+    run_end = (started["order_id"].map(last_out) + grace).fillna(started["start_actual"] + win)
+    run_end = run_end.where(run_end >= started["start_actual"] + win, started["start_actual"] + win)
     for x in cand.sort_values("time", kind="stable").itertuples():
-        ok = started[(started["start_actual"] <= x.time + tol) & (started["start_actual"] >= x.time - win)
-                     & ((started["fg"] == x.material) | is_re)]
+        began = started["start_actual"] <= x.time + tol
+        ok = started[began & (started["fg"] == x.material) & (run_end >= x.time)]
+        if ok.empty:
+            ok = started[began & (started["start_actual"] >= x.time - win) & is_re]
         if ok.empty:
             continue
         rows.append({"order_id": ok["order_id"].iloc[-1], "material": x.material, "batch": x.batch, "area": x.area,
@@ -625,6 +632,14 @@ def pack_weight(text):
     grams = unit.startswith("g") or (not unit and q >= 50)
     w = n * q / 1000 if grams else n * q
     return w if 0.05 <= w <= 1000 else None
+
+
+def pack_count(text):
+    """Packs per case from the pack size in the product text (12x160g -> 12)."""
+    found = list(PACK.finditer(str(text or "")))
+    if not found or not pack_weight(text):
+        return None
+    return int(next((x for x in found if x.group(3)), found[0]).group(1))
 
 
 PACK_CODE = re.compile(r"\d{2,}")
@@ -833,6 +848,104 @@ def variance_reasons(oid, v, cons, sends_o, window, consumption, codes, recipe_b
         out.append({"kg": None, "text": "Otherwise: giveaway (overfill above the nominal case weight) or waste on "
                     "the line that wasn't posted."})
     return sorted(out, key=lambda x: -(x["kg"] or 0))
+
+
+NARRATIVE_FLAGS = {
+    "PALLET_CONFIRMED_MORE_THAN_ONCE": "a pallet confirmed more than once",
+    "OUTPUT_POSTED_IN_BULK_OR_LATE": "pallets posted in bulk or late",
+    "OUTPUT_NOT_IN_JOURNAL": "output on the order that isn't in the journal",
+    "INPUTS_SHORT_FOR_OUTPUT": "packaging or other inputs issued short for the output",
+    "BATCH_OVER_CONSUMED": "a cheese batch consumed for more than it held",
+    "OFFCUTS_OVER_PLAN": "more offcuts than planned",
+    "BLEND_SPLIT_OFF": "a cheese split different from the recipe",
+    "REPACK_WEIGHT_UNKNOWN": "a repack with no case weight",
+}
+
+
+def _t(x, d=2) -> str:
+    """A number with thousands separators and no trailing zeros (3,515.1; 400)."""
+    t = f"{round(x, 6):,.{d}f}"     # rounded first so the float summing order can't tip it
+    return t.rstrip("0").rstrip(".") if "." in t else t
+
+
+def narrative(s: dict, findings: list) -> str:
+    """What was found for the job, in plain words, from the figures and findings."""
+    oid, v, m = s["order_id"], s.get("variance"), s.get("mass")
+    name = s["fg"] + (f", {s['fg_text']}" if isinstance(s.get("fg_text"), str) and s["fg_text"] else "")
+    rps = [r for r in s.get("repacks") or [] if r["cases"]]
+    rp = " and ".join(f"{_t(r['cases'] * r['packs_per_case'], 1)} packs of {r['material']} ({_t(r['cases'])} cases)"
+                      if r.get("packs_per_case") else f"{_t(r['cases'])} cases of {r['material']}" for r in rps)
+    head = f"Regarding job {oid} ({name}), "
+    out = []
+    if m:
+        bits = [f"{_t(m['blocks_in'])} kg of cheese blocks"]
+        if m["offcuts_in"]:
+            bits.append(f"{_t(m['offcuts_in'])} kg of offcuts")
+        if m["starch_in"]:
+            bits.append(f"{_t(m['starch_in'])} kg of starch")
+        if m.get("repack_in"):
+            bits.append(f"{_t(m['repack_in'])} kg of repacks: {rp}")
+        src = ("the order fulfilment report" if s.get("consumption_from") == "order fulfilment report"
+               else "consumption matched to the job by line and time")
+        listed = bits[0] if len(bits) == 1 else ", ".join(bits[:-1]) + " and " + bits[-1]
+        out.append(head + f"I found from {src} that the total input is {_t(m['in'])} kg: {listed}.")
+    elif s.get("cheese_source") == "consumed":
+        out.append(head + "I found no cheese consumed for it" + (f", only a repack of {rp}" if rps else "") + ".")
+    elif s.get("cheese_source") == "order":
+        out.append(head + f"the order sheet shows {_t(s['cheese_issued_kg'])} kg of cheese issued.")
+    elif s.get("cheese_source") == "journal":
+        out.append(head + f"no cheese is on the order sheet; about {_t(s['cheese_used_kg'])} kg was moved to the line "
+                   f"during the run (an estimate).")
+    else:
+        out.append(head + "there's no cheese recipe to check it against.")
+    if v:
+        if v["uom"] == "kg":
+            out.append(f"The plan was {_t(v['planned_fg'])} kg of product and {_t(v['actual_fg'])} kg was made"
+                       + (f", plus {_t(v['actual_offcuts'])} kg of offcuts" if v["actual_offcuts"] else "") + ".")
+        else:
+            cw = _t(v["case_weight"], 3)
+            out.append(f"The plan was {_t(v['planned_fg'])} cases ({_t(v['planned_fg'])} × {cw} kg = "
+                       f"{_t(v['nominal_planned'])} kg) and {_t(v['actual_fg'])} cases were made ({_t(v['actual_fg'])} × "
+                       f"{cw} kg = {_t(v['nominal_output'])} kg)"
+                       + (f", plus {_t(v['actual_offcuts'])} kg of offcuts" if v["actual_offcuts"] else "") + ".")
+        made = f"{_t(v['actual_fg'])} {'kg' if v['uom'] == 'kg' else 'cases'}"
+        if m:
+            un, tol = m["unaccounted"], m["tolerance"]
+            if un < -tol:
+                out.append(f"That's {_t(-un)} kg more out than went in, so it's not clear how {made} were made with less "
+                           f"cheese" + (f", even counting the repack of {rp}" if rps else "") + ".")
+            elif un > tol:
+                out.append(f"{_t(un)} kg ({un / m['in']:.1%}) went in that didn't come out as product or offcuts: waste, "
+                           f"giveaway, or output or offcuts not posted.")
+            else:
+                out.append(f"What went in matches what came out, within tolerance ({un:+,.1f} kg).")
+        elif v["variance_kg"] < -v["tolerance"]:
+            out.append(f"That's {_t(-v['variance_kg'])} kg less cheese than {made} need.")
+        elif v["variance_kg"] > v["tolerance"]:
+            out.append(f"That's {_t(v['variance_kg'])} kg more cheese than {made} need.")
+        if abs(v["variance_kg"]) > v["tolerance"]:
+            out.append(f"On cheese alone (no starch), giveaway is {_t(v['ga_actual'], 1)} kg against "
+                       f"{_t(v['ga_expected'], 1)} kg planned ({v['variance_kg']:+,.1f} kg).")
+            lead = [x for x in s.get("variance_reasons") or [] if x["kg"]]
+            if lead:
+                out.append("The journal points to: " + lead[0]["text"])
+    elif s.get("cheese_diff_kg") is not None and abs(s["cheese_diff_kg"]) > (s.get("cheese_tolerance_kg") or 0):
+        out.append(f"Cheese is {_t(abs(s['cheese_diff_kg']))} kg {'over' if s['cheese_diff_kg'] > 0 else 'under'} what the "
+                   f"output needs.")
+    also = []
+    if s.get("double_booked_pallets"):
+        p = s["double_booked_pallets"]
+        also.append(f"pallet{'s' if len(p) > 1 else ''} {', '.join(str(x) for x in p)} double booked")
+    if any(f.code == "OUTPUT_NOT_ON_ORDER" for f in findings):
+        also.append(f"the journal shows {_t(s['journal_out'])} cases against {_t(s['order_out'])} on the order")
+    seen = set()
+    for f in findings:
+        if f.severity in ("HIGH", "MEDIUM", "LOW") and f.code in NARRATIVE_FLAGS and f.code not in seen:
+            seen.add(f.code)
+            also.append(NARRATIVE_FLAGS[f.code])
+    if also:
+        out.append("Also: " + "; ".join(also) + ".")
+    return " ".join(out)
 
 
 # ---------------------------------------------------------------- checks
@@ -1074,7 +1187,8 @@ def check_order(oid: str, wb: Workbook, windows: pd.DataFrame, outputs: pd.DataF
             src = ("order fulfilment report" if (jr["via"] == "fulfilment").any() else "journal") if not jr.empty else "issued on the order"
         rw, rw_from = (info or {}).get("repack_weights", {}).get(m, (None, None))
         repacks.append({"material": m, "planned": float(sr["planned"].fillna(0).sum()) if not sr.empty else 0.0,
-                        "cases": cases, "source": src, "kg_per_case": rw, "weight_from": rw_from,
+                        "cases": cases, "packs_per_case": (info or {}).get("repack_packs", {}).get(m),
+                        "source": src, "kg_per_case": rw, "weight_from": rw_from,
                         "kg": cases * rw if rw else None})
     repack_kg = round(sum(r["kg"] for r in repacks if r["kg"]), 6)
     if repacks:
@@ -1276,6 +1390,7 @@ def check_order(oid: str, wb: Workbook, windows: pd.DataFrame, outputs: pd.DataF
         "components": comp_rows,
     }
     findings.sort(key=lambda f: SEVERITY_ORDER[f.severity])
+    summary["narrative"] = narrative(summary, findings)
     return summary, findings
 
 
@@ -1324,7 +1439,9 @@ def run(wb: Workbook, order_ids: list[str] | None = None, rules: Rules | None = 
     repacks = repack_inputs(wb, outputs, rules)
     needs_w = set(repacks["material"]) | set(wb.components.loc[wb.components["material"].isin(fgs), "material"])
     info = {"covered": covered, "code_weights": code_weights, "finished_goods": fgs, "repacks": repacks,
-            "repack_weights": {m: product_weight(wb, m, code_weights, rules) for m in sorted(needs_w)}, "ctype": lambda m: m.upper()[:4] if not re.match(rules.offcut_pattern, m.upper()) else m.upper(),
+            "repack_weights": {m: product_weight(wb, m, code_weights, rules) for m in sorted(needs_w)},
+            "repack_packs": {m: pack_count(next(iter(wb.orders.loc[wb.orders["fg"] == m, "fg_text"].dropna()), None))
+                             for m in sorted(needs_w)}, "ctype": lambda m: m.upper()[:4] if not re.match(rules.offcut_pattern, m.upper()) else m.upper(),
             "consumed_by_batch": ((-raw_cons.groupby(["material", "batch"])["qty"].sum()).to_dict() if journal_cons else {}),
             "moves_by_batch": {k: g.sort_values("time", kind="stable") for k, g in
                                wb.journal[~wb.journal["is_prod"] & (wb.journal["qty"] > 0)].groupby(["material", "batch"])}}
@@ -1497,7 +1614,7 @@ def write_excel(res: Result, path: str) -> str:
         if not v:
             continue
         var_rows.append({
-            "FG Lookup": f"{sm['order_id']}FG", "Production Order ID": sm["order_id"],
+            "FG Lookup": f"{sm['order_id']}FG", "Production Order ID": sm["order_id"], "Summary": sm["narrative"],
             "Material ID": sm["fg"], "Material ID (Text)": sm.get("fg_text") or "", "Material ID (Base UoM)": v["uom"],
             "Production Order Status": sm["status"], "Line": sm["line"], "Case Weight": v["case_weight"],
             "Planned FG Qty": v["planned_fg"], "Actual FG Qty": v["actual_fg"], "Nominal Weight Planned": v["nominal_planned"],
