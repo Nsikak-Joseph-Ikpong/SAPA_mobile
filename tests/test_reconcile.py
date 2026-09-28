@@ -251,3 +251,36 @@ def test_pallet_double_booked_is_high(double_booked):
     assert "P1: 200 cases confirmed on one pallet, corrected to 100" in c["PALLET_CONFIRMED_MORE_THAN_ONCE"].message
     a = next(s for s in double_booked.summaries if s["order_id"] == "A1")
     assert a["double_booked_pallets"] == ["P9"]
+
+
+@pytest.fixture(scope="module")
+def repacked(tmp_path_factory):
+    d = tmp_path_factory.mktemp("repack")
+    write_workbook(d / "SAP_Info.xlsx")
+    write_full_journal(d / "Confirmation_Journal.xlsx")
+    head = ["Site", "Product", "Identified Stock (Identified Stock ID)", "Logistics Area (Logistics Area ID)",
+            "Created On", "Conf.Document Type", "Conf.ID", "Restricted", "Effective Qty"]
+    rows = [["Confirmation Journal"] + [None] * 8, head,
+            # 3 minutes after job C starts: 5 cases of an old FGSLICE pallet repacked into it
+            ["EXTHQ1", "FGSLICE", "OLD1", "REPACK", ts("09:03"), PC, "605", "#", -5],
+            # another product (C isn't a repack job) and a posting long after the start: not repacks of C
+            ["EXTHQ1", "FGMOZZ", "R0", "REPACK", ts("09:04"), PC, "606", "#", -2],
+            ["EXTHQ1", "FGSLICE", "OLD2", "REPACK", ts("11:00"), PC, "607", "#", -1]]
+    pd.DataFrame(rows).to_excel(d / "extra.xlsx", sheet_name="Confirmation Journal", header=False, index=False)
+    return run(read_workbook([str(d / "SAP_Info.xlsx"), str(d / "Confirmation_Journal.xlsx"), str(d / "extra.xlsx")]))
+
+
+def test_repacks_counted_apart_from_cheese(repacked):
+    c = next(s for s in repacked.summaries if s["order_id"] == "C3")
+    # 5 cases x 6 kg (Slices 6x1kg), weighed by the product's own case weight
+    assert c["repacks"] == [{"material": "FGSLICE", "planned": 0.0, "cases": 5.0, "source": "journal", "kg_per_case": 6.0,
+                             "weight_from": "pack size in the product text", "kg": 30.0}]
+    assert c["repack_kg"] == pytest.approx(30) and c["cheese_consumed_kg"] == pytest.approx(720)
+    assert c["mass"]["repack_in"] == pytest.approx(30) and c["mass"]["in"] == pytest.approx(750)
+    v = c["variance"]
+    assert v["cheese_input_kg"] == pytest.approx(720) and v["repack_kg"] == pytest.approx(30)
+    assert v["actual_cheese"] == pytest.approx(750)
+    assert "FGSLICE 5.00 cases × 6.000 kg = 30.0 kg (journal)" in codes(repacked, "C3")["REPACK_INPUT"].message
+    assert {"item": "Repack FGSLICE", "unit": "cases", "planned": 0.0, "actual": 5.0, "source": "journal",
+            "open": -5.0} in c["open_status"]
+    assert set(repacked.repacks["conf"]) == {"605"}

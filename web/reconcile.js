@@ -8,7 +8,7 @@
     skip_resources: ["FLOOR_WASTE", "LINE_RECOVERY"],
     cheese_prefixes: ["RM"], not_cheese_prefixes: ["RMPS"], offcut_pattern: /^MB.*OFF$/,
     lead_hours: 2, tail_hours: 1, return_hours: 24, order_start_slack_hours: 1, max_order_age_hours: 72,
-    bulk_pallets: 4, late_hours: 2, handoff_minutes: 30, consumption_grace_minutes: 15, start_anchor_seconds: 2, tolerance_pct: 0.05, tolerance_kg: 50, blend_tolerance: 0.08, offcut_tolerance: 0.03,
+    bulk_pallets: 4, late_hours: 2, handoff_minutes: 30, consumption_grace_minutes: 15, start_anchor_seconds: 2, repack_minutes: 10, repack_prefixes: ["RE"], tolerance_pct: 0.05, tolerance_kg: 50, blend_tolerance: 0.08, offcut_tolerance: 0.03,
   };
   const SEV = { HIGH: 0, MEDIUM: 1, LOW: 2, INFO: 3 };
   const H = 3600000;
@@ -198,7 +198,7 @@
       const fr = found.fulfilment.rows;
       ffill(fr, ["productionlot", "outputproduct", "inputproduct"]);
       fulfilment = fr.map((r) => ({ order_id: id(r.productionlot), material: str(r.inputproduct), conf: id(r.confid),
-        kg: num(r.inventoryvaluationqty), planned: num(r.inputproductplannedquantity) }))   // kg (Confirmed Qty can be in blocks)
+        kg: num(r.inventoryvaluationqty), planned: num(r.inputproductplannedquantity), qty: num(r.confirmedqty) }))   // kg (Confirmed Qty can be in blocks or cases)
         .filter((r) => r.order_id !== null && !["#", "Result", "nan"].includes(r.material) && r.conf !== null && r.conf !== "#" && !isNaN(r.kg));
     }
     return { orders, components: comp, byproducts: byp, journal, stock, sheets: names, fulfilment };
@@ -213,7 +213,7 @@
 
   function assignOutputs(wb) {
     const fgs = new Set(wb.orders.map((o) => o.fg));
-    const out = wb.journal.filter((r) => r.is_prod && fgs.has(r.material)).map((r) => ({ ...r, order_id: null }));
+    const out = wb.journal.filter((r) => r.is_prod && fgs.has(r.material)).map((r) => ({ ...r, order_id: null, _row: r }));
     const started = wb.orders.filter((o) => !isNaN(o.start_actual) || !["released", "canceled", "cancelled"].includes(String(o.status).toLowerCase()));
     const starts = {};
     for (const o of started) if (!isNaN(o.start)) (starts[o.fg] ||= []).push([o.order_id, o.start]);
@@ -385,6 +385,55 @@
   }
 
   // Starch is backflushed with the output: its rows sit on the order's output confirmations
+  // Products made by the orders (not cheese or offcut bins): as an input they're repacks
+  function finishedGoods(wb) {
+    return new Set(wb.orders.map((o) => o.fg).filter((m) => !isCheese(m) && !RULES.offcut_pattern.test(m.toUpperCase())));
+  }
+  // Finished goods used as an input (repacks), in cases. From the order fulfilment report when it lists them (the batch
+  // from the journal by Conf.ID and product); otherwise from the journal: a production confirmation consuming finished
+  // goods that isn't the reversal of a job's own pallet goes to the job that started up to repack_minutes before it,
+  // making that same product or a repack product (RE...).
+  function repackInputs(wb, outputs) {
+    const fgs = finishedGoods(wb), rows = [], owned = new Set();
+    if (wb.fulfilment && wb.fulfilment.length) {
+      const byKey = groupBy(wb.journal.filter((r) => r.is_prod && r.qty < 0).map((r) => ({ ...r, k: r.conf + "\u0000" + r.material })), "k");
+      for (const r of wb.fulfilment) {
+        if (!fgs.has(r.material)) continue;
+        const cases = !isNaN(r.qty) ? r.qty : r.kg, k = r.conf + "\u0000" + r.material;
+        owned.add(k);
+        const g = byKey.get(k);
+        if (g && Math.abs(-sum(g.map((x) => x.qty)) - cases) < 0.01) {
+          for (const x of g) rows.push({ order_id: r.order_id, material: r.material, batch: x.batch, area: x.area, time: x.time, conf: r.conf, cases: -x.qty, via: "fulfilment" });
+        } else rows.push({ order_id: r.order_id, material: r.material, batch: null, area: "", time: g ? Math.min(...g.map((x) => x.time)) : NaN, conf: r.conf, cases, via: "fulfilment" });
+      }
+    }
+    const kept = new Set(outputs.map((r) => r._row));
+    const cand = wb.journal.filter((r) => r.is_prod && fgs.has(r.material) && r.qty < 0 && !kept.has(r) && !owned.has(r.conf + "\u0000" + r.material))
+      .sort((a, b) => a.time - b.time);
+    const started = wb.orders.filter((o) => !isNaN(o.start_actual) && !RULES.skip_resources.includes(o.resource)).sort((a, b) => a.start_actual - b.start_actual);
+    const win = RULES.repack_minutes * 60000, tol = RULES.start_anchor_seconds * 1000;
+    const isRe = (fg) => RULES.repack_prefixes.some((p) => fg.toUpperCase().startsWith(p));
+    for (const x of cand) {
+      const ok = started.filter((o) => o.start_actual <= x.time + tol && o.start_actual >= x.time - win && (o.fg === x.material || isRe(o.fg)));
+      if (!ok.length) continue;
+      rows.push({ order_id: ok[ok.length - 1].order_id, material: x.material, batch: x.batch, area: x.area, time: x.time, conf: x.conf, cases: -x.qty, via: "journal" });
+    }
+    return rows;
+  }
+  // Weight per case of a product, as for its own jobs: from its text, its pack code or its recipe
+  function productWeight(wb, material, codeWeights, idx) {
+    const os = wb.orders.filter((o) => o.fg === material && o.planned_out > 0);
+    if (!os.length) {
+      const code = packCode(material);
+      return code && codeWeights.has(code) ? [codeWeights.get(code), `pack code ${code}, as other products with that code`] : [null, null];
+    }
+    const o = os[os.length - 1], comps = idx.comps.get(o.order_id) || [];
+    const ch = comps.filter((c) => isCheese(c.material)), st = comps.filter((c) => RULES.not_cheese_prefixes.some((p) => c.material.toUpperCase().startsWith(p)));
+    const off = idx.byp.get(o.order_id) || [];
+    const net = (sum(ch.map((c) => c.planned)) + sum(st.map((c) => c.planned)) - sum(off.map((b) => (isNaN(b.planned) ? 0 : b.planned)))) / o.planned_out;
+    return caseWeight(o.fg_text, net, material, codeWeights);
+  }
+
   function starchConsumed(journal, outputs) {
     const byConf = new Map(), seen = new Set();
     for (const r of outputs) {
@@ -509,7 +558,7 @@
       recipe_net: net, scale: k, corrected: k !== 1, case_weight: cw };
   }
 
-  function varianceView(o, comps, cheeseComps, offc, order_out, journal_out, cheeseSource, consumed, starchIn, issued, usedEst, codeWeights, rec) {
+  function varianceView(o, comps, cheeseComps, offc, order_out, journal_out, cheeseSource, consumed, starchIn, issued, usedEst, codeWeights, rec, repackKg = 0) {
     const planned_out = isNaN(o.planned_out) ? null : o.planned_out;
     if (!planned_out) return null;
     const starchComps = comps.filter((c) => RULES.not_cheese_prefixes.some((p) => c.material.toUpperCase().startsWith(p)));
@@ -526,11 +575,15 @@
     else if (cheeseSource === "order") { actualCheese = issued; cheeseFrom = "cheese issued on the order sheet (no starch)"; }
     else if (cheeseSource === "journal") { actualCheese = usedEst; cheeseFrom = "estimate from cheese moved to the line (no starch)"; }
     else return null;
+    // repacked finished goods went in as product: counted with the cheese, shown apart
+    const cheeseOnly = actualCheese;
+    actualCheese = cheeseOnly + repackKg;
+    if (repackKg) cheeseFrom += " + repacked finished goods";
     const nominalOut = actual * cw, starchOut = actual * (rec ? rec.starch_pc : pStarch / planned_out), nominalCheese = nominalOut - starchOut;
     const expected = rec ? actual * rec.cheese_pc : (actual * pCheese) / planned_out, expOff = rec ? actual * rec.off_pc : (actual * pOff) / planned_out;
     const gaExp = expected - nominalCheese - expOff, gaAct = actualCheese - nominalCheese - madeOff, outOff = nominalCheese + madeOff, diff = outOff - actualCheese;
     return { case_weight: cw, case_weight_from: cwFrom, uom: cwFrom.startsWith("output counted in kg") ? "kg" : "Case", planned_fg: planned_out, actual_fg: actual, nominal_planned: planned_out * cw,
-      nominal_output: nominalOut, starch_in_output: starchOut, nominal_cheese_output: nominalCheese, expected_cheese: expected, actual_cheese: actualCheese, actual_cheese_from: cheeseFrom,
+      nominal_output: nominalOut, starch_in_output: starchOut, nominal_cheese_output: nominalCheese, expected_cheese: expected, actual_cheese: actualCheese, actual_cheese_from: cheeseFrom, cheese_input_kg: cheeseOnly, repack_kg: repackKg,
       expected_offcuts: expOff, actual_offcuts: madeOff, ga_expected: gaExp, ga_actual: gaAct, output_plus_offcuts: outOff,
       difference: diff, diff_pct: actualCheese ? diff / actualCheese : null, planned_input_pct: nominalCheese ? expected / nominalCheese : null,
       variance_kg: gaAct - gaExp, tolerance: Math.max(RULES.tolerance_pct * expected, RULES.tolerance_kg), recipe_kg_per_case: recipeNet };
@@ -689,12 +742,13 @@
     const scale = planned_out ? order_out / planned_out : null;
     const compRows = [], short = [], over = [];
     const cheeseComps = comps.filter((c) => isCheese(c.material));
+    const fgs = ctx.finishedGoods;
     for (const c of comps) {
       const need = scale !== null ? c.planned * scale : null;
       const booked = isNaN(c.fulfilled) ? 0 : c.fulfilled;
       compRows.push({ material: c.material, planned: c.planned, fulfilled: booked, open: c.open, needed_for_output: need,
         difference: need !== null ? booked - need : null, cheese: isCheese(c.material) });
-      if (isCheese(c.material) || need === null || !(need > 0)) continue;
+      if (isCheese(c.material) || fgs.has(c.material) || need === null || !(need > 0)) continue;
       if (booked < need - Math.max(2, 0.03 * need)) short.push([c.material, booked, need]);
       else if (booked > need + Math.max(2, 0.1 * need)) over.push([c.material, booked, need]);
     }
@@ -782,10 +836,33 @@
       }
     }
 
-    // cheese consumed, from the journal's production confirmations
-    let mass = null, consumedIn = null, needIn = null;
     // sums rounded to 6 decimals so the float summing order can't tip a displayed figure
     const r6 = (x) => Number(x.toFixed(6));
+    // repacks: finished goods used as an input, in cases, weighed by their own case weight
+    const rpO = idx.repacks.get(oid) || [], sheetRp = comps.filter((c) => fgs.has(c.material));
+    const repacks = [];
+    for (const m of [...new Set([...rpO.map((r) => r.material), ...sheetRp.map((c) => c.material)])].sort()) {
+      const jr = rpO.filter((r) => r.material === m), sr = sheetRp.filter((c) => c.material === m);
+      const casesJ = jr.length ? r6(sum(jr.map((r) => r.cases))) : null;
+      const casesS = sr.length ? sum(sr.map((c) => (isNaN(c.fulfilled) ? 0 : c.fulfilled))) : null;
+      // the order sheet first; the fulfilment report or journal when the sheet shows none
+      let cases, src;
+      if (casesS) { cases = casesS; src = "issued on the order"; }
+      else { cases = casesJ || 0; src = jr.length ? (jr.some((r) => r.via === "fulfilment") ? "order fulfilment report" : "journal") : "issued on the order"; }
+      const [rw, rwFrom] = ctx.repackWeights.get(m) || [null, null];
+      repacks.push({ material: m, planned: sr.length ? sum(sr.map((c) => (isNaN(c.planned) ? 0 : c.planned))) : 0, cases, source: src, kg_per_case: rw, weight_from: rwFrom, kg: rw ? cases * rw : null });
+    }
+    const repackKg = r6(sum(repacks.filter((r) => r.kg).map((r) => r.kg)));
+    if (repacks.length) {
+      flag("INFO", "REPACK_INPUT", "Finished goods repacked into this job (counted as cheese in, shown apart): "
+        + repacks.map((r) => `${r.material} ${f(r.cases, 2)} cases` + (r.kg_per_case ? ` × ${f(r.kg_per_case, 3)} kg = ${f(r.kg, 1)} kg` : "") + ` (${r.source})`).join("; ")
+        + (repackKg ? `. Total ${f(repackKg, 1)} kg.` : "."));
+      const unknown = repacks.filter((r) => !r.kg_per_case && r.cases).map((r) => r.material);
+      if (unknown.length) flag("LOW", "REPACK_WEIGHT_UNKNOWN", `No case weight found for ${unknown.join(", ")} (not in its text, pack code or recipe), so it isn't counted in the cheese.`);
+    }
+
+    // cheese consumed, from the journal's production confirmations
+    let mass = null, consumedIn = null, needIn = null;
     const consumed = r6(sum(cons.map((c) => c.consumed)));
     const byMat = new Map();
     for (const c of cons) byMat.set(c.material, (byMat.get(c.material) || 0) + c.consumed);
@@ -799,7 +876,7 @@
       // cheese only: starch is shown but not counted
       const stPc = rec.starch_pc, inPc = perCase;
       const starchUsedO = ctx.starchUsed.get(oid) || 0;
-      consumedIn = consumed;
+      consumedIn = consumed + repackKg;
       needIn = perCase * estOut;
       const cheeseNeed = needIn;
       const matsTxt = mats.map((m) => `${m} ${f(byMat.get(m) || 0, 1)} of ${f(share.get(m) * cheeseNeed, 1)} kg`).join("; ");
@@ -815,12 +892,12 @@
       const netPc = rec.net_pc;
       const starchIn = ctx.starchUsed.get(oid) || 0;
       const offcutIn = sum([...byMat.keys()].sort().filter((m) => RULES.offcut_pattern.test(m.toUpperCase())).map((m) => byMat.get(m)));
-      const massIn = consumed + starchIn, productKg = estOut * netPc, massOut = productKg + madeOff, unacc = massIn - massOut;
+      const massIn = consumed + starchIn + repackKg, productKg = estOut * netPc, massOut = productKg + madeOff, unacc = massIn - massOut;
       const massTol = Math.max(RULES.tolerance_pct * massIn, RULES.tolerance_kg);
       const offScale = pOff ? (estOut * rec.off_pc) / pOff : 0;
-      mass = { in: massIn, blocks_in: consumed - offcutIn, offcuts_in: offcutIn, starch_in: starchIn, out: massOut, product: productKg,
+      mass = { in: massIn, blocks_in: consumed - offcutIn, offcuts_in: offcutIn, starch_in: starchIn, repack_in: repackKg, out: massOut, product: productKg,
         kg_per_case: netPc, cases: estOut, offcuts_made: madeOff, offcuts_planned: pOff * offScale, unaccounted: unacc, tolerance: massTol };
-      const massText = `In ${f(massIn, 1)} kg (cheese blocks ${f(consumed - offcutIn, 1)}, offcuts ${f(offcutIn, 1)}, starch ${f(starchIn, 1)}); out ${f(massOut, 1)} kg (product ${f(estOut)} cases × ${fixed(netPc, 3)} kg = ${f(productKg, 1)}, offcuts made ${f(madeOff, 1)}).`;
+      const massText = `In ${f(massIn, 1)} kg (cheese blocks ${f(consumed - offcutIn, 1)}, offcuts ${f(offcutIn, 1)}, starch ${f(starchIn, 1)}${repackKg ? `, repacks ${f(repackKg, 1)}` : ""}); out ${f(massOut, 1)} kg (product ${f(estOut)} cases × ${fixed(netPc, 3)} kg = ${f(productKg, 1)}, offcuts made ${f(madeOff, 1)}).`;
       if (!cons.length) {
         mass = null;
         const moved = sent ? ` ${f(sent, 1)} kg was moved to ${area} during the run.` : "";
@@ -828,7 +905,7 @@
       } else {
         const tol = Math.max(RULES.tolerance_pct * needIn, RULES.tolerance_kg);
         cheese_diff = consumedIn - needIn; cheese_tol = tol;
-        const msg = `Cheese consumed ${f(consumedIn, 1)} kg, the ${f(estOut)} cases ${journal_out ? "in the journal " : ""}need ${f(needIn, 1)} kg (${fixed(inPc, 3)} kg/case)${otherOut}: ${matsTxt}`
+        const msg = `Cheese consumed ${f(consumedIn, 1)} kg${repackKg ? ` (${f(consumed, 1)} kg cheese + ${f(repackKg, 1)} kg repacked finished goods)` : ""}, the ${f(estOut)} cases ${journal_out ? "in the journal " : ""}need ${f(needIn, 1)} kg (${fixed(inPc, 3)} kg/case)${otherOut}: ${matsTxt}`
           + (others.length ? `; also ${others.map((m) => `${m} ${f(byMat.get(m), 1)} kg`).join(", ")}` : "") + "." + sheet
           + (rec.corrected ? ` The recipe plans ${f(rec.recipe_net, 3)} kg per case for a ${f(rec.case_weight, 3)} kg case, so it's scaled to the case weight.` : "")
           + (stPc ? ` Starch (${f(starchUsedO, 1)} of ${f(stPc * estOut, 1)} kg) isn't counted.` : "");
@@ -888,8 +965,9 @@
       { item: "Cheese blocks", unit: "kg", planned: tot(blk, "planned"), actual: jOr(consBlk, tot(blk, "fulfilled")), source: src },
       { item: "Offcuts used", unit: "kg", planned: tot(offi, "planned"), actual: jOr(consOff, tot(offi, "fulfilled")), source: src },
       { item: "Starch", unit: "kg", planned: tot(stc, "planned"), actual: jOr(ctx.starchUsed.get(oid) || 0, tot(stc, "fulfilled")), source: src },
+      ...repacks.map((r) => ({ item: `Repack ${r.material}`, unit: "cases", planned: r.planned, actual: r.cases, source: r.source })),
     ].filter((r) => r.planned || r.actual).map((r) => ({ ...r, open: r.planned - r.actual }));
-    const variance = varianceView(o, comps, cheeseComps, offcuts, order_out, journal_out, cheeseSource, consumed, ctx.starchUsed.get(oid) || 0, issued, used, ctx.codeWeights, rec);
+    const variance = varianceView(o, comps, cheeseComps, offcuts, order_out, journal_out, cheeseSource, consumed, ctx.starchUsed.get(oid) || 0, issued, used, ctx.codeWeights, rec, repackKg);
     let reasons = [];
     if (variance) {
       const blocks = [...new Set(cheeseComps.map((c) => c.material))].filter((m) => !RULES.offcut_pattern.test(m.toUpperCase())).sort();
@@ -901,7 +979,7 @@
       planned_out, order_out, journal_out, output_confirmations: confs.length, cheese_kg_per_case: perCase,
       cheese_source: cheeseSource, cheese_issued_kg: issued, cheese_needed_kg: needed, cheese_open_kg: cheeseOpen,
       cheese_sent_kg: sent, cheese_returned_kg: back, cheese_used_kg: used, cheese_est_needed_kg: cheeseSource === "consumed" ? needIn : estNeeded, cheese_est_output: estOut, cheese_consumed_kg: consumed, cheese_consumed_by_material: Object.fromEntries(byMat), mass, variance, variance_reasons: reasons,
-      cheese_planned_kg: sum(cheeseComps.map((c) => c.planned)), starch_planned_kg: sum(comps.filter((c) => RULES.not_cheese_prefixes.some((p) => c.material.toUpperCase().startsWith(p))).map((c) => c.planned)), input_kg_per_case: rec ? rec.in_pc : null, offcut_kg_per_case: rec ? rec.off_pc : null, starch_kg_per_case: rec ? rec.starch_pc : null, input_consumed_kg: cheeseSource === "consumed" ? consumed + (ctx.starchUsed.get(oid) || 0) : null, cheese_planned_offcuts_kg: sum(cheeseComps.filter((c) => RULES.offcut_pattern.test(c.material.toUpperCase())).map((c) => c.planned)), consumption: cons.slice().sort((a, b) => a.time - b.time), offcuts_kg: sum(offcuts.map((b) => (isNaN(b.fulfilled) ? 0 : b.fulfilled))),
+      cheese_planned_kg: sum(cheeseComps.map((c) => c.planned)), starch_planned_kg: sum(comps.filter((c) => RULES.not_cheese_prefixes.some((p) => c.material.toUpperCase().startsWith(p))).map((c) => c.planned)), input_kg_per_case: rec ? rec.in_pc : null, offcut_kg_per_case: rec ? rec.off_pc : null, starch_kg_per_case: rec ? rec.starch_pc : null, input_consumed_kg: cheeseSource === "consumed" ? consumed + (ctx.starchUsed.get(oid) || 0) + repackKg : null, repacks, repack_kg: repackKg, repack_postings: rpO.slice().sort((a, b) => a.time - b.time), cheese_planned_offcuts_kg: sum(cheeseComps.filter((c) => RULES.offcut_pattern.test(c.material.toUpperCase())).map((c) => c.planned)), consumption: cons.slice().sort((a, b) => a.time - b.time), offcuts_kg: sum(offcuts.map((b) => (isNaN(b.fulfilled) ? 0 : b.fulfilled))),
       cheese_diff_kg: cheese_diff, cheese_tolerance_kg: cheese_tol, components: compRows,
       outputs: out.slice().sort((a, b) => a.time - b.time), confirmations: confs, cheese_moves: cheese.slice().sort((a, b) => a.time - b.time),
     };
@@ -967,6 +1045,11 @@
       windows: new Map(windows.map((w) => [w.order_id, w])), outputs: groupBy(outputs.filter((r) => r.order_id !== null), "order_id"),
       perConf: groupBy(perConf, "order_id"), sends: groupBy(sends, "order_id"), cons: groupBy(consumption.filter((c) => c.order_id !== null), "order_id"), byp: groupBy(wb.byproducts, "order_id"),
     };
+    const codeWeights = learnPackCodes(wb.orders), fgs = finishedGoods(wb);
+    const repacks = repackInputs(wb, outputs);
+    idx.repacks = groupBy(repacks, "order_id");
+    const needsW = [...new Set([...repacks.map((r) => r.material), ...wb.components.filter((c) => fgs.has(c.material)).map((c) => c.material)])].sort();
+    const repackWeights = new Map(needsW.map((m) => [m, productWeight(wb, m, codeWeights, idx)]));
     const active = new Set([...idx.outputs.keys(), ...idx.sends.keys()]);
     const seqByRes = new Map();
     for (const o of orders.filter((o) => !isNaN(o.start)).sort((a, b) => a.start - b.start)) {
@@ -976,7 +1059,7 @@
     let jmin = Infinity, jmax = -Infinity;
     for (const r of wb.journal) { if (r.time < jmin) jmin = r.time; if (r.time > jmax) jmax = r.time; }
     const journalRange = wb.journal.length ? [jmin, jmax] : null;
-    return { wb, orders, outputs, sends, idx, active, seqByRes, hasCons, covered, overBatches, starchUsed, codeWeights: learnPackCodes(wb.orders), consumption, consumedByBatch, movesByBatch, typical: typicalPallets(outputs), journalRange,
+    return { wb, orders, outputs, sends, idx, active, seqByRes, hasCons, covered, overBatches, starchUsed, codeWeights, finishedGoods: fgs, repacks, repackWeights, consumption, consumedByBatch, movesByBatch, typical: typicalPallets(outputs), journalRange,
       unassigned: outputs.filter((r) => r.order_id === null) };
   }
 

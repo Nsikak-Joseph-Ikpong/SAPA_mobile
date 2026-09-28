@@ -220,8 +220,17 @@ planned output):
   or given to a neighbouring job, a recipe cheese not consumed at all, cheese moved back off the line
   without the consumption being reversed, offcuts above or below expected, output findings. The page can
   download the variance report for every order; the Excel report has it as its first sheet;
-* **planned, actual and open** for the product (cases), offcuts made, cheese blocks, offcuts used and
-  starch. Open is worked out as planned − actual (the order sheet's open quantity isn't reliable); actual
+* **repacks**: finished goods used as an input (a product some order makes, e.g. REMMCSL10200ALD and
+  REMMRSL12160SM going into job 1868). They're taken from the order sheet when it lists them, else the
+  order fulfilment report, else the journal: a production confirmation consuming finished goods (not the
+  reversal of a job's own pallet) belongs to the job that started up to 10 minutes before it and makes
+  that same product or is a repack product (`RE...`). Cases are weighed by the product's own case weight
+  (from its text, pack code or recipe: 189 cases of a 10x200g product = 378 kg) and added to the cheese in
+  the cheese check, mass balance and variance, but always shown apart: their own tile, variance columns
+  (cheese consumed, repacks in, actual cheese issued = both), rows in planned/actual/open, and a table of
+  the postings (`REPACK_INPUT`; `REPACK_WEIGHT_UNKNOWN` when no case weight is found);
+* **planned, actual and open** for the product (cases), offcuts made, cheese blocks, offcuts used,
+  starch and repacks (cases). Open is worked out as planned − actual (the order sheet's open quantity isn't reliable); actual
   cheese and starch are what the journal shows consumed, product and offcuts as made on the order. Open
   quantities are also in the variance report;
 * when the journal has no consumption lines: cheese issued on the order sheet vs needed, or, when the

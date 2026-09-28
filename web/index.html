@@ -79,6 +79,7 @@
   .fig dt { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
   .fig dd { margin: 0; font: 600 17px var(--mono); font-variant-numeric: tabular-nums; }
   .fig dd small { display: block; font: 400 12px var(--sans); color: var(--muted); }
+  .fig.rp { border-left: 3px solid var(--accent); padding-left: 10px; }
   .bad { color: var(--high); } .good { color: var(--ok); }
 
   .mass { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); }
@@ -177,6 +178,8 @@
     OUTPUT_NOT_IN_JOURNAL: "Order shows output the journal doesn't",
     OUTPUT_POSTED_IN_BULK_OR_LATE: "Pallets posted in bulk or late",
     PALLET_DOUBLE_BOOKED: "Pallet double booked",
+    REPACK_INPUT: "Repacks in (finished goods used as input)",
+    REPACK_WEIGHT_UNKNOWN: "Repack weight unknown",
     PALLET_CONFIRMED_MORE_THAN_ONCE: "Pallet confirmed more than once (corrected or under double)",
     UNUSUAL_PALLET_SIZE: "Pallet bigger than usual",
     OUTPUT_REVERSED: "Output reversed",
@@ -392,11 +395,13 @@
       cheeseLine = `<div class="fig"><dt>Cheese issued (order sheet)</dt><dd class="${bad ? "bad" : s.cheese_needed_kg ? "good" : ""}">${kg(s.cheese_issued_kg)}<small>${kg(s.cheese_open_kg)} still open</small></dd></div>
          <div class="fig"><dt>Cheese needed</dt><dd>${kg(s.cheese_needed_kg)}<small>${s.cheese_kg_per_case.toFixed(3)} kg/case × cases made</small></dd></div>`;
     }
+    const rps = s.repacks || [];
+    const repackLine = rps.length ? `<div class="fig rp"><dt>Repacks in</dt><dd>${kg(s.repack_kg)}<small>finished goods used as input, counted with the cheese: ${rps.map((x) => `${esc(x.material)} ${f(x.cases, 2)} cases${x.kg_per_case ? ` × ${f(x.kg_per_case, 3)} kg` : " (weight unknown)"}`).join("; ")}</small></dd></div>` : "";
     const figs = `<dl class="figs">
       <div class="fig"><dt>Planned</dt><dd>${n0(s.planned_out)}<small>cases</small></dd></div>
       <div class="fig"><dt>Made</dt><dd class="${outBad ? "bad" : ""}">${n0(s.order_out)}<small>fulfilled on the order</small></dd></div>
       <div class="fig"><dt>In the journal</dt><dd class="${outBad ? "bad" : ""}">${n0(s.journal_out)}<small>${s.output_confirmations} confirmation${s.output_confirmations === 1 ? "" : "s"}</small></dd></div>
-      ${plannedCheese}${cheeseLine}</dl>`;
+      ${plannedCheese}${cheeseLine}${repackLine}</dl>`;
 
     const m = s.mass;
     const massBad = m && Math.abs(m.unaccounted) > m.tolerance;
@@ -405,6 +410,7 @@
           <tr><td>Cheese blocks</td><td class="n">${kg(m.blocks_in)}</td></tr>
           <tr><td>Offcuts used</td><td class="n">${kg(m.offcuts_in)}</td></tr>
           <tr><td>Starch</td><td class="n">${kg(m.starch_in)}</td></tr>
+          ${m.repack_in ? `<tr><td>Repacks (finished goods)</td><td class="n">${kg(m.repack_in)}</td></tr>` : ""}
           <tr class="tot"><td>Total in</td><td class="n">${kg(m.in)}</td></tr></tbody></table>
         <table><caption>Out</caption><tbody>
           <tr><td>Product: ${n0(m.cases)} cases × ${m.kg_per_case.toFixed(3)} kg</td><td class="n">${kg(m.product)}</td></tr>
@@ -416,9 +422,9 @@
     const va = s.variance;
     const pctTxt = (x) => (x === null || x === undefined || isNaN(x) ? "" : (100 * x).toFixed(1) + "%");
     const varHtml = va ? `<div class="var"><h3>Variance</h3><div class="scroll"><table>
-        <thead><tr><th>Case weight</th><th>Planned FG qty</th><th>Actual FG qty</th><th>Nominal weight planned</th><th>Nominal weight of output</th><th>Starch in output</th><th>Nominal cheese of output</th><th>Expected cheese</th><th>Actual cheese issued</th><th>Expected offcuts output</th><th>Actual offcuts output</th><th>GA expected</th><th>GA actual</th><th>Output cheese + offcuts</th><th>Difference to cheese issued</th><th>Diff %</th><th>Cheese planned input %</th></tr></thead>
-        <tbody><tr><td class="n">${f(va.case_weight, 3)}</td><td class="n">${f(va.planned_fg, 1)}</td><td class="n">${f(va.actual_fg, 1)}</td><td class="n">${f(va.nominal_planned, 1)}</td><td class="n">${f(va.nominal_output, 1)}</td><td class="n">${va.starch_in_output ? f(va.starch_in_output, 1) : "-"}</td><td class="n">${f(va.nominal_cheese_output, 1)}</td><td class="n">${f(va.expected_cheese, 1)}</td><td class="n">${f(va.actual_cheese, 1)}</td><td class="n">${va.expected_offcuts ? f(va.expected_offcuts, 1) : "-"}</td><td class="n">${va.actual_offcuts ? f(va.actual_offcuts, 1) : "-"}</td><td class="n">${f(va.ga_expected, 1)}</td><td class="n hl">${f(va.ga_actual, 1)}</td><td class="n">${f(va.output_plus_offcuts, 1)}</td><td class="n hl">${f(va.difference, 1)}</td><td class="n hl">${pctTxt(va.diff_pct)}</td><td class="n">${va.planned_input_pct ? Math.round(100 * va.planned_input_pct) + "%" : ""}</td></tr></tbody></table></div>
-        <p class="src">Case weight from the ${esc(va.case_weight_from)}; actual cheese is ${esc(va.actual_cheese_from)}. Cheese only, no starch: GA = giveaway = cheese in, less the cheese in the nominal output (case weight less planned starch) and offcuts. Against the plan, GA is ${fs(va.variance_kg, 1)} kg.</p></div>` : "";
+        <thead><tr><th>Case weight</th><th>Planned FG qty</th><th>Actual FG qty</th><th>Nominal weight planned</th><th>Nominal weight of output</th><th>Starch in output</th><th>Nominal cheese of output</th><th>Expected cheese</th>${va.repack_kg ? "<th>Cheese consumed</th><th>Repacks in</th>" : ""}<th>Actual cheese issued</th><th>Expected offcuts output</th><th>Actual offcuts output</th><th>GA expected</th><th>GA actual</th><th>Output cheese + offcuts</th><th>Difference to cheese issued</th><th>Diff %</th><th>Cheese planned input %</th></tr></thead>
+        <tbody><tr><td class="n">${f(va.case_weight, 3)}</td><td class="n">${f(va.planned_fg, 1)}</td><td class="n">${f(va.actual_fg, 1)}</td><td class="n">${f(va.nominal_planned, 1)}</td><td class="n">${f(va.nominal_output, 1)}</td><td class="n">${va.starch_in_output ? f(va.starch_in_output, 1) : "-"}</td><td class="n">${f(va.nominal_cheese_output, 1)}</td><td class="n">${f(va.expected_cheese, 1)}</td>${va.repack_kg ? `<td class="n">${f(va.cheese_input_kg, 1)}</td><td class="n">${f(va.repack_kg, 1)}</td>` : ""}<td class="n">${f(va.actual_cheese, 1)}</td><td class="n">${va.expected_offcuts ? f(va.expected_offcuts, 1) : "-"}</td><td class="n">${va.actual_offcuts ? f(va.actual_offcuts, 1) : "-"}</td><td class="n">${f(va.ga_expected, 1)}</td><td class="n hl">${f(va.ga_actual, 1)}</td><td class="n">${f(va.output_plus_offcuts, 1)}</td><td class="n hl">${f(va.difference, 1)}</td><td class="n hl">${pctTxt(va.diff_pct)}</td><td class="n">${va.planned_input_pct ? Math.round(100 * va.planned_input_pct) + "%" : ""}</td></tr></tbody></table></div>
+        <p class="src">Case weight from the ${esc(va.case_weight_from)}; actual cheese is ${esc(va.actual_cheese_from)}. Cheese only, no starch: GA = giveaway = cheese in, less the cheese in the nominal output (case weight less planned starch) and offcuts. Against the plan, GA is ${fs(va.variance_kg, 1)} kg.${va.repack_kg ? ` Actual cheese issued includes ${f(va.repack_kg, 1)} kg of repacked finished goods (cases × their case weight) on top of the ${f(va.cheese_input_kg, 1)} kg of cheese consumed.` : ""}</p></div>` : "";
     const os = s.open_status || [];
     const q1 = (x) => (x === null || x === undefined ? "-" : f(x, 1));
     const openHtml = os.length ? `<div class="var"><h3>Planned, actual and open</h3><div class="scroll"><table>
@@ -452,12 +458,20 @@
     const sapTime = (t) => { if (t === null || t === undefined || isNaN(t)) return ""; const d = new Date(t); return `${p2(d.getUTCDate())}.${p2(d.getUTCMonth() + 1)}.${d.getUTCFullYear()} ${p2(d.getUTCHours())}:${p2(d.getUTCMinutes())}:${p2(d.getUTCSeconds())}`; };
     const consRows = (s.consumption || []).map((c) => `<tr class="${c.consumed < 0 ? "neg" : ""}"><td class="m">${esc(c.material)}</td><td class="m">${batchBtn(c.material, c.batch)}</td><td class="m">${esc(c.area)}</td><td class="m">${esc(sapTime(c.time))}</td><td>Production Confirmation</td><td class="m">${esc(c.conf)}</td><td class="n">${f(-c.consumed, 2)}</td><td>${c.via === "fulfilment" ? "order fulfilment" : "line and time"}</td><td>${esc(c.other_orders || "")}</td></tr>`).join("")
       + ((s.consumption || []).length ? `<tr class="tot"><td colspan="6"><strong>Total</strong></td><td class="n"><strong>${f(-s.cheese_consumed_kg, 2)}</strong></td><td></td><td></td></tr>` : "");
+    const rpPost = s.repack_postings || [];
+    const rpW = Object.fromEntries(rps.map((x) => [x.material, x.kg_per_case]));
+    const rpRows = rpPost.map((c) => `<tr class="${c.cases < 0 ? "neg" : ""}"><td class="m">${esc(c.material)}</td><td class="m">${batchBtn(c.material, c.batch)}</td><td class="m">${esc(c.area)}</td><td class="m">${esc(sapTime(c.time))}</td><td class="m">${esc(c.conf)}</td><td class="n">${f(-c.cases, 2)}</td><td class="n">${rpW[c.material] ? f(rpW[c.material], 3) : ""}</td><td class="n">${rpW[c.material] ? f(c.cases * rpW[c.material], 1) : ""}</td><td>${c.via === "fulfilment" ? "order fulfilment" : "job start"}</td></tr>`).join("")
+      + (rpPost.length ? `<tr class="tot"><td colspan="7"><strong>Total</strong></td><td class="n"><strong>${f(s.repack_kg, 1)}</strong></td><td></td></tr>` : "");
+    const rpHtml = rps.length ? `<details class="ev" open><summary>Repacks in: finished goods used as input (${rpPost.length})</summary>
+        <p class="hint">Finished goods consumed into this job, in cases (negative Effective Qty as in the SAP journal). Each case is weighed by that product's own case weight and added to the cheese, but kept apart from the cheese consumed. ${rpPost.some((c) => c.via === "journal") ? `Tied to this job because the confirmation was posted within ${R.RULES.repack_minutes} minutes after it started and the job makes that product or is a repack (RE…).` : ""}</p><div class="scroll"><table>
+        <thead><tr><th>Product</th><th>Identified Stock ID</th><th>Logistics Area ID</th><th>Created On</th><th>Conf.ID</th><th>Effective Qty (cases)</th><th>kg per case</th><th>kg</th><th>Tied to the order by</th></tr></thead><tbody>${rpRows || `<tr><td colspan="9">On the order sheet only (no postings found)</td></tr>`}</tbody></table></div></details>` : "";
     const ev = `
       <details class="ev" open><summary>Inputs on the order (${s.components.length})</summary><div class="scroll"><table>
         <thead><tr><th>Material</th><th>Planned</th><th>Issued</th><th>Open</th>${consumedCol ? "<th>Consumed (journal)</th>" : ""}<th>Needed for cases made</th><th>Issued − needed</th><th></th></tr></thead><tbody>${compRows}</tbody></table></div></details>
       ${consumedCol ? `<details class="ev"><summary>Cheese consumed (${s.consumption.length})</summary>
         <p class="hint">${s.consumption_from === "order fulfilment report" ? "Every cheese confirmation SAP books against this order (order fulfilment report), with the batch and time from the confirmation journal (matched on Conf.ID)." : "This order isn't in the order fulfilment report, so these are consumption postings on " + esc(s.area || "the line") + " during the run, matched to the order by line and time."} As in the SAP journal: negative Effective Qty is cheese consumed, positive is a reversal (highlighted).</p><div class="scroll"><table>
         <thead><tr><th>Product</th><th>Identified Stock ID</th><th>Logistics Area ID</th><th>Created On</th><th>Conf.Document Type</th><th>Conf.ID</th><th>Effective Qty</th><th>Tied to the order by</th><th>Could also be</th></tr></thead><tbody>${consRows || `<tr><td colspan="9">None</td></tr>`}</tbody></table></div></details>` : ""}
+      ${rpHtml}
       <details class="ev"${dbl.size ? " open" : ""}><summary>Output postings in the journal (${s.outputs.length}) · click a pallet for its history${dbl.size ? ` · double-booked pallet${dbl.size > 1 ? "s" : ""} ${[...dbl].join(", ")} in red` : ""}</summary><div class="scroll"><table>
         <thead><tr><th>Conf.ID</th><th>Posted</th><th>Pallet</th><th>Cases</th><th>Area</th></tr></thead><tbody>${outRows || `<tr><td colspan="5">None</td></tr>`}</tbody></table></div></details>
       <details class="ev"><summary>Cheese moved to the line during the run (${s.cheese_moves.length})</summary>
@@ -484,10 +498,12 @@
           "Production Order ID (Requested End Date)": isNaN(o.latest_end) ? "" : dmy(o.latest_end).slice(0, 10),
           "Material ID": s.fg, "Material ID (Text)": s.fg_text || "", "Material ID (Base UoM)": v.uom, "Production Order Status": s.status, "Line": s.line,
           "Case Weight": v.case_weight, "Planned FG Qty": v.planned_fg, "Actual FG Qty": v.actual_fg, "Nominal Weight Planned": v.nominal_planned,
-          "Nominal Weight of Output": v.nominal_output, "Starch in Output": v.starch_in_output, "Nominal Cheese of Output": v.nominal_cheese_output, "Expected Cheese": v.expected_cheese, "Actual Cheese Issued": v.actual_cheese,
+          "Nominal Weight of Output": v.nominal_output, "Starch in Output": v.starch_in_output, "Nominal Cheese of Output": v.nominal_cheese_output, "Expected Cheese": v.expected_cheese,
+          "Cheese Consumed (no repacks)": v.cheese_input_kg, "Repacks In (kg)": v.repack_kg, "Actual Cheese Issued": v.actual_cheese,
           "Expected Offcuts Output": v.expected_offcuts, "Actual Offcuts Output": v.actual_offcuts, "GA Expected": v.ga_expected, "GA Actual": v.ga_actual,
           "Output Cheese + Offcuts": v.output_plus_offcuts, "Difference to Cheese Issued": v.difference, "Diff %": v.diff_pct, "Cheese Planned Input %": v.planned_input_pct,
-          ...Object.fromEntries((s.open_status || []).map((x) => [`Open ${x.item} (${x.unit})`, x.open])),
+          ...Object.fromEntries((s.open_status || []).filter((x) => !x.item.startsWith("Repack ")).map((x) => [`Open ${x.item} (${x.unit})`, x.open])),
+          "Repacks": (s.repacks || []).map((x) => `${x.material} ${f(x.cases, 2)} cases` + (x.kg_per_case ? ` x ${f(x.kg_per_case, 3)} kg = ${f(x.kg, 1)} kg` : " (weight unknown)")).join("; "),
           "Verdict": r.verdict, "Possible reasons": (s.variance_reasons || []).map((x) => (x.kg ? `[${f(x.kg, 1)} kg] ` : "") + x.text).join("\n"),
           "Case weight from": v.case_weight_from, "Actual cheese from": v.actual_cheese_from,
         });

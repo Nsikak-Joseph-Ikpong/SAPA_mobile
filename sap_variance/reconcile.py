@@ -50,7 +50,9 @@ class Rules:
     })
     consumption_grace_minutes: int = 15             # consumption this long after a job's last pallet can still be its
     handoff_minutes: int = 30
-    start_anchor_seconds: int = 2                    # a posting this close to an order's start is its first                        # cheese consumed this soon before the next job starts is for it
+    start_anchor_seconds: int = 2                    # a posting this close to an order's start is its first
+    repack_minutes: int = 10                         # finished goods consumed this soon after a job starts are repacked into it
+    repack_prefixes: tuple = ("RE",)                 # repack products (REMMRSL12160SM, REGRMIX8200ALD)
     skip_resources: tuple = ("FLOOR_WASTE", "LINE_RECOVERY")
     cheese_prefixes: tuple = ("RM",)
     not_cheese_prefixes: tuple = ("RMPS",)          # potato starch
@@ -252,6 +254,7 @@ def read_workbook(paths: list[str]) -> Workbook:
             "order_id": _id(f["productionlot"]), "material": f["inputproduct"].astype(str).str.strip(),
             "conf": _id(f["confid"]), "kg": _num(f["inventoryvaluationqty"]),     # in kg (Confirmed Qty can be in blocks)
             "planned": _num(f.get("inputproductplannedquantity")),
+            "qty": _num(f.get("confirmedqty")),                                     # in the product's unit (cases)
         })
         fulfil = fulfil[fulfil["order_id"].notna() & ~fulfil["material"].isin(["#", "Result", "nan"])
                         & fulfil["conf"].notna() & (fulfil["conf"] != "#") & fulfil["kg"].notna()].reset_index(drop=True)
@@ -478,6 +481,69 @@ def fulfilment_consumption(wb: Workbook, rules: Rules) -> pd.DataFrame:
 
 
 
+def finished_goods(wb: Workbook, rules: Rules) -> set:
+    """Products made by the orders (not cheese or offcut bins): as an input they're repacks."""
+    return {m for m in set(wb.orders["fg"]) if not is_cheese(m, rules) and not re.match(rules.offcut_pattern, m.upper())}
+
+
+def repack_inputs(wb: Workbook, outputs: pd.DataFrame, rules: Rules) -> pd.DataFrame:
+    """Finished goods used as an input (repacks), in cases. From the order fulfilment report when it lists them
+    (the batch from the journal by Conf.ID and product); otherwise from the journal: a production confirmation
+    consuming finished goods that isn't the reversal of a job's own pallet goes to the job that started up to
+    repack_minutes before it, making that same product or a repack product (RE...)."""
+    cols = ["order_id", "material", "batch", "area", "time", "conf", "cases", "via"]
+    fgs = finished_goods(wb, rules)
+    j = wb.journal
+    rows, owned = [], set()
+    f = wb.fulfilment
+    if f is not None and not f.empty:
+        neg = j[j["is_prod"] & (j["qty"] < 0)]
+        by_key = {k: g for k, g in neg.groupby(["conf", "material"], sort=False)}
+        for r in f[f["material"].isin(fgs)].itertuples():
+            cases = float(r.qty) if "qty" in f and not pd.isna(r.qty) else float(r.kg)
+            owned.add((r.conf, r.material))
+            g = by_key.get((r.conf, r.material))
+            if g is not None and abs(float(-g["qty"].sum()) - cases) < 0.01:
+                for x in g.itertuples():
+                    rows.append({"order_id": r.order_id, "material": r.material, "batch": x.batch, "area": x.area,
+                                 "time": x.time, "conf": r.conf, "cases": -x.qty, "via": "fulfilment"})
+            else:
+                rows.append({"order_id": r.order_id, "material": r.material, "batch": None, "area": "",
+                             "time": g["time"].min() if g is not None else pd.NaT, "conf": r.conf, "cases": cases,
+                             "via": "fulfilment"})
+    cand = j[j["is_prod"] & j["material"].isin(fgs) & (j["qty"] < 0) & ~j.index.isin(outputs.index)]
+    cand = cand[pd.Series([(c, m) not in owned for c, m in zip(cand["conf"], cand["material"])], index=cand.index, dtype=bool)]
+    started = wb.orders[wb.orders["start_actual"].notna() & ~wb.orders["resource"].isin(rules.skip_resources)]
+    started = started.sort_values("start_actual", kind="stable")
+    win, tol = pd.Timedelta(minutes=rules.repack_minutes), pd.Timedelta(seconds=rules.start_anchor_seconds)
+    is_re = started["fg"].str.upper().str.startswith(rules.repack_prefixes)
+    for x in cand.sort_values("time", kind="stable").itertuples():
+        ok = started[(started["start_actual"] <= x.time + tol) & (started["start_actual"] >= x.time - win)
+                     & ((started["fg"] == x.material) | is_re)]
+        if ok.empty:
+            continue
+        rows.append({"order_id": ok["order_id"].iloc[-1], "material": x.material, "batch": x.batch, "area": x.area,
+                     "time": x.time, "conf": x.conf, "cases": -x.qty, "via": "journal"})
+    return pd.DataFrame(rows, columns=cols)
+
+
+def product_weight(wb: Workbook, material: str, code_weights: dict, rules: Rules) -> tuple:
+    """Weight per case of a product, as for its own jobs: from its text, its pack code or its recipe."""
+    os_ = wb.orders[(wb.orders["fg"] == material) & (wb.orders["planned_out"] > 0)]
+    if os_.empty:
+        code = pack_code(material)
+        if code and code in code_weights:
+            return code_weights[code], f"pack code {code}, as other products with that code"
+        return None, None
+    o = os_.iloc[-1]
+    comps = wb.components[wb.components["order_id"] == o["order_id"]]
+    ch = comps[comps["material"].map(lambda m: is_cheese(m, rules))]
+    st = comps[comps["material"].str.upper().str.startswith(rules.not_cheese_prefixes)]
+    off = wb.byproducts[wb.byproducts["order_id"] == o["order_id"]]
+    net = (float(ch["planned"].sum()) + float(st["planned"].sum()) - float(off["planned"].fillna(0).sum())) / o["planned_out"]
+    return case_weight(o.get("fg_text"), net, material, code_weights)
+
+
 def starch_consumed(journal: pd.DataFrame, outputs: pd.DataFrame, rules: Rules) -> dict:
     """Starch is backflushed with the output: its rows sit on the order's output confirmations."""
     confs = outputs[outputs["order_id"].notna() & (outputs["qty"] > 0)][["order_id", "conf"]].drop_duplicates()
@@ -616,7 +682,7 @@ def recipe_per_case(p_cheese, p_starch, p_off, planned_out, cw) -> dict:
 
 
 def variance_view(o, comps, cheese_comps, offc, order_out, journal_out, cheese_source, consumed, starch_in,
-                  issued, used_est, rules, code_weights=None, rec=None) -> dict | None:
+                  issued, used_est, rules, code_weights=None, rec=None, repack_kg=0.0) -> dict | None:
     """The variance in the layout of the plant's variance report."""
     planned_out = o["planned_out"] if not pd.isna(o["planned_out"]) else None
     if not planned_out:
@@ -640,6 +706,11 @@ def variance_view(o, comps, cheese_comps, offc, order_out, journal_out, cheese_s
         actual_cheese, cheese_from = used_est, "estimate from cheese moved to the line (no starch)"
     else:
         return None
+    # repacked finished goods went in as product: counted with the cheese, shown apart
+    cheese_only = actual_cheese
+    actual_cheese = cheese_only + repack_kg
+    if repack_kg:
+        cheese_from += " + repacked finished goods"
     nominal_out = actual * cw
     starch_out = actual * (rec["starch_pc"] if rec else p_starch / planned_out)
     nominal_cheese = nominal_out - starch_out
@@ -653,7 +724,8 @@ def variance_view(o, comps, cheese_comps, offc, order_out, journal_out, cheese_s
             "planned_fg": planned_out, "actual_fg": actual,
             "nominal_planned": planned_out * cw, "nominal_output": nominal_out, "starch_in_output": starch_out,
             "nominal_cheese_output": nominal_cheese, "expected_cheese": expected,
-            "actual_cheese": actual_cheese, "actual_cheese_from": cheese_from, "expected_offcuts": exp_off,
+            "actual_cheese": actual_cheese, "actual_cheese_from": cheese_from, "cheese_input_kg": cheese_only,
+            "repack_kg": repack_kg, "expected_offcuts": exp_off,
             "actual_offcuts": made_off, "ga_expected": ga_exp, "ga_actual": ga_act, "output_plus_offcuts": out_off,
             "difference": diff, "diff_pct": diff / actual_cheese if actual_cheese else None,
             "planned_input_pct": expected / nominal_cheese if nominal_cheese else None,
@@ -867,13 +939,14 @@ def check_order(oid: str, wb: Workbook, windows: pd.DataFrame, outputs: pd.DataF
     scale = order_out / planned_out if planned_out else None
     comp_rows, short, over = [], [], []
     cheese_comps = comps[comps["material"].map(lambda m: is_cheese(m, rules))]
+    fgs = (info or {}).get("finished_goods", set())
     for c in comps.itertuples():
         need = c.planned * scale if scale is not None else None
         booked = 0.0 if pd.isna(c.fulfilled) else float(c.fulfilled)
         comp_rows.append({"material": c.material, "planned": c.planned, "fulfilled": booked, "open": c.open,
                           "needed_for_output": need, "difference": booked - need if need is not None else None,
                           "cheese": is_cheese(c.material, rules)})
-        if is_cheese(c.material, rules) or need is None or need <= 0:
+        if is_cheese(c.material, rules) or c.material in fgs or need is None or need <= 0:
             continue
         if booked < need - max(2, 0.03 * need):
             short.append((c.material, booked, need))
@@ -983,6 +1056,37 @@ def check_order(oid: str, wb: Workbook, windows: pd.DataFrame, outputs: pd.DataF
                      f"order(s) {', '.join(others)}, on {area} around the same time; they were given to this order "
                      f"because it was already running or its next output followed soonest.")
 
+    # ---- repacks: finished goods used as an input, in cases, weighed by their own case weight ----
+    rp = (info or {}).get("repacks")
+    rp_o = rp[rp["order_id"] == oid] if rp is not None and not rp.empty else None
+    sheet_rp = comps[comps["material"].isin(fgs)]
+    repacks = []
+    for m in sorted(set(rp_o["material"] if rp_o is not None else []) | set(sheet_rp["material"])):
+        jr = rp_o[rp_o["material"] == m] if rp_o is not None else sheet_rp.iloc[0:0]
+        sr = sheet_rp[sheet_rp["material"] == m]
+        cases_j = round(float(jr["cases"].sum()), 6) if not jr.empty else None
+        cases_s = float(sr["fulfilled"].fillna(0).sum()) if not sr.empty else None
+        # the order sheet first; the fulfilment report or journal when the sheet shows none
+        if cases_s:
+            cases, src = cases_s, "issued on the order"
+        else:
+            cases = cases_j or 0.0
+            src = ("order fulfilment report" if (jr["via"] == "fulfilment").any() else "journal") if not jr.empty else "issued on the order"
+        rw, rw_from = (info or {}).get("repack_weights", {}).get(m, (None, None))
+        repacks.append({"material": m, "planned": float(sr["planned"].fillna(0).sum()) if not sr.empty else 0.0,
+                        "cases": cases, "source": src, "kg_per_case": rw, "weight_from": rw_from,
+                        "kg": cases * rw if rw else None})
+    repack_kg = round(sum(r["kg"] for r in repacks if r["kg"]), 6)
+    if repacks:
+        flag("INFO", "REPACK_INPUT", "Finished goods repacked into this job (counted as cheese in, shown apart): "
+             + "; ".join(f"{r['material']} {r['cases']:,.2f} cases" + (f" × {r['kg_per_case']:,.3f} kg = {r['kg']:,.1f} kg"
+                         if r["kg_per_case"] else "") + f" ({r['source']})" for r in repacks)
+             + (f". Total {repack_kg:,.1f} kg." if repack_kg else "."))
+        unknown = [r["material"] for r in repacks if not r["kg_per_case"] and r["cases"]]
+        if unknown:
+            flag("LOW", "REPACK_WEIGHT_UNKNOWN", f"No case weight found for {', '.join(unknown)} (not in its text, pack "
+                 f"code or recipe), so it isn't counted in the cheese.")
+
     # ---- cheese consumed, from the journal's production confirmations ----
     mass = None
     # sums rounded to 6 decimals so the float summing order can't tip a displayed figure
@@ -996,7 +1100,7 @@ def check_order(oid: str, wb: Workbook, windows: pd.DataFrame, outputs: pd.DataF
         st_pc = rec["starch_pc"]
         in_pc = per_case
         starch_used_o = float((starch_used or {}).get(oid, 0.0))
-        consumed_in = consumed
+        consumed_in = consumed + repack_kg
         est_needed = per_case * est_out
         cheese_need = est_needed
         share = cheese_comps.groupby("material")["planned"].sum() / cheese_comps["planned"].sum()
@@ -1015,17 +1119,18 @@ def check_order(oid: str, wb: Workbook, windows: pd.DataFrame, outputs: pd.DataF
         net_pc = rec["net_pc"]
         starch_in = float((starch_used or {}).get(oid, 0.0))
         offcut_in = float(sum(v for m, v in by_mat.items() if re.match(rules.offcut_pattern, m.upper())))
-        mass_in = consumed + starch_in
+        mass_in = consumed + starch_in + repack_kg
         product_kg = est_out * net_pc
         mass_out = product_kg + made_off
         unacc = mass_in - mass_out
         mass_tol = max(rules.tolerance_pct * mass_in, rules.tolerance_kg)
         off_scale = est_out * rec["off_pc"] / p_off if p_off else 0.0   # planned offcuts for the cases made
         mass = {"in": mass_in, "blocks_in": consumed - offcut_in, "offcuts_in": offcut_in, "starch_in": starch_in,
+                "repack_in": repack_kg,
                 "out": mass_out, "product": product_kg, "kg_per_case": net_pc, "cases": est_out,
                 "offcuts_made": made_off, "offcuts_planned": p_off * off_scale, "unaccounted": unacc, "tolerance": mass_tol}
         mass_text = (f"In {mass_in:,.1f} kg (cheese blocks {consumed - offcut_in:,.1f}, offcuts {offcut_in:,.1f}, "
-                     f"starch {starch_in:,.1f}); out {mass_out:,.1f} kg (product {est_out:,.0f} cases × {net_pc:.3f} kg = "
+                     f"starch {starch_in:,.1f}" + (f", repacks {repack_kg:,.1f}" if repack_kg else "") + f"); out {mass_out:,.1f} kg (product {est_out:,.0f} cases × {net_pc:.3f} kg = "
                      f"{product_kg:,.1f}, offcuts made {made_off:,.1f}).")
         if cons.empty:
             mass = None
@@ -1036,7 +1141,9 @@ def check_order(oid: str, wb: Workbook, windows: pd.DataFrame, outputs: pd.DataF
         else:
             tol = max(rules.tolerance_pct * est_needed, rules.tolerance_kg)
             cheese_diff, cheese_tol = consumed_in - est_needed, tol
-            msg = (f"Cheese consumed {consumed_in:,.1f} kg, the {est_out:,.0f} cases "
+            msg = (f"Cheese consumed {consumed_in:,.1f} kg"
+                   + (f" ({consumed:,.1f} kg cheese + {repack_kg:,.1f} kg repacked finished goods)" if repack_kg else "")
+                   + f", the {est_out:,.0f} cases "
                    f"{'in the journal ' if journal_out else ''}need {est_needed:,.1f} kg ({in_pc:.3f} kg/case){other_out}: {mats}"
                    + (f"; also {', '.join(f'{m} {by_mat[m]:,.1f} kg' for m in others)}" if others else "") + "."
                    + sheet
@@ -1104,7 +1211,7 @@ def check_order(oid: str, wb: Workbook, windows: pd.DataFrame, outputs: pd.DataF
     offcuts = wb.byproducts[wb.byproducts["order_id"] == oid]
     variance = variance_view(o, comps, cheese_comps, offcuts, order_out, journal_out, cheese_source, consumed,
                              float((starch_used or {}).get(oid, 0.0)), issued, used, rules,
-                             (info or {}).get("code_weights"), rec)
+                             (info or {}).get("code_weights"), rec, repack_kg)
     reasons = []
     if variance and info is not None:
         blocks = sorted(m for m in set(cheese_comps["material"]) if not re.match(rules.offcut_pattern, m.upper()))
@@ -1136,6 +1243,8 @@ def check_order(oid: str, wb: Workbook, windows: pd.DataFrame, outputs: pd.DataF
          "actual": j_or(float((starch_used or {}).get(oid, 0.0)), _tot(stc, "fulfilled")),
          "source": "consumed in the journal" if has_cons else "issued on the order"},
     ]
+    open_status += [{"item": f"Repack {r['material']}", "unit": "cases", "planned": r["planned"], "actual": r["cases"],
+                     "source": r["source"]} for r in repacks]
     for r_ in open_status:
         r_["planned"], r_["actual"] = float(r_["planned"]), float(r_["actual"])
         r_["open"] = r_["planned"] - r_["actual"]
@@ -1157,7 +1266,8 @@ def check_order(oid: str, wb: Workbook, windows: pd.DataFrame, outputs: pd.DataF
         "input_kg_per_case": rec["in_pc"] if rec else None,
         "offcut_kg_per_case": rec["off_pc"] if rec else None,
         "starch_kg_per_case": rec["starch_pc"] if rec else None,
-        "input_consumed_kg": (consumed + float((starch_used or {}).get(oid, 0.0))) if cheese_source == "consumed" else None,
+        "input_consumed_kg": (consumed + float((starch_used or {}).get(oid, 0.0)) + repack_kg) if cheese_source == "consumed" else None,
+        "repacks": repacks, "repack_kg": repack_kg,
         "cheese_planned_offcuts_kg": float(cheese_comps.loc[cheese_comps["material"].str.upper().str.match(rules.offcut_pattern), "planned"].sum())
         if not cheese_comps.empty else 0.0,
         "mass": mass, "variance": variance, "variance_reasons": reasons,
@@ -1178,6 +1288,7 @@ class Result:
     unassigned: pd.DataFrame
     sheets: dict
     consumption: pd.DataFrame | None = None
+    repacks: pd.DataFrame | None = None
 
 
 def run(wb: Workbook, order_ids: list[str] | None = None, rules: Rules | None = None) -> Result:
@@ -1208,7 +1319,12 @@ def run(wb: Workbook, order_ids: list[str] | None = None, rules: Rules | None = 
         st_by = st.groupby("order_id")["kg"].sum().to_dict()
         for o in covered:
             starch_used[o] = float(st_by.get(o, 0.0))
-    info = {"covered": covered, "code_weights": learn_pack_codes(wb.orders), "ctype": lambda m: m.upper()[:4] if not re.match(rules.offcut_pattern, m.upper()) else m.upper(),
+    code_weights = learn_pack_codes(wb.orders)
+    fgs = finished_goods(wb, rules)
+    repacks = repack_inputs(wb, outputs, rules)
+    needs_w = set(repacks["material"]) | set(wb.components.loc[wb.components["material"].isin(fgs), "material"])
+    info = {"covered": covered, "code_weights": code_weights, "finished_goods": fgs, "repacks": repacks,
+            "repack_weights": {m: product_weight(wb, m, code_weights, rules) for m in sorted(needs_w)}, "ctype": lambda m: m.upper()[:4] if not re.match(rules.offcut_pattern, m.upper()) else m.upper(),
             "consumed_by_batch": ((-raw_cons.groupby(["material", "batch"])["qty"].sum()).to_dict() if journal_cons else {}),
             "moves_by_batch": {k: g.sort_values("time", kind="stable") for k, g in
                                wb.journal[~wb.journal["is_prod"] & (wb.journal["qty"] > 0)].groupby(["material", "batch"])}}
@@ -1244,7 +1360,7 @@ def run(wb: Workbook, order_ids: list[str] | None = None, rules: Rules | None = 
     summaries = [s for s in summaries if s["order_id"] in set(wanted)]
     findings = [f for f in findings if f.order_id in set(wanted)]
     unassigned = outputs[outputs["order_id"].isna()]
-    return Result(summaries, findings, outputs, sends, unassigned, wb.sheets, consumption)
+    return Result(summaries, findings, outputs, sends, unassigned, wb.sheets, consumption, repacks)
 
 
 def verdict(findings: list) -> str:
@@ -1335,6 +1451,11 @@ def print_result(res: Result, show_info: bool = True) -> None:
         print(f"{len(res.unassigned)} output posting(s) could not be tied to any order (see Excel 'Unmatched output').")
 
 
+def repack_text(repacks: list) -> str:
+    return "; ".join(f"{r['material']} {r['cases']:,.2f} cases" + (f" x {r['kg_per_case']:,.3f} kg = {r['kg']:,.1f} kg"
+                     if r["kg_per_case"] else " (weight unknown)") for r in repacks)
+
+
 def write_excel(res: Result, path: str) -> str:
     flags = pd.DataFrame([{"Order": f.order_id, "Severity": f.severity, "Check": f.code, "Finding": f.message,
                            "Reason code": "", "Resolved by": "", "Notes": ""} for f in res.findings])
@@ -1344,7 +1465,10 @@ def write_excel(res: Result, path: str) -> str:
             if k == "components":
                 continue
             if k == "open_status":
-                row.update({f"open_{r['item'].lower().replace(' ', '_')}": r["open"] for r in v})
+                row.update({f"open_{r['item'].lower().replace(' ', '_')}": r["open"] for r in v if r["unit"] == "kg"
+                            or r["item"] == "Product"})
+            elif k == "repacks":
+                row[k] = repack_text(v)
             elif k in ("mass", "variance"):
                 row.update({f"{k}_{mk}": mv for mk, mv in (v or {}).items()})
             elif k == "variance_reasons":
@@ -1379,18 +1503,22 @@ def write_excel(res: Result, path: str) -> str:
             "Planned FG Qty": v["planned_fg"], "Actual FG Qty": v["actual_fg"], "Nominal Weight Planned": v["nominal_planned"],
             "Nominal Weight of Output": v["nominal_output"], "Starch in Output": v["starch_in_output"],
             "Nominal Cheese of Output": v["nominal_cheese_output"], "Expected Cheese": v["expected_cheese"],
+            "Cheese Consumed (no repacks)": v["cheese_input_kg"], "Repacks In (kg)": v["repack_kg"],
             "Actual Cheese Issued": v["actual_cheese"], "Expected Offcuts Output": v["expected_offcuts"],
             "Actual Offcuts Output": v["actual_offcuts"], "GA Expected": v["ga_expected"], "GA Actual": v["ga_actual"],
             "Output Cheese + Offcuts": v["output_plus_offcuts"], "Difference to Cheese Issued": v["difference"],
             "Diff %": v["diff_pct"], "Cheese Planned Input %": v["planned_input_pct"],
-            **{f"Open {r['item']} ({r['unit']})": r["open"] for r in sm["open_status"]},
+            **{f"Open {r['item']} ({r['unit']})": r["open"] for r in sm["open_status"] if not r["item"].startswith("Repack ")},
+            "Repacks": repack_text(sm["repacks"]),
             "Verdict": verdict(by_order.get(sm["order_id"], [])),
             "Possible reasons": "\n".join((f"[{x['kg']:,.1f} kg] " if x["kg"] else "") + x["text"] for x in sm["variance_reasons"]),
             "Case weight from": v["case_weight_from"], "Actual cheese from": v["actual_cheese_from"]})
     variance = pd.DataFrame(var_rows)
+    rp = (res.repacks[res.repacks["order_id"].isin(ids)].sort_values(["order_id", "time"])
+          .assign(effective_qty=lambda d: -d["cases"]) if res.repacks is not None else pd.DataFrame())
     with pd.ExcelWriter(path, engine="openpyxl") as xw:
         for name, df in (("Variance", variance), ("Flags", flags), ("Orders", orders), ("Inputs vs recipe", comps),
-                         ("Output postings", outs), ("Cheese consumed", cons), ("Cheese to line", sends),
+                         ("Output postings", outs), ("Cheese consumed", cons), ("Repacks in", rp), ("Cheese to line", sends),
                          ("Unmatched output", res.unassigned)):
             df.to_excel(xw, sheet_name=name, index=False)
             ws = xw.sheets[name]
