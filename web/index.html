@@ -171,7 +171,8 @@
     OUTPUT_NOT_ON_ORDER: "Output in the journal doesn't match the order",
     OUTPUT_NOT_IN_JOURNAL: "Order shows output the journal doesn't",
     OUTPUT_POSTED_IN_BULK_OR_LATE: "Pallets posted in bulk or late",
-    PALLET_CONFIRMED_MORE_THAN_ONCE: "Pallet confirmed more than once",
+    PALLET_DOUBLE_BOOKED: "Pallet double booked",
+    PALLET_CONFIRMED_MORE_THAN_ONCE: "Pallet confirmed more than once (corrected or under double)",
     UNUSUAL_PALLET_SIZE: "Pallet bigger than usual",
     OUTPUT_REVERSED: "Output reversed",
     INPUTS_SHORT_FOR_OUTPUT: "Inputs issued short for the output",
@@ -426,7 +427,8 @@
       : `<p class="good">Nothing flagged.</p>`;
     const note = outside ? `<p class="hint">This order started outside the journal's dates, so some bookings may be missing from the check.</p>` : "";
 
-    const outRows = s.outputs.map((o) => `<tr class="${o.qty < 0 ? "neg" : ""}"><td class="m">${esc(o.conf)}</td><td class="m">${esc(dm(o.time))}</td><td class="m">${esc(o.batch)}</td><td class="n">${f(o.qty)}</td><td>${esc(o.area)}</td></tr>`).join("");
+    const dbl = new Set(s.double_booked_pallets || []);
+    const outRows = s.outputs.map((o) => `<tr class="${o.qty < 0 || dbl.has(o.batch) ? "neg" : ""}"><td class="m">${esc(o.conf)}</td><td class="m">${esc(dm(o.time))}</td><td class="m">${esc(o.batch)}</td><td class="n">${f(o.qty)}</td><td>${esc(o.area)}</td></tr>`).join("");
     const cheeseRows = s.cheese_moves.map((c) => `<tr><td class="m">${esc(dm(c.time))}</td><td class="m">${esc(c.material)}</td><td class="m">${esc(c.batch ?? "")}</td><td class="n">${f(c.sent, 2)}</td><td class="n">${c.returned ? f(c.returned, 2) : ""}</td><td>${esc(c.returned_to || "")}</td><td>${esc(c.other_orders || "")}</td></tr>`).join("");
     const q = (v) => (v === null || v === undefined || isNaN(v) ? "" : f(v, 2));
     const consumedCol = s.cheese_source === "consumed";
@@ -450,7 +452,7 @@
       ${consumedCol ? `<details class="ev"><summary>Cheese consumed (${s.consumption.length})</summary>
         <p class="hint">${s.consumption_from === "order fulfilment report" ? "Every cheese confirmation SAP books against this order (order fulfilment report), with the batch and time from the confirmation journal (matched on Conf.ID)." : "This order isn't in the order fulfilment report, so these are consumption postings on " + esc(s.area || "the line") + " during the run, matched to the order by line and time."} As in the SAP journal: negative Effective Qty is cheese consumed, positive is a reversal (highlighted).</p><div class="scroll"><table>
         <thead><tr><th>Product</th><th>Identified Stock ID</th><th>Logistics Area ID</th><th>Created On</th><th>Conf.Document Type</th><th>Conf.ID</th><th>Effective Qty</th><th>Tied to the order by</th><th>Could also be</th></tr></thead><tbody>${consRows || `<tr><td colspan="9">None</td></tr>`}</tbody></table></div></details>` : ""}
-      <details class="ev"><summary>Output postings in the journal (${s.outputs.length})</summary><div class="scroll"><table>
+      <details class="ev"${dbl.size ? " open" : ""}><summary>Output postings in the journal (${s.outputs.length})${dbl.size ? ` · double-booked pallet${dbl.size > 1 ? "s" : ""} ${[...dbl].join(", ")} in red` : ""}</summary><div class="scroll"><table>
         <thead><tr><th>Conf.ID</th><th>Posted</th><th>Pallet</th><th>Cases</th><th>Area</th></tr></thead><tbody>${outRows || `<tr><td colspan="5">None</td></tr>`}</tbody></table></div></details>
       <details class="ev"><summary>Cheese moved to the line during the run (${s.cheese_moves.length})</summary>
         <p class="hint">${consumedCol ? "Moves only make cheese available on the line; the consumption above is what counts." : "The journal has no cheese consumption lines, so when the order sheet shows no cheese issued, these moves (less what went away again) are the estimate. Cheese issued straight from store, or left on the line from the job before, doesn't show here."}</p><div class="scroll"><table>

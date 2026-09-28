@@ -226,3 +226,28 @@ def test_fulfilment_gives_consumption_per_order(with_fulfilment):
     assert set(rows["batch"].dropna()) == {"M1"} and set(rows["via"]) == {"fulfilment"}
     a = next(s for s in with_fulfilment.summaries if s["order_id"] == "A1")
     assert a["consumption_from"] == "matched by line and time" and a["cheese_consumed_kg"] == pytest.approx(1925)
+
+
+@pytest.fixture(scope="module")
+def double_booked(tmp_path_factory):
+    d = tmp_path_factory.mktemp("double")
+    write_workbook(d / "SAP_Info.xlsx")
+    head = ["Site", "Product", "Identified Stock (Identified Stock ID)", "Logistics Area (Logistics Area ID)",
+            "Created On", "Conf.Document Type", "Conf.ID", "Restricted", "Effective Qty"]
+    # pallet P9 of job A confirmed twice (100 + 100 on a usual 100-case pallet) and never corrected
+    rows = [["Confirmation Journal"] + [None] * 8, head,
+            ["EXTHQ1", "FGBLEND", "P9", "FG_STAGING", ts("03:40"), PC, "240", "#", 100],
+            ["EXTHQ1", "FGBLEND", "P9", "FG_STAGING", ts("04:10"), PC, "241", "#", 100]]
+    pd.DataFrame(rows).to_excel(d / "extra.xlsx", sheet_name="Confirmation Journal", header=False, index=False)
+    return run(read_workbook([str(d / "SAP_Info.xlsx"), str(d / "extra.xlsx")]))
+
+
+def test_pallet_double_booked_is_high(double_booked):
+    c = codes(double_booked, "A1")
+    f = c["PALLET_DOUBLE_BOOKED"]
+    assert f.severity == "HIGH" and "Pallet P9 has 200 cases (2.0x the usual)" in f.message
+    assert "240 at 19.08 03:40 (100); 241 at 19.08 04:10 (100)" in f.message and "overstated by about 100" in f.message
+    # P1 was confirmed twice but corrected, so it stays a medium finding
+    assert "P1: 200 cases confirmed on one pallet, corrected to 100" in c["PALLET_CONFIRMED_MORE_THAN_ONCE"].message
+    a = next(s for s in double_booked.summaries if s["order_id"] == "A1")
+    assert a["double_booked_pallets"] == ["P9"]

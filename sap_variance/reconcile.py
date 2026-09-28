@@ -711,7 +711,7 @@ def variance_reasons(oid, v, cons, sends_o, window, consumption, codes, recipe_b
             if info["consumed_by_material"].get(m, 0.0) <= 0 and consumption is not None:
                 out.append({"kg": None, "text": f"{m} is in the recipe but none was consumed for this run: it was "
                             f"used without a consumption posting, or the product was made without it."})
-        if "OUTPUT_NOT_ON_ORDER" in codes or "PALLET_CONFIRMED_MORE_THAN_ONCE" in codes or "UNUSUAL_PALLET_SIZE" in codes:
+        if codes & {"OUTPUT_NOT_ON_ORDER", "PALLET_DOUBLE_BOOKED", "PALLET_CONFIRMED_MORE_THAN_ONCE", "UNUSUAL_PALLET_SIZE"}:
             out.append({"kg": None, "text": "Output may be overstated: see the pallet and output findings below."})
         if v["actual_offcuts"] - v["expected_offcuts"] > 25:
             out.append({"kg": v["actual_offcuts"] - v["expected_offcuts"],
@@ -818,14 +818,24 @@ def check_order(oid: str, wb: Workbook, windows: pd.DataFrame, outputs: pd.DataF
     # ---- pallets ----
     typ = typical_pallet.get(fg)
     if typ and not out.empty:
-        over, odd_size = [], []
+        over, odd_size, double = [], [], []
         for b, g in out.groupby("batch"):
             gross, net = g.loc[g["qty"] > 0, "qty"].sum(), g["qty"].sum()
-            if gross > 1.5 * typ:
+            if net >= 2 * typ:
+                # double booked and still standing: the output is overstated
+                pos = g[g["qty"] > 0].sort_values("time", kind="stable")
+                double.append((b, net, net - typ, "; ".join(
+                    f"{x.conf} at {x.time:%d.%m %H:%M} ({x.qty:,.0f})" for x in pos.itertuples())))
+            elif gross > 1.5 * typ:
                 over.append(f"{b}: {gross:,.0f} cases confirmed on one pallet"
                             + (f", corrected to {net:,.0f}" if net != gross else ""))
             elif net > typ * 1.02:
                 odd_size.append(f"{b}: {net:,.0f}")
+        if double:
+            flag("HIGH", "PALLET_DOUBLE_BOOKED",
+                 f"Usual pallet for {fg} is {typ:,.0f} cases. " + " ".join(
+                     f"Pallet {b} has {net:,.0f} cases ({net / typ:.1f}x the usual), confirmed {cs}: output is "
+                     f"overstated by about {extra:,.0f} cases unless it's corrected." for b, net, extra, cs in double))
         if over:
             flag("MEDIUM", "PALLET_CONFIRMED_MORE_THAN_ONCE",
                  f"Usual pallet for {fg} is {typ:,.0f} cases. " + "; ".join(over) + ".")
@@ -1132,6 +1142,7 @@ def check_order(oid: str, wb: Workbook, windows: pd.DataFrame, outputs: pd.DataF
     open_status = [r for r in open_status if r["planned"] or r["actual"]]
     summary = {
         "order_id": oid, "status": o["status"], "open_status": open_status,
+        "double_booked_pallets": [b for b, g in out.groupby("batch") if typ and g["qty"].sum() >= 2 * typ] if not out.empty else [],
         "consumption_from": ("order fulfilment report" if oid in (info or {}).get("covered", set())
                              else "matched by line and time") if has_cons else None, "fg": fg, "fg_text": o.get("fg_text"), "line": o["resource"],
         "area": area, "start": o["start"], "last_regular_output": last_regular,

@@ -232,5 +232,8 @@ planned output):
 * output made vs planned, still open, or closed short with nothing left open.
 
 The confirmation journal backs this up: output in the journal vs fulfilled on the order, output posted in
-bulk or hours late, pallets confirmed more than once or larger than usual, reversals.
+bulk or hours late, pallets larger than usual, reversals. A pallet whose confirmed cases are double or more
+its usual size, and not corrected, is double booked (`PALLET_DOUBLE_BOOKED`, HIGH, listing each
+confirmation and the cases the output is overstated by); a pallet confirmed more than once but corrected,
+or under double, is `PALLET_CONFIRMED_MORE_THAN_ONCE` (MEDIUM).
 The Excel report lists the order's inputs, the output postings and the cheese moved to the line.
