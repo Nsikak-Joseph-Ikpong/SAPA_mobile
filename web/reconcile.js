@@ -1041,10 +1041,17 @@
       }
       const made = `${tt(v.actual_fg)} ${v.uom === "kg" ? "kg" : "cases"}`;
       if (m) {
+        // against the nominal output (cases x case weight + offcuts made), as the plant counts it
         const un = m.unaccounted, tol = m.tolerance;
-        if (un < -tol) out.push(`That's ${tt(-un)} kg more out than went in, so it's not clear how ${made} were made with less cheese` + (rps.length ? `, even counting the repack of ${rp}` : "") + ".");
-        else if (un > tol) out.push(`${tt(un)} kg (${pct(un / m.in, 1)}) went in that didn't come out as product or offcuts: waste, giveaway, or output or offcuts not posted.`);
-        else out.push(`What went in matches what came out, within tolerance (${fs(un, 1)} kg).`);
+        const gap = Number((m.in - v.nominal_output - v.actual_offcuts).toFixed(6));
+        const allowed = m.cases === v.actual_fg ? Number((gap - un).toFixed(6)) : 0;
+        if (gap >= 0.005) {
+          let txt = `${tt(gap)} kg of cheese has no output and is unaccounted for`;
+          if (allowed >= 0.005) txt += un > 0 ? ` (the recipe allows ${tt(allowed)} kg of giveaway, so ${tt(un)} kg is beyond plan` + (un <= tol ? ", within tolerance" : "") + ")"
+            : ` (less than the ${tt(allowed)} kg of giveaway the recipe allows)`;
+          out.push(txt + "." + (un > tol ? " It went to waste or giveaway, or output or offcuts weren't posted." : ""));
+        } else if (gap <= -0.005) out.push(`That's ${tt(-gap)} kg more out than went in, so it's not clear how ${made} were made with less cheese` + (rps.length ? `, even counting the repack of ${rp}` : "") + ".");
+        else out.push("What went in matches what came out.");
       } else if (v.variance_kg < -v.tolerance) out.push(`That's ${tt(-v.variance_kg)} kg less cheese than ${made} need.`);
       else if (v.variance_kg > v.tolerance) out.push(`That's ${tt(v.variance_kg)} kg more cheese than ${made} need.`);
       if (Math.abs(v.variance_kg) > v.tolerance) {

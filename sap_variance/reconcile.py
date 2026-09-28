@@ -910,15 +910,22 @@ def narrative(s: dict, findings: list) -> str:
                        + (f", plus {_t(v['actual_offcuts'])} kg of offcuts" if v["actual_offcuts"] else "") + ".")
         made = f"{_t(v['actual_fg'])} {'kg' if v['uom'] == 'kg' else 'cases'}"
         if m:
+            # against the nominal output (cases x case weight + offcuts made), as the plant counts it
             un, tol = m["unaccounted"], m["tolerance"]
-            if un < -tol:
-                out.append(f"That's {_t(-un)} kg more out than went in, so it's not clear how {made} were made with less "
+            gap = round(m["in"] - v["nominal_output"] - v["actual_offcuts"], 6)
+            allowed = round(gap - un, 6) if m["cases"] == v["actual_fg"] else 0.0
+            if gap >= 0.005:
+                txt = f"{_t(gap)} kg of cheese has no output and is unaccounted for"
+                if allowed >= 0.005:
+                    txt += (f" (the recipe allows {_t(allowed)} kg of giveaway, so {_t(un)} kg is beyond plan"
+                            + (", within tolerance" if un <= tol else "") + ")" if un > 0
+                            else f" (less than the {_t(allowed)} kg of giveaway the recipe allows)")
+                out.append(txt + "." + (" It went to waste or giveaway, or output or offcuts weren't posted." if un > tol else ""))
+            elif gap <= -0.005:
+                out.append(f"That's {_t(-gap)} kg more out than went in, so it's not clear how {made} were made with less "
                            f"cheese" + (f", even counting the repack of {rp}" if rps else "") + ".")
-            elif un > tol:
-                out.append(f"{_t(un)} kg ({un / m['in']:.1%}) went in that didn't come out as product or offcuts: waste, "
-                           f"giveaway, or output or offcuts not posted.")
             else:
-                out.append(f"What went in matches what came out, within tolerance ({un:+,.1f} kg).")
+                out.append("What went in matches what came out.")
         elif v["variance_kg"] < -v["tolerance"]:
             out.append(f"That's {_t(-v['variance_kg'])} kg less cheese than {made} need.")
         elif v["variance_kg"] > v["tolerance"]:
