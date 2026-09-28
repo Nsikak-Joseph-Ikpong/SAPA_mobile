@@ -1002,8 +1002,24 @@
     return { results: keep, missing: wanted.filter((o) => !ctx.idx.orders.has(o)) };
   }
 
+  // Every journal row for a batch (all confirmation types and areas), oldest first, with the running stock
+  function batchHistory(ctx, material, batch) {
+    if (!ctx._batchIdx) {
+      const m = new Map();
+      for (const r of ctx.wb.journal) {
+        const k = r.material + "\u0000" + r.batch;
+        if (!m.has(k)) m.set(k, []);
+        m.get(k).push(r);
+      }
+      for (const g of m.values()) g.sort((a, b) => a.time - b.time);
+      ctx._batchIdx = m;
+    }
+    let bal = 0;
+    return (ctx._batchIdx.get(material + "\u0000" + batch) || []).map((r) => ({ ...r, balance: (bal += r.qty) }));
+  }
+
   const sheetKinds = (sheets) => [...new Set(sheets.map((sh) => findHeader(sh.rows)[0]).filter(Boolean))].sort();
-  const api = { RULES, readWorkbook, sheetKinds, prepare, check, verdict, isCheese, fmt: { f, fs, dm, dmy } };
+  const api = { RULES, readWorkbook, sheetKinds, batchHistory, prepare, check, verdict, isCheese, fmt: { f, fs, dm, dmy } };
   root.OrderCheck = api;
   if (typeof module !== "undefined" && module.exports) module.exports = api;
 })(typeof window !== "undefined" ? window : globalThis);

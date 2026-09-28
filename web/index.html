@@ -112,6 +112,11 @@
   td.m { font-family: var(--mono); }
   tr.neg td { color: var(--high); }
   tr.tot td { border-top: 1.5px solid var(--ink); }
+  button.hist { font: inherit; font-family: var(--mono); color: var(--accent); }
+  tr.histrow > td { background: var(--sunken); padding: 8px 10px 12px; white-space: normal; }
+  tr.histrow table { background: var(--surface); }
+  tr.histrow .sum { font-size: 12.5px; margin: 0 0 6px; }
+  tr.histrow tr.prod td { font-weight: 600; }
   .empty { background: var(--surface); border: 1px dashed var(--line); border-radius: 8px; padding: 22px; color: var(--muted); text-align: center; }
   .loading { color: var(--muted); font-size: 13px; }
   .toolbar { display: flex; justify-content: flex-end; }
@@ -428,8 +433,9 @@
     const note = outside ? `<p class="hint">This order started outside the journal's dates, so some bookings may be missing from the check.</p>` : "";
 
     const dbl = new Set(s.double_booked_pallets || []);
-    const outRows = s.outputs.map((o) => `<tr class="${o.qty < 0 || dbl.has(o.batch) ? "neg" : ""}"><td class="m">${esc(o.conf)}</td><td class="m">${esc(dm(o.time))}</td><td class="m">${esc(o.batch)}</td><td class="n">${f(o.qty)}</td><td>${esc(o.area)}</td></tr>`).join("");
-    const cheeseRows = s.cheese_moves.map((c) => `<tr><td class="m">${esc(dm(c.time))}</td><td class="m">${esc(c.material)}</td><td class="m">${esc(c.batch ?? "")}</td><td class="n">${f(c.sent, 2)}</td><td class="n">${c.returned ? f(c.returned, 2) : ""}</td><td>${esc(c.returned_to || "")}</td><td>${esc(c.other_orders || "")}</td></tr>`).join("");
+    const batchBtn = (m, b) => (b === null || b === undefined || b === "" ? "" : `<button type="button" class="link hist" data-m="${esc(m)}" data-b="${esc(b)}" title="Show every confirmation of this batch">${esc(b)}</button>`);
+    const outRows = s.outputs.map((o) => `<tr class="${o.qty < 0 || dbl.has(o.batch) ? "neg" : ""}"><td class="m">${esc(o.conf)}</td><td class="m">${esc(dm(o.time))}</td><td class="m">${batchBtn(o.material, o.batch)}</td><td class="n">${f(o.qty)}</td><td>${esc(o.area)}</td></tr>`).join("");
+    const cheeseRows = s.cheese_moves.map((c) => `<tr><td class="m">${esc(dm(c.time))}</td><td class="m">${esc(c.material)}</td><td class="m">${batchBtn(c.material, c.batch)}</td><td class="n">${f(c.sent, 2)}</td><td class="n">${c.returned ? f(c.returned, 2) : ""}</td><td>${esc(c.returned_to || "")}</td><td>${esc(c.other_orders || "")}</td></tr>`).join("");
     const q = (v) => (v === null || v === undefined || isNaN(v) ? "" : f(v, 2));
     const consumedCol = s.cheese_source === "consumed";
     const byMat = s.cheese_consumed_by_material || {};
@@ -444,7 +450,7 @@
     // as in the SAP confirmation journal: Effective Qty negative for consumption, positive for a reversal
     const p2 = (n) => String(n).padStart(2, "0");
     const sapTime = (t) => { if (t === null || t === undefined || isNaN(t)) return ""; const d = new Date(t); return `${p2(d.getUTCDate())}.${p2(d.getUTCMonth() + 1)}.${d.getUTCFullYear()} ${p2(d.getUTCHours())}:${p2(d.getUTCMinutes())}:${p2(d.getUTCSeconds())}`; };
-    const consRows = (s.consumption || []).map((c) => `<tr class="${c.consumed < 0 ? "neg" : ""}"><td class="m">${esc(c.material)}</td><td class="m">${esc(c.batch ?? "")}</td><td class="m">${esc(c.area)}</td><td class="m">${esc(sapTime(c.time))}</td><td>Production Confirmation</td><td class="m">${esc(c.conf)}</td><td class="n">${f(-c.consumed, 2)}</td><td>${c.via === "fulfilment" ? "order fulfilment" : "line and time"}</td><td>${esc(c.other_orders || "")}</td></tr>`).join("")
+    const consRows = (s.consumption || []).map((c) => `<tr class="${c.consumed < 0 ? "neg" : ""}"><td class="m">${esc(c.material)}</td><td class="m">${batchBtn(c.material, c.batch)}</td><td class="m">${esc(c.area)}</td><td class="m">${esc(sapTime(c.time))}</td><td>Production Confirmation</td><td class="m">${esc(c.conf)}</td><td class="n">${f(-c.consumed, 2)}</td><td>${c.via === "fulfilment" ? "order fulfilment" : "line and time"}</td><td>${esc(c.other_orders || "")}</td></tr>`).join("")
       + ((s.consumption || []).length ? `<tr class="tot"><td colspan="6"><strong>Total</strong></td><td class="n"><strong>${f(-s.cheese_consumed_kg, 2)}</strong></td><td></td><td></td></tr>` : "");
     const ev = `
       <details class="ev" open><summary>Inputs on the order (${s.components.length})</summary><div class="scroll"><table>
@@ -452,7 +458,7 @@
       ${consumedCol ? `<details class="ev"><summary>Cheese consumed (${s.consumption.length})</summary>
         <p class="hint">${s.consumption_from === "order fulfilment report" ? "Every cheese confirmation SAP books against this order (order fulfilment report), with the batch and time from the confirmation journal (matched on Conf.ID)." : "This order isn't in the order fulfilment report, so these are consumption postings on " + esc(s.area || "the line") + " during the run, matched to the order by line and time."} As in the SAP journal: negative Effective Qty is cheese consumed, positive is a reversal (highlighted).</p><div class="scroll"><table>
         <thead><tr><th>Product</th><th>Identified Stock ID</th><th>Logistics Area ID</th><th>Created On</th><th>Conf.Document Type</th><th>Conf.ID</th><th>Effective Qty</th><th>Tied to the order by</th><th>Could also be</th></tr></thead><tbody>${consRows || `<tr><td colspan="9">None</td></tr>`}</tbody></table></div></details>` : ""}
-      <details class="ev"${dbl.size ? " open" : ""}><summary>Output postings in the journal (${s.outputs.length})${dbl.size ? ` · double-booked pallet${dbl.size > 1 ? "s" : ""} ${[...dbl].join(", ")} in red` : ""}</summary><div class="scroll"><table>
+      <details class="ev"${dbl.size ? " open" : ""}><summary>Output postings in the journal (${s.outputs.length}) · click a pallet for its history${dbl.size ? ` · double-booked pallet${dbl.size > 1 ? "s" : ""} ${[...dbl].join(", ")} in red` : ""}</summary><div class="scroll"><table>
         <thead><tr><th>Conf.ID</th><th>Posted</th><th>Pallet</th><th>Cases</th><th>Area</th></tr></thead><tbody>${outRows || `<tr><td colspan="5">None</td></tr>`}</tbody></table></div></details>
       <details class="ev"><summary>Cheese moved to the line during the run (${s.cheese_moves.length})</summary>
         <p class="hint">${consumedCol ? "Moves only make cheese available on the line; the consumption above is what counts." : "The journal has no cheese consumption lines, so when the order sheet shows no cheese issued, these moves (less what went away again) are the estimate. Cheese issued straight from store, or left on the line from the job before, doesn't show here."}</p><div class="scroll"><table>
@@ -512,6 +518,30 @@
   ["dragleave", "drop"].forEach((ev) => drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.remove("over"); }));
   drop.addEventListener("drop", (e) => onFiles([...e.dataTransfer.files]));
   $("report").onclick = () => downloadReport().catch((e) => toast("Couldn't build the report: " + e.message));
+  // click a pallet or batch number: its full confirmation history from the journal, under the row
+  $("result").addEventListener("click", (e) => {
+    const btn = e.target.closest("button.hist");
+    if (!btn || !state.ctx) return;
+    const tr = btn.closest("tr"), next = tr.nextElementSibling;
+    if (next && next.classList.contains("histrow") && next.dataset.key === btn.dataset.m + "|" + btn.dataset.b) { next.remove(); return; }
+    if (next && next.classList.contains("histrow")) next.remove();
+    const rows = R.batchHistory(state.ctx, btn.dataset.m, btn.dataset.b);
+    const p2 = (n) => String(n).padStart(2, "0");
+    const at = (t) => { const d = new Date(t); return `${p2(d.getUTCDate())}.${p2(d.getUTCMonth() + 1)}.${d.getUTCFullYear()} ${p2(d.getUTCHours())}:${p2(d.getUTCMinutes())}:${p2(d.getUTCSeconds())}`; };
+    const prod = rows.filter((r) => r.is_prod);
+    const made = prod.filter((r) => r.qty > 0), undone = prod.filter((r) => r.qty < 0);
+    const last = rows[rows.length - 1];
+    const sum = rows.length ? `<p class="sum"><strong>${esc(btn.dataset.m)} ${esc(btn.dataset.b)}</strong>: ${rows.length} confirmation row${rows.length === 1 ? "" : "s"}. `
+      + `Production confirmations: ${made.length} posting (${f(made.reduce((a, r) => a + r.qty, 0))})${undone.length ? `, ${undone.length} reversed (${f(undone.reduce((a, r) => a + r.qty, 0))})` : ""}. `
+      + `Stock after the last row: ${f(last.balance, 2)}${last.area ? ` (last at ${esc(last.area)})` : ""}.</p>` : `<p class="sum">No rows for this batch in the journal.</p>`;
+    const table = rows.length ? `<div class="scroll"><table><thead><tr><th>Created On</th><th>Conf.Document Type</th><th>Conf.ID</th><th>Logistics Area ID</th><th>Effective Qty</th><th>Stock after</th></tr></thead><tbody>`
+      + rows.map((r) => `<tr class="${r.is_prod ? "prod" : ""}${r.qty < 0 && r.is_prod ? " neg" : ""}"><td class="m">${esc(at(r.time))}</td><td>${esc(r.doc)}</td><td class="m">${esc(r.conf)}</td><td class="m">${esc(r.area)}</td><td class="n">${f(r.qty, 2)}</td><td class="n">${f(r.balance, 2)}</td></tr>`).join("")
+      + `</tbody></table></div>` : "";
+    const row = document.createElement("tr");
+    row.className = "histrow"; row.dataset.key = btn.dataset.m + "|" + btn.dataset.b;
+    row.innerHTML = `<td colspan="${tr.children.length}">${sum}${table}</td>`;
+    tr.after(row);
+  });
   $("ask").addEventListener("submit", (e) => { e.preventDefault(); run(); });
   $("forget").onclick = async () => { await forgetFiles(); state.files = null; startDemo(); toast("Saved files removed from this browser."); };
 

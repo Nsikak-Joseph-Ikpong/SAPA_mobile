@@ -237,3 +237,6 @@ its usual size, and not corrected, is double booked (`PALLET_DOUBLE_BOOKED`, HIG
 confirmation and the cases the output is overstated by); a pallet confirmed more than once but corrected,
 or under double, is `PALLET_CONFIRMED_MORE_THAN_ONCE` (MEDIUM).
 The Excel report lists the order's inputs, the output postings and the cheese moved to the line.
+On the web page, clicking a pallet or batch number (in the output postings or the cheese consumed table)
+opens that batch's full confirmation history from the journal: every confirmation in time order with its
+type, Conf.ID, logistics area, Effective Qty and the running stock after each row.
