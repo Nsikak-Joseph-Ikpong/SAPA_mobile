@@ -35,6 +35,12 @@ class Table:
     header_row: int           # 1-based row number in the sheet
     mapping: dict[str, str]   # field -> original header text
     df: pd.DataFrame
+    # Journals exported per order carry no order column; the order ID is supplied
+    order_source: str = ""    # "column" | "given" | "file name" | "" (still needed)
+
+    @property
+    def needs_order(self) -> bool:
+        return self.kind == "journal" and not self.order_source
 
     @property
     def label(self) -> str:
@@ -55,7 +61,12 @@ class Dataset:
 
     @property
     def journal(self) -> pd.DataFrame:
-        return self._concat("journal")
+        j = self._concat("journal")
+        return j[j["order_id"].notna()].reset_index(drop=True) if not j.empty else j
+
+    @property
+    def unassigned_journals(self) -> list[Table]:
+        return [t for t in self.tables if t.needs_order]
 
     @property
     def products(self) -> pd.DataFrame:
@@ -110,13 +121,26 @@ def to_number(value) -> float:
     return -number if negative else number
 
 
+_DMY = re.compile(r"^(\d{1,2})[./-](\d{1,2})[./-](\d{2,4})(?:[ T]+(\d{1,2}):(\d{2})(?::(\d{2}))?)?")
+
+
 def to_date(value):
+    """Dates like '19.08.2026' or '24.09.2026 03:44:29 GMTUK' (day first)."""
     if is_blank(value):
         return pd.NaT
     if isinstance(value, (datetime, date, pd.Timestamp)):
         return pd.Timestamp(value)
+    text = str(value).strip()
+    m = _DMY.match(text)
+    if m:
+        d, mo, y, hh, mm, ss = m.groups()
+        y = int(y) + 2000 if len(y) == 2 else int(y)
+        try:
+            return pd.Timestamp(y, int(mo), int(d), int(hh or 0), int(mm or 0), int(ss or 0))
+        except ValueError:
+            return pd.NaT
     try:
-        return pd.to_datetime(str(value).strip(), dayfirst=True)
+        return pd.to_datetime(text, dayfirst=True)
     except (ValueError, TypeError):
         return pd.NaT
 
@@ -163,6 +187,9 @@ def _classify(fields: set[str]) -> str:
         return "journal"
     if "order_id" in fields and fields & {"planned_qty", "fulfilled_qty", "output_kg", "issued_kg"}:
         return "orders"
+    # Journal pulled from one production order: no order column of its own
+    if "material_id" in fields and "quantity" in fields and fields & {"doc_type", "batch", "confirmation_id"}:
+        return "journal"
     if "material_id" in fields and "order_id" not in fields and fields & {"pack_kg", "starch_pct", "blend_ratio", "component_type"}:
         return "products"
     return "unknown"
@@ -200,12 +227,20 @@ def parse_sheet(raw: pd.DataFrame, source: str, sheet: str, settings: Settings) 
     body = raw.iloc[header_idx + 1:]
     out = pd.DataFrame({fld: body.iloc[:, pos].tolist() for fld, pos in columns.items()})
 
+    # ByDesign writes the unit into the quantity cell: "-1,002.11 kg", "98.00 case"
+    if "quantity" in out.columns and "uom" not in out.columns:
+        units = [re.search(r"([A-Za-z]+)\s*$", v).group(1).lower()
+                 if isinstance(v, str) and re.search(r"[A-Za-z]+\s*$", v) else None for v in out["quantity"]]
+        if any(units):
+            out["uom"] = units
+            mapping["uom"] = f"(unit written after {mapping['quantity']})"
+
     for fld in out.columns:
         if fld in NUMERIC_FIELDS:
             out[fld] = [to_number(v) for v in out[fld]]
         elif fld == "date":
             out[fld] = [to_date(v) for v in out[fld]]
-        elif fld in {"order_id", "material_id", "batch"}:
+        elif fld in {"order_id", "material_id", "batch", "confirmation_id"}:
             out[fld] = [to_id(v) for v in out[fld]]
         elif fld == "reversal":
             out[fld] = [to_flag(v) for v in out[fld]]
@@ -213,7 +248,7 @@ def parse_sheet(raw: pd.DataFrame, source: str, sheet: str, settings: Settings) 
             out[fld] = [None if is_blank(v) else str(v).strip() for v in out[fld]]
 
     # Grouped journal exports show the order ID only on the first line of a group
-    if kind == "journal":
+    if kind == "journal" and "order_id" in out.columns:
         out["order_id"] = out["order_id"].ffill()
 
     # Drop repeated header rows, subtotal rows and blank rows
@@ -228,7 +263,22 @@ def parse_sheet(raw: pd.DataFrame, source: str, sheet: str, settings: Settings) 
         out = out[out["material_id"].notna()]
     out = out.reset_index(drop=True)
     out["_source"] = f"{source} [{sheet}]" if sheet else source
-    return Table(source, sheet, kind, sheet_rows[header_idx] + 1, mapping, out)
+    if kind == "journal" and "order_id" not in out.columns:
+        out["order_id"] = None
+    order_source = "column" if kind == "journal" and "order_id" in columns else ""
+    return Table(source, sheet, kind, sheet_rows[header_idx] + 1, mapping, out, order_source)
+
+
+def order_from_filename(name: str) -> str | None:
+    """'journal_589.xlsx' or 'PO 1439 confirmations.csv' -> the order number, if exactly one."""
+    # Only stand-alone numbers: ByDesign's own names ("...CFJU01_Q0001_23") must not count
+    numbers = re.findall(r"(?<![A-Za-z\d])(\d{3,7})(?![A-Za-z\d])", Path(name).stem)
+    return numbers[0] if len(numbers) == 1 else None
+
+
+def assign_order(table: Table, order_id: str, how: str = "given") -> None:
+    table.df["order_id"] = to_id(order_id)
+    table.order_source = how
 
 
 def _read_csv(path: Path) -> pd.DataFrame:
@@ -255,7 +305,11 @@ def expand_paths(paths: list[str]) -> list[Path]:
     return files
 
 
-def load_files(paths: list[str], settings: Settings) -> Dataset:
+def load_files(paths: list[str], settings: Settings,
+               journal_orders: dict[str, str] | None = None) -> Dataset:
+    """Read every file. ``journal_orders`` maps a journal's file name to its production order,
+    for journals that have no order column; otherwise a number in the file name is used."""
+    journal_orders = {k.lower(): v for k, v in (journal_orders or {}).items()}
     dataset = Dataset()
     for path in expand_paths(paths):
         if path.suffix.lower() in {".csv", ".txt"}:
@@ -263,5 +317,12 @@ def load_files(paths: list[str], settings: Settings) -> Dataset:
         else:
             sheets = pd.read_excel(path, sheet_name=None, header=None, dtype=object)
         for sheet_name, raw in sheets.items():
-            dataset.tables.append(parse_sheet(raw, path.name, str(sheet_name), settings))
+            table = parse_sheet(raw, path.name, str(sheet_name), settings)
+            if table.needs_order:
+                given = journal_orders.get(path.name.lower()) or journal_orders.get(path.stem.lower())
+                if given:
+                    assign_order(table, given, "given")
+                elif order_from_filename(path.name):
+                    assign_order(table, order_from_filename(path.name), "file name")
+            dataset.tables.append(table)
     return dataset

@@ -8,7 +8,6 @@
     --accent: #23615a; --accent-ink: #ffffff; --accent-soft: #dcebe8;
     --high: #b3261e; --high-soft: #f8e1df; --medium: #9a6200; --medium-soft: #f6ead3;
     --low: #2f5f8a; --low-soft: #e0eaf4; --info: #66706b; --info-soft: #e8ebe9; --ok: #2b7a4b; --ok-soft: #dff0e5;
-    --bar-expected: #b9c4bf; --bar-issued: #23615a;
     --sans: "IBM Plex Sans", "Segoe UI", system-ui, -apple-system, sans-serif;
     --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
   }
@@ -18,7 +17,7 @@
       --ground: #111513; --surface: #192019; --sunken: #141a17; --ink: #e5eae7; --muted: #9aa59f; --line: #2c3531;
       --accent: #62b5aa; --accent-ink: #0d1412; --accent-soft: #1c3531;
       --high: #f27b70; --high-soft: #3a1f1c; --medium: #e2a846; --medium-soft: #372b16; --low: #82b1da; --low-soft: #1b2a38;
-      --info: #9aa59f; --info-soft: #232a27; --ok: #6dc690; --ok-soft: #183023; --bar-expected: #3d4944; --bar-issued: #62b5aa;
+      --info: #9aa59f; --info-soft: #232a27; --ok: #6dc690; --ok-soft: #183023;
     }
   }
   :root[data-theme="dark"] {
@@ -26,365 +25,542 @@
     --ground: #111513; --surface: #192019; --sunken: #141a17; --ink: #e5eae7; --muted: #9aa59f; --line: #2c3531;
     --accent: #62b5aa; --accent-ink: #0d1412; --accent-soft: #1c3531;
     --high: #f27b70; --high-soft: #3a1f1c; --medium: #e2a846; --medium-soft: #372b16; --low: #82b1da; --low-soft: #1b2a38;
-    --info: #9aa59f; --info-soft: #232a27; --ok: #6dc690; --ok-soft: #183023; --bar-expected: #3d4944; --bar-issued: #62b5aa;
+    --info: #9aa59f; --info-soft: #232a27; --ok: #6dc690; --ok-soft: #183023;
   }
-
   * { box-sizing: border-box; }
   body { background: var(--ground); color: var(--ink); font: 14px/1.5 var(--sans); }
-  .wrap { max-width: 1180px; margin: 0 auto; padding-inline: 16px; padding-block: 20px 48px; display: grid; gap: 20px; }
-  @media (min-width: 900px) { .wrap { grid-template-columns: 330px minmax(0, 1fr); align-items: start; } .side { position: sticky; top: calc(env(safe-area-inset-top, 0px) + 16px); } }
-
-  h1 { font-size: 20px; line-height: 1.2; margin: 0; letter-spacing: -0.01em; text-wrap: balance; }
+  .wrap { max-width: 1100px; margin: 0 auto; padding-inline: 16px; padding-block: 20px 48px; display: grid; gap: 18px; }
+  h1 { font-size: 21px; line-height: 1.2; margin: 0; letter-spacing: -0.01em; }
   h2 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin: 0; font-weight: 600; }
   .sub { color: var(--muted); margin: 4px 0 0; font-size: 13px; }
   .mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
 
-  .side { display: grid; gap: 16px; }
-  .panel { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 14px; display: grid; gap: 10px; }
+  .top { display: grid; gap: 14px; }
+  @media (min-width: 820px) { .top { grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); align-items: stretch; } }
+  .panel { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; display: grid; gap: 10px; align-content: start; }
 
-  .drop { border: 1.5px dashed var(--line); border-radius: 8px; padding: 16px; text-align: center; background: var(--sunken); cursor: pointer; display: grid; gap: 4px; transition: border-color .15s, background .15s; }
+  .source { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+  .source .what { flex: 1 1 220px; min-width: 0; }
+  .source .name { font-weight: 600; overflow-wrap: anywhere; }
+  .source .meta { color: var(--muted); font-size: 12.5px; }
+  .pill { font: 600 11px var(--mono); padding: 2px 8px; border-radius: 999px; background: var(--medium-soft); color: var(--medium); white-space: nowrap; }
+  .pill.real { background: var(--ok-soft); color: var(--ok); }
+  .drop { border: 1.5px dashed var(--line); border-radius: 8px; padding: 12px; text-align: center; background: var(--sunken); cursor: pointer; font-size: 13px; }
   .drop:hover, .drop.over { border-color: var(--accent); background: var(--accent-soft); }
-  .drop:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   .drop strong { font-weight: 600; }
-  .drop span { color: var(--muted); font-size: 12px; }
-
-  .files { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
-  .files li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 8px; font-size: 12.5px; padding: 6px 0; border-top: 1px solid var(--line); }
-  .files li:first-child { border-top: 0; }
-  .files .name { overflow-wrap: anywhere; font-weight: 500; }
-  .files .meta { grid-column: 1 / -1; color: var(--muted); }
-  .kind { font-family: var(--mono); font-size: 11px; padding: 1px 6px; border-radius: 4px; background: var(--accent-soft); color: var(--accent); white-space: nowrap; align-self: start; }
-  .kind.unknown { background: var(--high-soft); color: var(--high); }
-
-  label { font-weight: 500; font-size: 13px; }
-  input[type="text"], input[type="number"] { width: 100%; font: 14px var(--mono); padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--ink); }
-  input:focus-visible, button:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-  .row { display: flex; gap: 8px; flex-wrap: wrap; }
-  button { font: 500 13px var(--sans); border-radius: 6px; padding: 8px 12px; cursor: pointer; border: 1px solid var(--line); background: var(--surface); color: var(--ink); }
-  button:hover { border-color: var(--accent); }
-  button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
-  button.link { border: 0; background: none; padding: 0; color: var(--accent); text-decoration: underline; font-size: 12.5px; }
+  .drop span { color: var(--muted); display: block; font-size: 12px; }
+  .drop:focus-visible, input:focus-visible, button:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   .hint { font-size: 12px; color: var(--muted); margin: 0; }
-  .settings { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
-  .settings label { font-size: 11.5px; color: var(--muted); display: grid; gap: 3px; }
-  .settings input { padding: 6px 8px; font-size: 13px; }
-  details.cfg summary { cursor: pointer; font-size: 13px; font-weight: 500; }
 
-  .banner { background: var(--medium-soft); color: var(--ink); border-radius: 8px; padding: 10px 12px; font-size: 13px; display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
-  .banner b { color: var(--medium); }
+  label.big { font-weight: 600; font-size: 13px; }
+  .ask { display: flex; gap: 8px; flex-wrap: wrap; }
+  .ask input { flex: 1 1 160px; min-width: 0; font: 600 20px var(--mono); padding: 10px 12px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--ink); }
+  button { font: 600 14px var(--sans); border-radius: 6px; padding: 10px 16px; cursor: pointer; border: 1px solid var(--accent); background: var(--accent); color: var(--accent-ink); }
+  button.quiet { background: var(--surface); color: var(--ink); border-color: var(--line); font-weight: 500; font-size: 12.5px; padding: 6px 10px; }
+  button.link { border: 0; background: none; padding: 0; color: var(--accent); text-decoration: underline; font-size: 12.5px; font-weight: 500; }
+  .examples { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; font-size: 12.5px; color: var(--muted); }
+  .examples button { font: 500 12px var(--mono); padding: 3px 8px; background: var(--sunken); color: var(--ink); border-color: var(--line); }
 
-  .main { display: grid; gap: 14px; min-width: 0; }
-  .summary { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-  .chip { display: inline-flex; gap: 6px; align-items: center; border-radius: 999px; padding: 4px 10px; font-size: 12.5px; font-weight: 600; border: 1px solid transparent; cursor: pointer; background: var(--surface); color: var(--ink); border-color: var(--line); }
-  .chip .n { font-family: var(--mono); }
-  .chip[aria-pressed="true"] { border-color: currentColor; }
-  .chip.HIGH { color: var(--high); } .chip.MEDIUM { color: var(--medium); } .chip.LOW { color: var(--low); } .chip.INFO { color: var(--info); } .chip.OK { color: var(--ok); }
-  .toolbar { display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; align-items: center; }
-  .missing { font-size: 13px; color: var(--high); margin: 0; }
+  .result { display: grid; gap: 14px; }
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  .verdict { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 16px; align-items: center; padding: 16px 18px; background: var(--vsoft); border-bottom: 1px solid var(--line); }
+  .card[data-v="PROBLEMS"] { --v: var(--high); --vsoft: var(--high-soft); }
+  .card[data-v="CHECK"] { --v: var(--medium); --vsoft: var(--medium-soft); }
+  .card[data-v="OK"] { --v: var(--ok); --vsoft: var(--ok-soft); }
+  .badge { grid-row: span 2; font: 700 13px var(--mono); letter-spacing: 0.06em; color: var(--surface); background: var(--v); border-radius: 6px; padding: 8px 12px; text-align: center; }
+  .vt { font-size: 18px; font-weight: 600; line-height: 1.25; overflow-wrap: anywhere; }
+  .vt .mono { font-weight: 600; }
+  .vs { font-size: 13px; color: var(--ink); opacity: 0.85; overflow-wrap: anywhere; }
+  .body { padding: 16px 18px; display: grid; gap: 16px; }
+  .body > * { min-width: 0; }
 
-  .order { background: var(--surface); border: 1px solid var(--line); border-left: 4px solid var(--sev, var(--ok)); border-radius: 8px; padding: 14px 16px; display: grid; gap: 12px; }
-  .order[data-sev="HIGH"] { --sev: var(--high); } .order[data-sev="MEDIUM"] { --sev: var(--medium); } .order[data-sev="LOW"] { --sev: var(--low); } .order[data-sev="INFO"], .order[data-sev="OK"] { --sev: var(--ok); }
-  .ohead { display: flex; gap: 10px 14px; flex-wrap: wrap; align-items: baseline; }
-  .oid { font: 600 20px var(--mono); }
-  .fg { font-size: 13px; color: var(--muted); overflow-wrap: anywhere; flex: 1 1 220px; }
-  .fg b { color: var(--ink); font-family: var(--mono); font-weight: 500; }
-  .status { font-size: 11.5px; padding: 1px 8px; border-radius: 999px; background: var(--info-soft); color: var(--info); font-weight: 600; }
-
-  .figs { display: grid; grid-template-columns: repeat(auto-fit, minmax(118px, 1fr)); gap: 10px 16px; }
-  .fig { display: grid; gap: 1px; }
+  .figs { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px 18px; }
+  .fig { display: grid; gap: 2px; }
   .fig dt { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
-  .fig dd { margin: 0; font: 500 14px var(--mono); font-variant-numeric: tabular-nums; }
-  .fig dd small { font: 11px var(--sans); color: var(--muted); display: block; }
-  .var-neg { color: var(--high); } .var-pos { color: var(--medium); } .var-ok { color: var(--ok); }
+  .fig dd { margin: 0; font: 600 17px var(--mono); font-variant-numeric: tabular-nums; }
+  .fig dd small { display: block; font: 400 12px var(--sans); color: var(--muted); }
+  .bad { color: var(--high); } .good { color: var(--ok); }
 
-  .balance { display: grid; gap: 4px; }
-  .bar { display: grid; grid-template-columns: 70px minmax(0, 1fr) auto; align-items: center; gap: 8px; font-size: 11.5px; color: var(--muted); }
-  .track { height: 10px; background: var(--sunken); border-radius: 3px; position: relative; overflow: hidden; }
-  .fill { position: absolute; inset: 0 auto 0 0; border-radius: 3px; }
-  .fill.expected { background: var(--bar-expected); } .fill.issued { background: var(--bar-issued); }
-  .bar .v { font-family: var(--mono); color: var(--ink); min-width: 92px; text-align: right; }
-
-  .flags { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
-  .flags li { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 2px 10px; font-size: 13.5px; }
-  .tag { font: 600 10.5px var(--mono); letter-spacing: 0.04em; padding: 2px 6px; border-radius: 4px; align-self: start; margin-top: 2px; }
+  .mass { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); }
+  .mass table { font-size: 13px; }
+  .mass caption { text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); padding-bottom: 4px; }
+  .mass td { white-space: normal; }
+  .mass tr.tot td { font-weight: 600; border-top: 1.5px solid var(--ink); }
+  .mass .un { grid-column: 1 / -1; font-size: 13.5px; }
+  .var h3, .why h3 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin: 0 0 6px; font-weight: 600; }
+  .var th { white-space: normal; min-width: 72px; vertical-align: bottom; }
+  .var td.hl { background: var(--medium-soft); font-weight: 600; }
+  .var .src { font-size: 12px; color: var(--muted); margin: 6px 0 0; }
+  .why ol { margin: 0; padding-left: 20px; display: grid; gap: 6px; font-size: 13.5px; }
+  .why .kg { font: 600 12px var(--mono); color: var(--high); margin-right: 6px; }
+  .flags { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
+  .flags li { display: grid; grid-template-columns: 76px minmax(0, 1fr); gap: 2px 12px; }
+  .tag { font: 600 10.5px var(--mono); letter-spacing: 0.04em; padding: 3px 0; border-radius: 4px; text-align: center; align-self: start; margin-top: 2px; }
   .tag.HIGH { background: var(--high-soft); color: var(--high); } .tag.MEDIUM { background: var(--medium-soft); color: var(--medium); }
   .tag.LOW { background: var(--low-soft); color: var(--low); } .tag.INFO { background: var(--info-soft); color: var(--info); }
-  .flags .code { font: 600 12px var(--mono); }
-  .flags .msg { grid-column: 2; color: var(--ink); }
-  .ok-note { color: var(--ok); font-size: 13px; margin: 0; }
+  .ft { font-weight: 600; }
+  .fm { grid-column: 2; color: var(--ink); font-size: 13.5px; overflow-wrap: anywhere; }
+  .fc { grid-column: 2; font: 11px var(--mono); color: var(--muted); }
 
-  details.comp summary { cursor: pointer; font-size: 12.5px; color: var(--accent); font-weight: 500; }
+  details.ev { border-top: 1px solid var(--line); padding-top: 10px; }
+  details.ev summary { cursor: pointer; font-size: 13px; color: var(--accent); font-weight: 500; }
   .scroll { overflow-x: auto; margin-top: 8px; }
   table { border-collapse: collapse; width: 100%; font-size: 12.5px; }
   th, td { text-align: left; padding: 5px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
   th { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); font-weight: 600; }
-  td.num { text-align: right; font-family: var(--mono); font-variant-numeric: tabular-nums; }
-  td.k { font-family: var(--mono); font-size: 11.5px; color: var(--muted); }
-
-  .swaps { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; display: grid; gap: 8px; }
-  .empty { background: var(--surface); border: 1px dashed var(--line); border-radius: 8px; padding: 24px; text-align: center; color: var(--muted); }
+  td.n { text-align: right; font-family: var(--mono); font-variant-numeric: tabular-nums; }
+  td.m { font-family: var(--mono); }
+  tr.neg td { color: var(--high); }
+  tr.tot td { border-top: 1.5px solid var(--ink); }
+  button.hist { font: inherit; font-family: var(--mono); color: var(--accent); }
+  tr.histrow > td { background: var(--sunken); padding: 8px 10px 12px; white-space: normal; }
+  tr.histrow table { background: var(--surface); }
+  tr.histrow .sum { font-size: 12.5px; margin: 0 0 6px; }
+  tr.histrow tr.prod td { font-weight: 600; }
+  .empty { background: var(--surface); border: 1px dashed var(--line); border-radius: 8px; padding: 22px; color: var(--muted); text-align: center; }
+  .loading { color: var(--muted); font-size: 13px; }
+  .toolbar { display: flex; justify-content: flex-end; }
   .toast { position: fixed; left: 50%; bottom: calc(env(safe-area-inset-bottom, 0px) + 20px); transform: translateX(-50%); background: var(--ink); color: var(--ground); padding: 8px 14px; border-radius: 6px; font-size: 13px; }
-  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 </style>
 
 <div class="wrap">
-  <aside class="side">
-    <div>
-      <h1>Cheese Variance Check</h1>
-      <p class="sub">Cheese in vs. cases out, per production order, across all your SAP exports.</p>
-    </div>
+  <div>
+    <h1>Cheese Variance Check</h1>
+    <p class="sub">Type a production order. Output and packaging are checked against the order's planned, issued and open quantities. Cheese is checked against what the confirmation journal shows consumed on the line during the run (or, if the journal has no consumption lines, what was moved to the line), and everything that went in (cheese blocks, offcuts, starch) is balanced against everything that came out (product and offcuts). The journal also backs up the output: pallets, late or bulk postings.</p>
+  </div>
 
-    <section class="panel" aria-labelledby="files-h">
-      <h2 id="files-h">Spreadsheets</h2>
-      <div class="drop" id="drop" tabindex="0" role="button" aria-describedby="drop-hint">
-        <strong>Add spreadsheets</strong>
-        <span id="drop-hint">Drop or choose .xlsx / .xls / .csv: order list, confirmation journal, product master. Several at once is fine.</span>
+  <div class="top">
+    <section class="panel" aria-labelledby="src-h">
+      <h2 id="src-h">SAP workbook</h2>
+      <div class="source" id="source"><span class="loading">Loading…</span></div>
+      <div class="drop" id="drop" tabindex="0" role="button">
+        <strong>Load SAP files</strong>
+        <span>Drop or choose the SAP workbook (.xlsx), the confirmation journal and the production order fulfilment export, together or one at a time. Each file is added to what's loaded; a newer file of the same kind replaces the older one. Files stay in this browser and are remembered for next time.</span>
       </div>
-      <input type="file" id="file" multiple accept=".xlsx,.xlsm,.xls,.csv,.txt" hidden>
-      <ul class="files" id="files"></ul>
-      <div class="row">
-        <button class="link" id="demo" type="button">Load demo data</button>
-        <button class="link" id="clear" type="button">Remove all</button>
-      </div>
-      <p class="hint">Files are read in this browser only. Nothing is uploaded.</p>
+      <input type="file" id="file" accept=".xlsx,.xlsm,.xls" multiple hidden>
+      <input type="file" id="addfile" accept=".xlsx,.xlsm,.xls" multiple hidden>
+      <div class="row"><button class="link" id="add" type="button" hidden>Add another file</button> <button class="link" id="forget" type="button" hidden>Forget saved files</button></div>
     </section>
 
-    <section class="panel" aria-labelledby="orders-h">
-      <h2 id="orders-h">Production orders</h2>
-      <label for="ids">Order IDs to check</label>
-      <input type="text" id="ids" placeholder="e.g. 589, 746 783" autocomplete="off">
-      <div class="row">
-        <button class="primary" id="check" type="button">Check orders</button>
-        <button id="all" type="button">Check all</button>
-      </div>
-      <p class="hint" id="found"></p>
-      <details class="cfg">
-        <summary>Tolerances</summary>
-        <div class="settings" style="margin-top:8px">
-          <label for="tolPct">± % of expected<input type="number" id="tolPct" step="0.5" min="0" value="5"></label>
-          <label for="tolKg">± kg minimum<input type="number" id="tolKg" step="5" min="0" value="50"></label>
-          <label for="starch">Grated starch %<input type="number" id="starch" step="0.1" min="0" value="1.5"></label>
-        </div>
-        <p class="hint" style="margin-top:6px">A variance is flagged when it is bigger than the larger of the two tolerances.</p>
-      </details>
+    <section class="panel" aria-labelledby="ord-h">
+      <h2 id="ord-h">Production order</h2>
+      <form class="ask" id="ask">
+        <label class="big" for="oid" style="flex-basis:100%">Order number</label>
+        <input id="oid" type="text" inputmode="numeric" autocomplete="off" placeholder="e.g. 589">
+        <button type="submit">Check</button>
+      </form>
+      <div class="examples" id="examples"></div>
+      <div class="row"><button class="quiet" id="report" type="button" hidden>Download variance report (.xlsx)</button></div>
+      <p class="hint">Check several at once by separating the numbers with commas.</p>
     </section>
-  </aside>
+  </div>
 
-  <main class="main" id="main" aria-live="polite"></main>
+  <main class="result" id="result" aria-live="polite"></main>
 </div>
 <div class="toast" id="toast" hidden></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-<script src="engine.js"></script>
-<script src="demo-data.js"></script>
+<script src="reconcile.js"></script>
+<script src="demo-workbook.js"></script>
 <script>
 (function () {
   "use strict";
-  const E = window.VarianceEngine;
+  const R = window.OrderCheck;
   const $ = (id) => document.getElementById(id);
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-  const nf = (d) => new Intl.NumberFormat("en-GB", { minimumFractionDigits: d, maximumFractionDigits: d });
-  const kg = (v) => (v === null || v === undefined || isNaN(v) ? "n/a" : nf(1).format(v) + " kg");
-  const skg = (v) => (v === null || v === undefined || isNaN(v) ? "n/a" : (v >= 0 ? "+" : "−") + nf(1).format(Math.abs(v)) + " kg");
-  const qty = (v) => (v === null || v === undefined ? "n/a" : E.fmtQty(v));
-  const SEV = ["HIGH", "MEDIUM", "LOW", "INFO"];
+  const { f, fs, dm, dmy } = R.fmt;
+  const n0 = (v) => (v === null || v === undefined || isNaN(v) ? "n/a" : f(v));
+  const kg = (v) => (v === null || v === undefined || isNaN(v) ? "n/a" : f(v, 1) + " kg");
 
-  const state = { files: [], demo: false, ids: null, filter: null, analysis: null };
+  const TITLES = {
+    OUTPUT_NOT_ON_ORDER: "Output in the journal doesn't match the order",
+    OUTPUT_NOT_IN_JOURNAL: "Order shows output the journal doesn't",
+    OUTPUT_POSTED_IN_BULK_OR_LATE: "Pallets posted in bulk or late",
+    PALLET_DOUBLE_BOOKED: "Pallet double booked",
+    PALLET_CONFIRMED_MORE_THAN_ONCE: "Pallet confirmed more than once (corrected or under double)",
+    UNUSUAL_PALLET_SIZE: "Pallet bigger than usual",
+    OUTPUT_REVERSED: "Output reversed",
+    INPUTS_SHORT_FOR_OUTPUT: "Inputs issued short for the output",
+    INPUTS_OVER_FOR_OUTPUT: "More inputs issued than the output needs",
+    OUTPUT_OVER_PLAN: "More made than planned",
+    OUTPUT_SHORT_OF_PLAN: "Less made than planned, nothing left open",
+    OUTPUT_STILL_OPEN: "Output still open",
+    CHEESE_NOT_ON_ORDER_SHEET: "No cheese on the order sheet, so estimated from the journal",
+    CHEESE_BALANCES_EST: "Cheese estimate matches the output",
+    CHEESE_OVER_EST: "More cheese went to the line than the output needs (estimate)",
+    CHEESE_UNDER_EST: "Less cheese went to the line than the output needs (estimate)",
+    CHEESE_CARRIED_OVER: "Cheese carried over between jobs (estimate)",
+    CHEESE_FROM_STORE: "Cheese issued straight from store",
+    CHEESE_SHARED_LINE: "Cheese on a shared line",
+    NO_CHEESE_SEEN: "No cheese for this job anywhere",
+    CHEESE_BALANCES: "Cheese matches the output",
+    CHEESE_OVER_USED: "More cheese consumed than the output needs",
+    CHEESE_UNDER_USED: "Less cheese consumed than the output needs",
+    CHEESE_NOT_CONSUMED: "No cheese consumed for this run",
+    BATCH_OVER_CONSUMED: "Batch consumed for more than it held",
+    MASS_BALANCES: "Everything in matches everything out",
+    MASS_UNACCOUNTED: "More went in than came out",
+    MASS_OUT_EXCEEDS_IN: "More came out than went in",
+    OFFCUTS_OVER_PLAN: "More offcuts than planned",
+    OFFCUTS_NOT_DECLARED: "No offcuts declared",
+    CHEESE_OVER_ISSUED: "More cheese issued than the output needs",
+    CHEESE_UNDER_ISSUED: "Less cheese issued than the output needs",
+    BLEND_SPLIT_OFF: "Cheese split differs from the recipe",
+  };
+  const VERDICT_TEXT = { PROBLEMS: "Problems found", CHECK: "Worth checking", OK: "Looks OK" };
 
-  function settings() {
-    const s = E.defaultSettings();
-    const n = (id, d) => { const v = parseFloat($(id).value); return isNaN(v) ? d : v; };
-    s.tolerance_pct = n("tolPct", 5) / 100;
-    s.tolerance_kg = n("tolKg", 50);
-    s.grated_starch_pct = n("starch", 1.5) / 100;
-    return s;
-  }
+  const state = { ctx: null, source: null, demo: true, files: null };
 
-  function toast(msg) {
-    const t = $("toast"); t.textContent = msg; t.hidden = false;
-    clearTimeout(toast.t); toast.t = setTimeout(() => (t.hidden = true), 2200);
-  }
+  function toast(msg) { const t = $("toast"); t.textContent = msg; t.hidden = false; clearTimeout(toast.t); toast.t = setTimeout(() => (t.hidden = true), 2600); }
 
-  // ---------------------------------------------------------------- files
-  async function readFile(file) {
-    const buf = await file.arrayBuffer();
-    const wb = XLSX.read(buf, { type: "array", cellDates: true });
-    return wb.SheetNames.map((name) => ({
-      file: file.name, sheet: wb.SheetNames.length > 1 || !/\.(csv|txt)$/i.test(file.name) ? name : "",
-      rows: XLSX.utils.sheet_to_json(wb.Sheets[name], { header: 1, raw: true, defval: null, blankrows: false }),
-    }));
-  }
-
-  async function addFiles(list) {
-    if (!list.length) return;
-    if (state.demo) { state.files = []; state.demo = false; }
-    for (const f of list) {
+  // ---------------------------------------------------------------- remembered workbook (this browser only)
+  const DB = "cheese-variance", STORE = "files";
+  function idb(mode, fn) {
+    return new Promise((resolve) => {
       try {
-        const sheets = await readFile(f);
-        state.files = state.files.filter((x) => x.name !== f.name);
-        state.files.push({ name: f.name, sheets });
-      } catch (e) {
-        toast(`Could not read ${f.name}: ${e.message}`);
-      }
-    }
-    state.ids = null;
-    run();
-  }
-
-  function loadDemo() {
-    const byFile = {};
-    for (const sh of window.DEMO_SHEETS) (byFile[sh.file] ||= []).push(sh);
-    state.files = Object.entries(byFile).map(([name, sheets]) => ({ name, sheets }));
-    state.demo = true; state.ids = null; $("ids").value = "";
-    run();
-  }
-
-  // ---------------------------------------------------------------- run
-  function run() {
-    const s = settings();
-    const tables = E.loadSheets(state.files.flatMap((f) => f.sheets), s);
-    state.analysis = state.files.length ? E.analyse(tables, s, state.ids) : null;
-    renderFiles(tables);
-    renderMain();
-  }
-
-  function parseIds(text) { return text.split(/[\s,;]+/).map((t) => t.trim()).filter(Boolean); }
-
-  function renderFiles(tables) {
-    const ul = $("files");
-    ul.innerHTML = "";
-    for (const f of state.files) {
-      for (const t of tables.filter((t) => t.source === f.name)) {
-        const li = document.createElement("li");
-        const where = t.sheet ? `${f.name} › ${t.sheet}` : f.name;
-        const meta = t.kind === "unknown"
-          ? "No known column headers found, so this sheet was skipped."
-          : `${t.rows.length} rows · header on row ${t.header_row} · ${Object.keys(t.mapping).length} columns recognised`;
-        li.innerHTML = `<span class="name">${esc(where)}</span><span class="kind ${t.kind}">${esc(t.kind === "orders" ? "order list" : t.kind === "products" ? "product master" : t.kind)}</span><span class="meta" title="${esc(Object.entries(t.mapping).map(([k, v]) => `${k} ← ${v}`).join("\n"))}">${esc(meta)}</span>`;
-        ul.appendChild(li);
-      }
-    }
-    const a = state.analysis;
-    $("found").textContent = a ? `${a.every.length} production order${a.every.length === 1 ? "" : "s"} found in ${state.files.length} file${state.files.length === 1 ? "" : "s"}.` : "";
-  }
-
-  function worst(r) {
-    const f = r.flags.filter((x) => x.severity !== "INFO");
-    return f.length ? f.reduce((w, x) => (E.SEVERITY_ORDER[x.severity] < E.SEVERITY_ORDER[w] ? x.severity : w), "LOW") : "OK";
-  }
-
-  function renderMain() {
-    const main = $("main");
-    const a = state.analysis;
-    if (!a) {
-      main.innerHTML = `<div class="empty">Add your SAP exports on the left, or <button class="link" id="demo2" type="button">load the demo data</button> to see how it works.</div>`;
-      $("demo2").onclick = loadDemo;
-      return;
-    }
-    const parts = [];
-    if (state.demo) {
-      parts.push(`<div class="banner"><b>Demo data.</b> Orders 589, 746 and 783 use the figures from your notebook; the rest show each kind of check. Add your own exports to replace it.</div>`);
-    }
-    const results = a.requested.map((o) => a.results[o]);
-    const counts = { HIGH: 0, MEDIUM: 0, LOW: 0, INFO: 0, OK: 0 };
-    for (const r of results) counts[worst(r)]++;
-    const netVar = results.reduce((t, r) => t + (r.metrics.variance_kg || 0), 0);
-
-    const chips = ["HIGH", "MEDIUM", "LOW", "OK"].map((k) =>
-      `<button type="button" class="chip ${k}" data-f="${k}" aria-pressed="${state.filter === k}"><span class="n">${counts[k]}</span>${k === "OK" ? "clear" : k.toLowerCase()}</button>`).join("");
-    parts.push(`<div class="toolbar"><div class="summary">${chips}<span class="hint">${results.length} order${results.length === 1 ? "" : "s"} · net variance <span class="mono">${skg(netVar)}</span></span></div>
-      <button type="button" id="copy">Copy findings for Excel</button></div>`);
-    if (a.missing.length) parts.push(`<p class="missing">Not found in any loaded file: <span class="mono">${esc(a.missing.join(", "))}</span></p>`);
-
-    const order = results.slice().sort((x, y) => {
-      const rank = { HIGH: 0, MEDIUM: 1, LOW: 2, INFO: 3, OK: 3 };
-      return rank[worst(x)] - rank[worst(y)] || Math.abs(y.metrics.variance_kg || 0) - Math.abs(x.metrics.variance_kg || 0);
+        const req = indexedDB.open(DB, 1);
+        req.onupgradeneeded = () => req.result.createObjectStore(STORE);
+        req.onerror = () => resolve(null);
+        req.onsuccess = () => {
+          try {
+            const tx = req.result.transaction(STORE, mode);
+            const r = fn(tx.objectStore(STORE));
+            tx.oncomplete = () => resolve(r && "result" in r ? r.result : true);
+            tx.onerror = () => resolve(null);
+          } catch (e) { resolve(null); }
+        };
+      } catch (e) { resolve(null); }
     });
-    const shown = order.filter((r) => !state.filter || worst(r) === state.filter);
-    for (const r of shown) parts.push(orderCard(r));
-    if (!shown.length) parts.push(`<div class="empty">No orders in this group.</div>`);
+  }
+  const saveFiles = (files) => idb("readwrite", (s) => s.put({ files: files.map(({ name, buf }) => ({ name, buf })), saved: Date.now() }, "workbook"));
+  const loadSaved = () => idb("readonly", (s) => s.get("workbook"));
+  const forgetFiles = () => idb("readwrite", (s) => s.delete("workbook"));
 
-    const swaps = a.swaps.filter((w) => a.requested.includes(w.order_a) || a.requested.includes(w.order_b));
-    if (swaps.length) {
-      parts.push(`<section class="swaps"><h2>Probable swaps between orders</h2>
-        <div class="scroll"><table><thead><tr><th>Over-issued</th><th>Under-issued</th><th>Net</th><th>Days apart</th><th>Cheese</th><th>Shared batches</th></tr></thead><tbody>
-        ${swaps.map((w) => `<tr><td class="mono">${esc(w.order_a)} <span class="var-pos">${skg(w.variance_a_kg)}</span></td><td class="mono">${esc(w.order_b)} <span class="var-neg">${skg(w.variance_b_kg)}</span></td><td class="num">${skg(w.net_kg)}</td><td class="num">${w.days_apart ?? "?"}</td><td class="k">${esc(w.shared_materials)}</td><td class="k">${esc(w.shared_batches || "-")}</td></tr>`).join("")}
-        </tbody></table></div></section>`);
-    }
-    main.innerHTML = parts.join("");
-    main.querySelectorAll(".chip").forEach((c) => (c.onclick = () => { state.filter = state.filter === c.dataset.f ? null : c.dataset.f; renderMain(); }));
-    $("copy").onclick = copyFindings;
+  // ---------------------------------------------------------------- loading
+  const KIND_TEXT = { fulfilment: "order fulfilment", components: "order inputs", outputs: "order outputs", inputs: "input units", journal: "journal", stock: "stock" };
+  function sheetsFromBuffer(name, buf) {
+    const wb = XLSX.read(buf, { type: "array", dense: true });
+    return wb.SheetNames.map((sn) => ({ file: name, sheet: sn, rows: XLSX.utils.sheet_to_json(wb.Sheets[sn], { header: 1, raw: true, defval: null, blankrows: true }) }));
   }
 
-  function orderCard(r) {
-    const m = r.metrics;
-    const sev = worst(r);
-    const v = m.variance_kg;
-    const vClass = v === null ? "" : Math.abs(v) <= (m.tolerance_kg || 0) ? "var-ok" : v < 0 ? "var-neg" : "var-pos";
-    const pack = m.pack_kg ? `${+m.pack_kg.toFixed(3)} kg<small>${esc(m.pack_source)}</small>` : `unknown<small>add to product master</small>`;
-    const figs = [
-      ["Planned", qty(m.planned_qty)], ["Fulfilled", qty(m.fulfilled_qty)], ["Open", qty(m.open_qty)], ["Per case", pack],
-      ["Expected cheese", `${kg(m.expected_cheese_kg)}<small>${m.starch_pct ? `after ${(m.starch_pct * 100).toFixed(1)}% starch` : "no starch"}</small>`],
-      ["Issued", `${kg(m.cheese_issued_kg)}${m.blend ? `<small>${esc(m.blend)} blend</small>` : ""}`],
-      ["Offcuts", kg(m.offcuts_kg)],
-      ["Variance", `<span class="${vClass}">${skg(v)}</span><small>${m.variance_pct !== null ? `${m.variance_pct >= 0 ? "+" : ""}${(m.variance_pct * 100).toFixed(1)}% · ` : ""}tol ±${kg(m.tolerance_kg)}</small>`],
-    ];
-    let bars = "";
-    if (m.expected_cheese_kg !== null && m.cheese_issued_kg !== null) {
-      const need = m.expected_cheese_kg + (m.offcuts_kg || 0);
-      const max = Math.max(need, m.cheese_issued_kg, 1);
-      bars = `<div class="balance" aria-label="Cheese needed versus issued">
-        <div class="bar"><span>Needed</span><div class="track"><div class="fill expected" style="width:${(need / max) * 100}%"></div></div><span class="v">${kg(need)}</span></div>
-        <div class="bar"><span>Issued</span><div class="track"><div class="fill issued" style="width:${(m.cheese_issued_kg / max) * 100}%"></div></div><span class="v">${kg(m.cheese_issued_kg)}</span></div></div>`;
-    }
-    const flags = r.flags.length
-      ? `<ul class="flags">${r.flags.map((f) => `<li><span class="tag ${f.severity}">${f.severity}</span><span class="code">${esc(f.code)}</span><span class="msg">${esc(f.message)}</span></li>`).join("")}</ul>`
-      : `<p class="ok-note">Nothing flagged. Cheese balances within tolerance.</p>`;
-    const comp = r.components.length ? `<details class="comp"><summary>Journal detail: ${r.components.length} material / batch lines</summary>
-      <div class="scroll"><table><thead><tr><th>Type</th><th>Material</th><th>Batch</th><th>Net qty</th><th>Lines</th><th>Reversed</th><th>Description</th></tr></thead><tbody>
-      ${r.components.map((c) => `<tr><td class="k">${esc(c.kind)}</td><td class="mono">${esc(c.material_id)}</td><td class="mono">${esc(c.batch)}</td><td class="num">${nf(2).format(c.net_qty)}</td><td class="num">${c.lines}</td><td class="num">${c.reversals || ""}</td><td>${esc(c.description || "")}</td></tr>`).join("")}
-      </tbody></table></div></details>` : "";
-    const date = m.date ? new Date(m.date).toLocaleDateString("en-GB", { timeZone: "UTC" }) : "";
-    return `<article class="order" data-sev="${sev}">
-      <div class="ohead"><span class="oid">${esc(m.order_id)}</span>
-        <span class="fg">${m.fg_material ? `<b>${esc(m.fg_material)}</b> ` : ""}${esc(m.fg_description || "")}${date ? ` · ${esc(date)}` : ""}</span>
-        ${m.status ? `<span class="status">${esc(m.status)}</span>` : ""}</div>
-      <dl class="figs">${figs.map(([k, v]) => `<div class="fig"><dt>${k}</dt><dd>${v}</dd></div>`).join("")}</dl>
-      ${bars}${flags}${comp}</article>`;
+  function useSheets(sheets, source) {
+    const wb = R.readWorkbook(sheets);
+    state.ctx = R.prepare(wb);
+    state.source = source;
+    renderSource();
   }
 
-  function copyFindings() {
-    const a = state.analysis;
-    const rows = [["Order", "Severity", "Check", "Finding", "Variance kg", "Related orders", "Reason code", "Resolved by", "Notes"]];
-    for (const o of a.requested) for (const f of a.results[o].flags) rows.push([f.order_id, f.severity, f.code, f.message, f.kg === null ? "" : f.kg.toFixed(1), f.related_orders || "", "", "", ""]);
-    const text = rows.map((r) => r.map((c) => String(c).replace(/[\t\n]/g, " ")).join("\t")).join("\n");
-    const done = () => toast(`Copied ${rows.length - 1} findings. Paste into Excel.`);
+  function renderSource() {
+    const c = state.ctx, s = state.source;
+    const range = c.journalRange ? `${dmy(c.journalRange[0]).slice(0, 10)} to ${dmy(c.journalRange[1]).slice(0, 10)}` : "no journal";
+    const names = s.files ? s.files.map((x) => `<div class="name">${esc(x.name)} <span class="meta">(${esc(x.kinds.map((k) => KIND_TEXT[k] || k).join(", "))})</span></div>`).join("") : `<div class="name">${esc(s.name)}</div>`;
+    const cheese = state.demo ? "" : c.hasCons ? " · cheese consumption found in the journal"
+      : " · no cheese consumption lines in the journal, so cheese is estimated from moves to the line";
+    $("source").innerHTML = `<div class="what">${names}
+      <div class="meta">${f(c.wb.journal.length)} journal rows (${esc(range)}) · ${f(c.orders.length)} orders${s.saved ? ` · saved ${esc(new Date(s.saved).toLocaleDateString("en-GB"))}` : ""}${esc(cheese)}</div></div>
+      <span class="pill ${state.demo ? "" : "real"}">${state.demo ? "demo" : "your data"}</span>`;
+    $("forget").hidden = state.demo;
+    $("add").hidden = state.demo;
+    $("report").hidden = typeof XLSX === "undefined";
+    const ex = state.demo ? ["A1", "B2", "C3"] : pickExamples();
+    $("examples").innerHTML = ex.length ? `Try: ${ex.map((o) => `<button type="button" data-o="${esc(o)}">${esc(o)}</button>`).join("")}` : "";
+    $("examples").querySelectorAll("button").forEach((b) => (b.onclick = () => { $("oid").value = b.dataset.o; run(); }));
+  }
+
+  function pickExamples() {
+    const ids = [...state.ctx.active].filter((o) => state.ctx.idx.orders.has(o));
+    return ["589", ...ids.slice(-3)].filter((o, i, a) => state.ctx.idx.orders.has(o) && a.indexOf(o) === i).slice(0, 4);
+  }
+
+  const pause = () => new Promise((r) => setTimeout(r, 30));
+
+  // files: [{name, buf}] -> parsed and checked together
+  async function useFiles(files, saved) {
+    const parsed = [];
+    for (const x of files) {
+      if (!x.sheets) {
+        $("result").innerHTML = `<div class="empty loading">Reading ${esc(x.name)}…</div>`;
+        await pause();
+        x.sheets = sheetsFromBuffer(x.name, x.buf);
+        x.kinds = R.sheetKinds(x.sheets);
+      }
+      parsed.push(x);
+    }
+    $("result").innerHTML = `<div class="empty loading">Matching postings to orders…</div>`;
+    await pause();
+    const wasDemo = state.demo;
     try {
-      navigator.clipboard.writeText(text).then(done, () => fallbackCopy(text, done));
-    } catch (e) { fallbackCopy(text, done); }
+      const sheets = parsed.flatMap((x) => x.sheets);
+      state.demo = false;
+      useSheets(sheets, { files: parsed, saved });
+      state.files = parsed; state.pending = false;
+      return "ready";
+    } catch (e) {
+      state.demo = wasDemo;
+      const has = new Set(parsed.flatMap((x) => x.kinds));
+      const need = !has.has("components") ? "the SAP workbook with the Production Order (OUT+IN) sheet" : !has.has("journal") ? "a confirmation journal" : null;
+      $("result").innerHTML = need
+        ? `<div class="empty">Got ${esc(parsed.map((x) => x.name).join(", "))}. Now add ${esc(need)}.</div>`
+        : `<div class="empty">Couldn't use ${esc(parsed.map((x) => x.name).join(", "))}: ${esc(e.message)}.</div>`;
+      if (need) state.pending = true;
+      return need ? "pending" : false;
+    }
   }
-  function fallbackCopy(text, done) {
-    const ta = document.createElement("textarea"); ta.value = text; ta.style.position = "fixed"; ta.style.opacity = "0";
-    document.body.appendChild(ta); ta.select();
-    try { document.execCommand("copy"); done(); } catch (e) { toast("Copy was blocked. Select the text and copy it manually."); }
-    ta.remove();
+
+  // Files loaded are added to the ones already there; a new file replaces one with the same name or the
+  // same kind of sheets (a newer SAP workbook replaces the old workbook, a newer journal the old journal).
+  async function onFiles(list) {
+    try {
+      const fresh = [];
+      for (const file of list) {
+        $("result").innerHTML = `<div class="empty loading">Reading ${esc(file.name)}…</div>`;
+        await pause();
+        const x = { name: file.name, buf: await file.arrayBuffer() };
+        x.sheets = sheetsFromBuffer(x.name, x.buf); x.kinds = R.sheetKinds(x.sheets);
+        if (!x.kinds.length) throw new Error(`${file.name} has no sheet the check recognises (order sheets, confirmation journal or stock overview)`);
+        fresh.push(x);
+      }
+      if (!fresh.length) return;
+      const same = (a, b) => a.name === b.name || a.kinds.join() === b.kinds.join();
+      const files = [...(state.files || []).filter((old) => !fresh.some((x) => same(old, x))), ...fresh];
+      const ok = await useFiles(files, Date.now());
+      if (!ok) return;
+      state.files = files;
+      const saved = await saveFiles(files);
+      $("add").hidden = false;
+      if (ok === "ready") {
+        toast(saved ? "Loaded and saved in this browser." : "Loaded (this browser can't save it for next time).");
+        $("result").innerHTML = `<div class="empty">Ready. Type an order number above.</div>`;
+        $("oid").focus();
+      }
+    } catch (e) {
+      $("result").innerHTML = `<div class="empty">Couldn't load that file: ${esc(e.message)}.</div>`;
+    }
+  }
+
+  // ---------------------------------------------------------------- results
+  function run() {
+    const ids = $("oid").value.split(/[\s,;]+/).filter(Boolean);
+    if (!ids.length || !state.ctx) return;
+    const res = R.check(state.ctx, ids);
+    const parts = res.results.map(card);
+    for (const m of res.missing) parts.push(`<div class="empty">Order <span class="mono">${esc(m)}</span> isn't in the workbook's order sheets.</div>`);
+    $("result").innerHTML = parts.join("");
+  }
+
+  function card(r) {
+    const s = r.summary, v = r.verdict;
+    const counts = { HIGH: 0, MEDIUM: 0 };
+    r.findings.forEach((x) => (counts[x.severity] = (counts[x.severity] || 0) + 1));
+    const bits = [];
+    if (counts.HIGH) bits.push(`${counts.HIGH} problem${counts.HIGH > 1 ? "s" : ""}`);
+    if (counts.MEDIUM) bits.push(`${counts.MEDIUM} to check`);
+    const range = state.ctx.journalRange;
+    // Bookings from before the journal's first row would be missing (cheese goes to the line up to 2 h before the start)
+    const outside = range && !isNaN(s.start) && (s.start + 2 * 3600000 < range[0] || s.start > range[1]);
+    const headline = `${VERDICT_TEXT[v]}${bits.length ? ": " + bits.join(", ") : ""}`;
+    const sub = `${esc(s.fg)} ${esc(s.fg_text || "")} · ${esc(s.line || "")} · status ${esc(s.status || "n/a")}${!isNaN(s.start) ? ` · production began ${esc(dmy(s.start))}` : ""}`;
+
+    const outBad = Math.abs(s.journal_out - s.order_out) > Math.max(2, 0.02 * Math.max(s.journal_out, s.order_out));
+    // cheese only: starch is shown for reference but never added to the cheese figures
+    const po = s.cheese_planned_offcuts_kg, ps = s.starch_planned_kg || 0;
+    const pc = s.cheese_planned_kg || 0;
+    const plannedParts = [po ? `blocks ${kg(pc - po)} + offcuts ${kg(po)}` : "cheese blocks", ps ? `starch ${kg(ps)} not included` : ""].filter(Boolean).join(" · ");
+    const plannedCheese = pc ? `<div class="fig"><dt>Cheese planned</dt><dd>${kg(pc)}<small>${plannedParts} · for ${n0(s.planned_out)} cases</small></dd></div>` : "";
+    // cheese per case, split into cheese in the product, offcuts and giveaway so it isn't read as the case weight
+    const perCaseText = (x) => {
+      const chPc = x.cheese_kg_per_case, v = x.variance, off = x.offcut_kg_per_case || 0, st = x.starch_kg_per_case || 0;
+      if (!v || !v.case_weight) return `${chPc.toFixed(3)} kg cheese per case`;
+      const inProduct = v.case_weight - st, ga = chPc - inProduct - off, unit = v.uom === "kg" ? "kg of product" : "case";
+      const extra = [off ? `${off.toFixed(3)} offcuts` : "", Math.abs(ga) >= 0.0005 ? `${ga.toFixed(3)} giveaway` : ""].filter(Boolean);
+      const starchNote = st ? `${v.case_weight.toFixed(3)} kg case less ${st.toFixed(3)} starch` : "";
+      if (!extra.length) return `${chPc.toFixed(3)} kg cheese per ${unit}${starchNote ? ` (${starchNote})` : ""}`;
+      return `${chPc.toFixed(3)} kg cheese per ${unit} (${inProduct.toFixed(3)} in the product + ${extra.join(" + ")}${starchNote ? `; ${starchNote}` : ""})`;
+    };
+    let cheeseLine = "";
+    if (s.cheese_kg_per_case && s.cheese_source === "consumed") {
+      const bad = s.cheese_consumed_kg === 0 || (s.cheese_diff_kg !== null && Math.abs(s.cheese_diff_kg) > s.cheese_tolerance_kg);
+      const starchUsed = s.mass ? s.mass.starch_in : 0;
+      cheeseLine = `<div class="fig"><dt>Cheese needed for cases made</dt><dd>${kg(s.cheese_est_needed_kg)}<small>${perCaseText(s)} × ${n0(s.cheese_est_output)} cases</small></dd></div>
+         <div class="fig"><dt>Cheese consumed</dt><dd class="${bad ? "bad" : "good"}">${kg(s.cheese_consumed_kg)}<small>${s.consumption_from === "order fulfilment report" ? "from the order fulfilment report" : "matched by line and time"} · ${s.consumption.length} posting${s.consumption.length === 1 ? "" : "s"}${starchUsed ? ` · starch ${kg(starchUsed)} not included` : ""}${pc ? ` · ${fs(s.cheese_consumed_kg - pc, 1)} kg vs the full plan` : ""}</small></dd></div>`;
+    } else if (s.cheese_kg_per_case && s.cheese_source === "journal") {
+      const bad = s.cheese_diff_kg !== null && Math.abs(s.cheese_diff_kg) > s.cheese_tolerance_kg;
+      cheeseLine = `<div class="fig"><dt>Cheese used (journal estimate)</dt><dd class="${bad ? "bad" : s.cheese_sent_kg ? "good" : ""}">${kg(s.cheese_used_kg)}<small>moved to line ${kg(s.cheese_sent_kg)}, away ${kg(s.cheese_returned_kg)}</small></dd></div>
+         <div class="fig"><dt>Cheese needed for cases made</dt><dd>${kg(s.cheese_est_needed_kg)}<small>${s.cheese_kg_per_case.toFixed(3)} kg/case × ${n0(s.cheese_est_output)} cases</small></dd></div>`;
+    } else if (s.cheese_kg_per_case) {
+      const bad = s.cheese_needed_kg && s.cheese_diff_kg !== null && Math.abs(s.cheese_diff_kg) > s.cheese_tolerance_kg;
+      cheeseLine = `<div class="fig"><dt>Cheese issued (order sheet)</dt><dd class="${bad ? "bad" : s.cheese_needed_kg ? "good" : ""}">${kg(s.cheese_issued_kg)}<small>${kg(s.cheese_open_kg)} still open</small></dd></div>
+         <div class="fig"><dt>Cheese needed</dt><dd>${kg(s.cheese_needed_kg)}<small>${s.cheese_kg_per_case.toFixed(3)} kg/case × cases made</small></dd></div>`;
+    }
+    const figs = `<dl class="figs">
+      <div class="fig"><dt>Planned</dt><dd>${n0(s.planned_out)}<small>cases</small></dd></div>
+      <div class="fig"><dt>Made</dt><dd class="${outBad ? "bad" : ""}">${n0(s.order_out)}<small>fulfilled on the order</small></dd></div>
+      <div class="fig"><dt>In the journal</dt><dd class="${outBad ? "bad" : ""}">${n0(s.journal_out)}<small>${s.output_confirmations} confirmation${s.output_confirmations === 1 ? "" : "s"}</small></dd></div>
+      ${plannedCheese}${cheeseLine}</dl>`;
+
+    const m = s.mass;
+    const massBad = m && Math.abs(m.unaccounted) > m.tolerance;
+    const massHtml = m ? `<div class="mass">
+        <table><caption>In</caption><tbody>
+          <tr><td>Cheese blocks</td><td class="n">${kg(m.blocks_in)}</td></tr>
+          <tr><td>Offcuts used</td><td class="n">${kg(m.offcuts_in)}</td></tr>
+          <tr><td>Starch</td><td class="n">${kg(m.starch_in)}</td></tr>
+          <tr class="tot"><td>Total in</td><td class="n">${kg(m.in)}</td></tr></tbody></table>
+        <table><caption>Out</caption><tbody>
+          <tr><td>Product: ${n0(m.cases)} cases × ${m.kg_per_case.toFixed(3)} kg</td><td class="n">${kg(m.product)}</td></tr>
+          <tr><td>Offcuts made${m.offcuts_planned ? ` (${f(m.offcuts_planned, 1)} kg planned)` : ""}</td><td class="n">${kg(m.offcuts_made)}</td></tr>
+          <tr><td>&nbsp;</td><td></td></tr>
+          <tr class="tot"><td>Total out</td><td class="n">${kg(m.out)}</td></tr></tbody></table>
+        <div class="un">Unaccounted (in − out): <strong class="mono ${massBad ? "bad" : "good"}">${fs(m.unaccounted, 1)} kg</strong>${m.in ? ` (${(100 * m.unaccounted / m.in).toFixed(1)}% of what went in)` : ""}</div>
+      </div>` : "";
+    const va = s.variance;
+    const pctTxt = (x) => (x === null || x === undefined || isNaN(x) ? "" : (100 * x).toFixed(1) + "%");
+    const varHtml = va ? `<div class="var"><h3>Variance</h3><div class="scroll"><table>
+        <thead><tr><th>Case weight</th><th>Planned FG qty</th><th>Actual FG qty</th><th>Nominal weight planned</th><th>Nominal weight of output</th><th>Starch in output</th><th>Nominal cheese of output</th><th>Expected cheese</th><th>Actual cheese issued</th><th>Expected offcuts output</th><th>Actual offcuts output</th><th>GA expected</th><th>GA actual</th><th>Output cheese + offcuts</th><th>Difference to cheese issued</th><th>Diff %</th><th>Cheese planned input %</th></tr></thead>
+        <tbody><tr><td class="n">${f(va.case_weight, 3)}</td><td class="n">${f(va.planned_fg, 1)}</td><td class="n">${f(va.actual_fg, 1)}</td><td class="n">${f(va.nominal_planned, 1)}</td><td class="n">${f(va.nominal_output, 1)}</td><td class="n">${va.starch_in_output ? f(va.starch_in_output, 1) : "-"}</td><td class="n">${f(va.nominal_cheese_output, 1)}</td><td class="n">${f(va.expected_cheese, 1)}</td><td class="n">${f(va.actual_cheese, 1)}</td><td class="n">${va.expected_offcuts ? f(va.expected_offcuts, 1) : "-"}</td><td class="n">${va.actual_offcuts ? f(va.actual_offcuts, 1) : "-"}</td><td class="n">${f(va.ga_expected, 1)}</td><td class="n hl">${f(va.ga_actual, 1)}</td><td class="n">${f(va.output_plus_offcuts, 1)}</td><td class="n hl">${f(va.difference, 1)}</td><td class="n hl">${pctTxt(va.diff_pct)}</td><td class="n">${va.planned_input_pct ? Math.round(100 * va.planned_input_pct) + "%" : ""}</td></tr></tbody></table></div>
+        <p class="src">Case weight from the ${esc(va.case_weight_from)}; actual cheese is ${esc(va.actual_cheese_from)}. Cheese only, no starch: GA = giveaway = cheese in, less the cheese in the nominal output (case weight less planned starch) and offcuts. Against the plan, GA is ${fs(va.variance_kg, 1)} kg.</p></div>` : "";
+    const os = s.open_status || [];
+    const q1 = (x) => (x === null || x === undefined ? "-" : f(x, 1));
+    const openHtml = os.length ? `<div class="var"><h3>Planned, actual and open</h3><div class="scroll"><table>
+        <thead><tr><th></th><th>Unit</th><th>Planned</th><th>Actual</th><th>Open (planned − actual)</th><th>Actual is</th></tr></thead>
+        <tbody>${os.map((r) => `<tr><td>${esc(r.item)}</td><td>${esc(r.unit)}</td><td class="n">${q1(r.planned)}</td><td class="n">${q1(r.actual)}</td><td class="n hl${r.open < -0.05 ? " bad" : ""}">${q1(r.open)}</td><td>${esc(r.source)}</td></tr>`).join("")}</tbody></table></div>
+        <p class="src">Open is worked out as planned − actual, not taken from the order sheet. A negative open means more was used or made than planned.</p></div>` : "";
+    const why = s.variance_reasons || [];
+    const whyHtml = why.length ? `<div class="why"><h3>Possible reasons</h3><ol>${why.map((x) => `<li>${x.kg ? `<span class="kg">${f(x.kg, 1)} kg</span>` : ""}${esc(x.text)}</li>`).join("")}</ol></div>` : "";
+    const flags = r.findings.length ? `<ul class="flags">${r.findings.map((x) => `<li><span class="tag ${x.severity}">${x.severity}</span>
+        <span class="ft">${esc(TITLES[x.code] || x.code)}</span><span class="fm">${esc(x.message)}</span><span class="fc">${esc(x.code)}</span></li>`).join("")}</ul>`
+      : `<p class="good">Nothing flagged.</p>`;
+    const note = outside ? `<p class="hint">This order started outside the journal's dates, so some bookings may be missing from the check.</p>` : "";
+
+    const dbl = new Set(s.double_booked_pallets || []);
+    const batchBtn = (m, b) => (b === null || b === undefined || b === "" ? "" : `<button type="button" class="link hist" data-m="${esc(m)}" data-b="${esc(b)}" title="Show every confirmation of this batch">${esc(b)}</button>`);
+    const outRows = s.outputs.map((o) => `<tr class="${o.qty < 0 || dbl.has(o.batch) ? "neg" : ""}"><td class="m">${esc(o.conf)}</td><td class="m">${esc(dm(o.time))}</td><td class="m">${batchBtn(o.material, o.batch)}</td><td class="n">${f(o.qty)}</td><td>${esc(o.area)}</td></tr>`).join("");
+    const cheeseRows = s.cheese_moves.map((c) => `<tr><td class="m">${esc(dm(c.time))}</td><td class="m">${esc(c.material)}</td><td class="m">${batchBtn(c.material, c.batch)}</td><td class="n">${f(c.sent, 2)}</td><td class="n">${c.returned ? f(c.returned, 2) : ""}</td><td>${esc(c.returned_to || "")}</td><td>${esc(c.other_orders || "")}</td></tr>`).join("");
+    const q = (v) => (v === null || v === undefined || isNaN(v) ? "" : f(v, 2));
+    const consumedCol = s.cheese_source === "consumed";
+    const byMat = s.cheese_consumed_by_material || {};
+    const compRows = s.components.map((c) => {
+      const need = c.needed_for_output;
+      const judged = !(c.cheese && (s.cheese_source === "journal" || consumedCol));
+      const off = judged && need !== null && need > 0 && (c.fulfilled < need - Math.max(2, 0.03 * need) || c.fulfilled > need + Math.max(2, 0.1 * need));
+      const starch = /^RMPS/i.test(c.material);
+      const cons = consumedCol ? `<td class="n">${c.cheese ? f(byMat[c.material] || 0, 2) : starch && s.mass ? f(s.mass.starch_in, 2) : ""}</td>` : "";
+      return `<tr class="${off ? "neg" : ""}"><td class="m">${esc(c.material)}</td><td class="n">${q(c.planned)}</td><td class="n">${q(c.fulfilled)}</td><td class="n">${q(c.open)}</td>${cons}<td class="n">${q(need)}</td><td class="n">${c.difference === null ? "" : fs(c.difference, 2)}</td><td>${c.cheese ? "cheese" : ""}</td></tr>`;
+    }).join("");
+    // as in the SAP confirmation journal: Effective Qty negative for consumption, positive for a reversal
+    const p2 = (n) => String(n).padStart(2, "0");
+    const sapTime = (t) => { if (t === null || t === undefined || isNaN(t)) return ""; const d = new Date(t); return `${p2(d.getUTCDate())}.${p2(d.getUTCMonth() + 1)}.${d.getUTCFullYear()} ${p2(d.getUTCHours())}:${p2(d.getUTCMinutes())}:${p2(d.getUTCSeconds())}`; };
+    const consRows = (s.consumption || []).map((c) => `<tr class="${c.consumed < 0 ? "neg" : ""}"><td class="m">${esc(c.material)}</td><td class="m">${batchBtn(c.material, c.batch)}</td><td class="m">${esc(c.area)}</td><td class="m">${esc(sapTime(c.time))}</td><td>Production Confirmation</td><td class="m">${esc(c.conf)}</td><td class="n">${f(-c.consumed, 2)}</td><td>${c.via === "fulfilment" ? "order fulfilment" : "line and time"}</td><td>${esc(c.other_orders || "")}</td></tr>`).join("")
+      + ((s.consumption || []).length ? `<tr class="tot"><td colspan="6"><strong>Total</strong></td><td class="n"><strong>${f(-s.cheese_consumed_kg, 2)}</strong></td><td></td><td></td></tr>` : "");
+    const ev = `
+      <details class="ev" open><summary>Inputs on the order (${s.components.length})</summary><div class="scroll"><table>
+        <thead><tr><th>Material</th><th>Planned</th><th>Issued</th><th>Open</th>${consumedCol ? "<th>Consumed (journal)</th>" : ""}<th>Needed for cases made</th><th>Issued − needed</th><th></th></tr></thead><tbody>${compRows}</tbody></table></div></details>
+      ${consumedCol ? `<details class="ev"><summary>Cheese consumed (${s.consumption.length})</summary>
+        <p class="hint">${s.consumption_from === "order fulfilment report" ? "Every cheese confirmation SAP books against this order (order fulfilment report), with the batch and time from the confirmation journal (matched on Conf.ID)." : "This order isn't in the order fulfilment report, so these are consumption postings on " + esc(s.area || "the line") + " during the run, matched to the order by line and time."} As in the SAP journal: negative Effective Qty is cheese consumed, positive is a reversal (highlighted).</p><div class="scroll"><table>
+        <thead><tr><th>Product</th><th>Identified Stock ID</th><th>Logistics Area ID</th><th>Created On</th><th>Conf.Document Type</th><th>Conf.ID</th><th>Effective Qty</th><th>Tied to the order by</th><th>Could also be</th></tr></thead><tbody>${consRows || `<tr><td colspan="9">None</td></tr>`}</tbody></table></div></details>` : ""}
+      <details class="ev"${dbl.size ? " open" : ""}><summary>Output postings in the journal (${s.outputs.length}) · click a pallet for its history${dbl.size ? ` · double-booked pallet${dbl.size > 1 ? "s" : ""} ${[...dbl].join(", ")} in red` : ""}</summary><div class="scroll"><table>
+        <thead><tr><th>Conf.ID</th><th>Posted</th><th>Pallet</th><th>Cases</th><th>Area</th></tr></thead><tbody>${outRows || `<tr><td colspan="5">None</td></tr>`}</tbody></table></div></details>
+      <details class="ev"><summary>Cheese moved to the line during the run (${s.cheese_moves.length})</summary>
+        <p class="hint">${consumedCol ? "Moves only make cheese available on the line; the consumption above is what counts." : "The journal has no cheese consumption lines, so when the order sheet shows no cheese issued, these moves (less what went away again) are the estimate. Cheese issued straight from store, or left on the line from the job before, doesn't show here."}</p><div class="scroll"><table>
+        <thead><tr><th>Moved</th><th>Material</th><th>Batch</th><th>kg in</th><th>kg back</th><th>Back to</th><th>Could also be</th></tr></thead><tbody>${cheeseRows || `<tr><td colspan="7">None</td></tr>`}</tbody></table></div></details>`;
+
+    return `<article class="card" data-v="${v}">
+      <div class="verdict"><span class="badge">${v}</span><div class="vt">Order <span class="mono">${esc(s.order_id)}</span>: ${esc(headline)}</div><div class="vs">${sub}</div></div>
+      <div class="body">${figs}${openHtml}${varHtml}${whyHtml}${massHtml}${note}${flags}${ev}</div></article>`;
+  }
+
+  // ---------------------------------------------------------------- variance report (every order, plant layout)
+  async function downloadReport() {
+    const ids = [...state.ctx.active].filter((o) => state.ctx.idx.orders.has(o)).sort((a, b) => Number(a) - Number(b) || (a < b ? -1 : 1));
+    toast(`Building the variance report for ${ids.length} orders…`);
+    await pause();
+    const rows = [];
+    for (let i = 0; i < ids.length; i += 100) {
+      for (const r of R.check(state.ctx, ids.slice(i, i + 100)).results) {
+        const s = r.summary, v = s.variance, o = state.ctx.idx.orders.get(s.order_id);
+        if (!v) continue;
+        rows.push({
+          "FG Lookup": `${s.order_id}FG`, "Production Order ID": s.order_id,
+          "Production Order ID (Requested End Date)": isNaN(o.latest_end) ? "" : dmy(o.latest_end).slice(0, 10),
+          "Material ID": s.fg, "Material ID (Text)": s.fg_text || "", "Material ID (Base UoM)": v.uom, "Production Order Status": s.status, "Line": s.line,
+          "Case Weight": v.case_weight, "Planned FG Qty": v.planned_fg, "Actual FG Qty": v.actual_fg, "Nominal Weight Planned": v.nominal_planned,
+          "Nominal Weight of Output": v.nominal_output, "Starch in Output": v.starch_in_output, "Nominal Cheese of Output": v.nominal_cheese_output, "Expected Cheese": v.expected_cheese, "Actual Cheese Issued": v.actual_cheese,
+          "Expected Offcuts Output": v.expected_offcuts, "Actual Offcuts Output": v.actual_offcuts, "GA Expected": v.ga_expected, "GA Actual": v.ga_actual,
+          "Output Cheese + Offcuts": v.output_plus_offcuts, "Difference to Cheese Issued": v.difference, "Diff %": v.diff_pct, "Cheese Planned Input %": v.planned_input_pct,
+          ...Object.fromEntries((s.open_status || []).map((x) => [`Open ${x.item} (${x.unit})`, x.open])),
+          "Verdict": r.verdict, "Possible reasons": (s.variance_reasons || []).map((x) => (x.kg ? `[${f(x.kg, 1)} kg] ` : "") + x.text).join("\n"),
+          "Case weight from": v.case_weight_from, "Actual cheese from": v.actual_cheese_from,
+        });
+      }
+      await pause();
+    }
+    const ws = XLSX.utils.json_to_sheet(rows);
+    const cols = Object.keys(rows[0] || {});
+    ws["!cols"] = cols.map((c) => ({ wch: c === "Possible reasons" ? 90 : c === "Material ID (Text)" ? 40 : Math.max(10, Math.min(c.length + 2, 24)) }));
+    const fmt = { "Case Weight": "0.000", "Diff %": "0.0%", "Cheese Planned Input %": "0%" };
+    for (let r = 1; r <= rows.length; r++) cols.forEach((c, j) => {
+      const cell = ws[XLSX.utils.encode_cell({ r, c: j })];
+      if (cell && cell.t === "n") cell.z = fmt[c] || (/(Qty)$/.test(c) ? "#,##0.0" : "#,##0.0");
+    });
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Variance");
+    XLSX.writeFile(wb, `Cheese variance ${new Date().toISOString().slice(0, 10)}.xlsx`);
   }
 
   // ---------------------------------------------------------------- wiring
-  const drop = $("drop"), input = $("file");
+  const drop = $("drop"), input = $("file"), addInput = $("addfile");
   drop.onclick = () => input.click();
   drop.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); input.click(); } };
-  input.onchange = () => { addFiles([...input.files]); input.value = ""; };
+  input.onchange = () => { onFiles([...input.files]); input.value = ""; };
+  $("add").onclick = () => addInput.click();
+  addInput.onchange = () => { onFiles([...addInput.files]); addInput.value = ""; };
   ["dragenter", "dragover"].forEach((ev) => drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.add("over"); }));
   ["dragleave", "drop"].forEach((ev) => drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.remove("over"); }));
-  drop.addEventListener("drop", (e) => addFiles([...e.dataTransfer.files]));
-  $("demo").onclick = loadDemo;
-  $("clear").onclick = () => { state.files = []; state.demo = false; state.ids = null; run(); };
-  $("check").onclick = () => { const ids = parseIds($("ids").value); state.ids = ids.length ? ids : null; state.filter = null; run(); };
-  $("ids").onkeydown = (e) => { if (e.key === "Enter") $("check").click(); };
-  $("all").onclick = () => { $("ids").value = ""; state.ids = null; state.filter = null; run(); };
-  ["tolPct", "tolKg", "starch"].forEach((id) => $(id).addEventListener("change", run));
+  drop.addEventListener("drop", (e) => onFiles([...e.dataTransfer.files]));
+  $("report").onclick = () => downloadReport().catch((e) => toast("Couldn't build the report: " + e.message));
+  // click a pallet or batch number: its full confirmation history from the journal, under the row
+  $("result").addEventListener("click", (e) => {
+    const btn = e.target.closest("button.hist");
+    if (!btn || !state.ctx) return;
+    const tr = btn.closest("tr"), next = tr.nextElementSibling;
+    if (next && next.classList.contains("histrow") && next.dataset.key === btn.dataset.m + "|" + btn.dataset.b) { next.remove(); return; }
+    if (next && next.classList.contains("histrow")) next.remove();
+    const rows = R.batchHistory(state.ctx, btn.dataset.m, btn.dataset.b);
+    const p2 = (n) => String(n).padStart(2, "0");
+    const at = (t) => { const d = new Date(t); return `${p2(d.getUTCDate())}.${p2(d.getUTCMonth() + 1)}.${d.getUTCFullYear()} ${p2(d.getUTCHours())}:${p2(d.getUTCMinutes())}:${p2(d.getUTCSeconds())}`; };
+    const prod = rows.filter((r) => r.is_prod);
+    const made = prod.filter((r) => r.qty > 0), undone = prod.filter((r) => r.qty < 0);
+    const last = rows[rows.length - 1];
+    const sum = rows.length ? `<p class="sum"><strong>${esc(btn.dataset.m)} ${esc(btn.dataset.b)}</strong>: ${rows.length} confirmation row${rows.length === 1 ? "" : "s"}. `
+      + `Production confirmations: ${made.length} posting (${f(made.reduce((a, r) => a + r.qty, 0))})${undone.length ? `, ${undone.length} reversed (${f(undone.reduce((a, r) => a + r.qty, 0))})` : ""}. `
+      + `Stock after the last row: ${f(last.balance, 2)}${last.area ? ` (last at ${esc(last.area)})` : ""}.</p>` : `<p class="sum">No rows for this batch in the journal.</p>`;
+    const table = rows.length ? `<div class="scroll"><table><thead><tr><th>Created On</th><th>Conf.Document Type</th><th>Conf.ID</th><th>Logistics Area ID</th><th>Effective Qty</th><th>Stock after</th></tr></thead><tbody>`
+      + rows.map((r) => `<tr class="${r.is_prod ? "prod" : ""}${r.qty < 0 && r.is_prod ? " neg" : ""}"><td class="m">${esc(at(r.time))}</td><td>${esc(r.doc)}</td><td class="m">${esc(r.conf)}</td><td class="m">${esc(r.area)}</td><td class="n">${f(r.qty, 2)}</td><td class="n">${f(r.balance, 2)}</td></tr>`).join("")
+      + `</tbody></table></div>` : "";
+    const row = document.createElement("tr");
+    row.className = "histrow"; row.dataset.key = btn.dataset.m + "|" + btn.dataset.b;
+    row.innerHTML = `<td colspan="${tr.children.length}">${sum}${table}</td>`;
+    tr.after(row);
+  });
+  $("ask").addEventListener("submit", (e) => { e.preventDefault(); run(); });
+  $("forget").onclick = async () => { await forgetFiles(); state.files = null; startDemo(); toast("Saved files removed from this browser."); };
 
-  loadDemo();
+  function startDemo() {
+    state.demo = true;
+    useSheets(window.DEMO_WORKBOOK, { name: "Demo workbook (made-up data)" });
+    $("oid").value = "A1";
+    run();
+  }
+
+  (async function start() {
+    const saved = typeof XLSX !== "undefined" ? await loadSaved() : null;
+    const files = saved ? saved.files || (saved.buf ? [{ name: saved.name, buf: saved.buf }] : []) : [];
+    if (files.length) {
+      const ok = await useFiles(files, saved.saved);
+      if (ok === "ready") { $("result").innerHTML = `<div class="empty">Using your saved files. Type an order number above.</div>`; return; }
+      if (ok === "pending") { state.files = files; $("add").hidden = false; return; }
+    }
+    startDemo();
+  })();
 })();
 </script>
