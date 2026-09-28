@@ -240,3 +240,14 @@ The Excel report lists the order's inputs, the output postings and the cheese mo
 On the web page, clicking a pallet or batch number (in the output postings or the cheese consumed table)
 opens that batch's full confirmation history from the journal: every confirmation in time order with its
 type, Conf.ID, logistics area, Effective Qty and the running stock after each row.
+
+## Hosting the web tool on GitHub Pages
+
+`.github/workflows/pages.yml` publishes the `web/` folder to GitHub Pages whenever `web/` changes on `main`
+(or when run by hand from the Actions tab). One-time setup: in the repository go to
+**Settings → Pages → Build and deployment → Source** and choose **GitHub Actions**. The page is then at
+`https://nsikak-joseph-ikpong.github.io/SAP/`.
+
+The page is static: files you load are read in your browser and kept there (IndexedDB), nothing is uploaded.
+GitHub Pages sites are public on the internet (unless the account is GitHub Enterprise), and Pages on a
+private repository needs a paid GitHub plan; the page itself holds only the synthetic demo data.
