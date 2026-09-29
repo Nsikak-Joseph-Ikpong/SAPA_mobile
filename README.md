@@ -239,7 +239,9 @@ planned output):
   were made (420 × 12 kg = 5,040 kg). That's 303.74 kg more out than went in, so it's not clear how 420
   cases were made with less cheese, even counting the repacks.", followed, when the variance is outside
   tolerance, by the cheese-only giveaway and the strongest journal lead. Cheese that went in with no output
-  is stated as "X kg of cheese has no output and is unaccounted for". Other findings stay in the findings
+  is stated as "X kg of cheese has no output and is unaccounted for". When 75% or less of the planned cases
+  were made and 75% or less of the planned cheese went in, and that cheese is about what the cases made need
+  (75-125%), it adds "so it looks like the job ran out of cheese"; small shortfalls say nothing. Other findings stay in the findings
   list, not the summary. It's also the Summary column of the variance report. Under the figures, three bar
   charts show product planned / made / in the journal (cases) and cheese planned / needed for what was made
   / consumed (kg, repacks hatched on the consumed bar), and offcuts planned / expected for the cases made / made (kg);

@@ -352,3 +352,12 @@ def test_pallets_off_the_usual_count_and_on_a_line_area(odd_pallets, result):
     assert a["irregular_pallets"] == ["X1", "X2"]
     # the plain workbook: every pallet at the usual count, none on a line area
     assert not {"PALLET_QUANTITIES_IRREGULAR", "OUTPUT_ON_LINE_AREA"} & set(codes(result, "A1"))
+
+
+def test_summary_says_job_ran_out_of_cheese_only_when_far_short(full):
+    s = {x["order_id"]: x for x in full.summaries}
+    # A1: 400 of 1,000 cases made and 1,925 of 4,925 kg of cheese in (about what 400 cases need)
+    assert ("Only 400 of the 1,000 cases planned were made, and only 1,925 kg of the 4,925 kg of cheese planned went in, "
+            "so it looks like the job ran out of cheese.") in s["A1"]["narrative"]
+    # B2 made more than planned, C3 made the plan: nothing about running out
+    assert "ran out of cheese" not in s["B2"]["narrative"] and "ran out of cheese" not in s["C3"]["narrative"]

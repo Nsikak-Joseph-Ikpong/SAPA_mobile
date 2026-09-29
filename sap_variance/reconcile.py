@@ -924,6 +924,9 @@ def _t(x, d=2) -> str:
     return t.rstrip("0").rstrip(".") if "." in t else t
 
 
+RUN_OUT_SHARE = 0.75     # made and cheese both at or below this share of plan: the job ran out of cheese
+
+
 def narrative(s: dict, findings: list) -> str:
     """What was found for the job, in plain words, from the figures and findings."""
     oid, v, m = s["order_id"], s.get("variance"), s.get("mass")
@@ -967,6 +970,15 @@ def narrative(s: dict, findings: list) -> str:
                        f"{cw} kg = {_t(v['nominal_output'])} kg)"
                        + (f", plus {_t(v['actual_offcuts'])} kg of offcuts" if v["actual_offcuts"] else "") + ".")
         made = f"{_t(v['actual_fg'])} {'kg' if v['uom'] == 'kg' else 'cases'}"
+        # far fewer cases than planned, and the cheese that went in only covers those (roughly what they need, so
+        # it isn't missing postings or waste): the job ran out of cheese
+        p_ch = s.get("cheese_planned_kg") or 0.0
+        if (v["planned_fg"] and v["actual_fg"] <= RUN_OUT_SHARE * v["planned_fg"] and p_ch
+                and v["actual_cheese"] <= RUN_OUT_SHARE * p_ch and 0.75 * v["expected_cheese"] <= v["actual_cheese"] <= 1.25 * v["expected_cheese"]):
+            unit = "kg" if v["uom"] == "kg" else "cases"
+            out.append(f"Only {_t(v['actual_fg'])} of the {_t(v['planned_fg'])} {unit} planned were made, and only "
+                       f"{_t(v['actual_cheese'])} kg of the {_t(p_ch)} kg of cheese planned went in, so it looks like the "
+                       f"job ran out of cheese.")
         if m:
             # against the nominal output (cases x case weight + offcuts made), as the plant counts it
             un, tol = m["unaccounted"], m["tolerance"]

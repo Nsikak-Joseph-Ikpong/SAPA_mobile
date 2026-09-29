@@ -1076,6 +1076,11 @@
           + (v.actual_offcuts ? `, plus ${tt(v.actual_offcuts)} kg of offcuts` : "") + ".");
       }
       const made = `${tt(v.actual_fg)} ${v.uom === "kg" ? "kg" : "cases"}`;
+      // far fewer cases than planned, and the cheese that went in only covers those: the job ran out of cheese
+      const pCh = s.cheese_planned_kg || 0, RUN_OUT_SHARE = 0.75;
+      if (v.planned_fg && v.actual_fg <= RUN_OUT_SHARE * v.planned_fg && pCh && v.actual_cheese <= RUN_OUT_SHARE * pCh && v.actual_cheese >= 0.75 * v.expected_cheese && v.actual_cheese <= 1.25 * v.expected_cheese) {
+        out.push(`Only ${tt(v.actual_fg)} of the ${tt(v.planned_fg)} ${v.uom === "kg" ? "kg" : "cases"} planned were made, and only ${tt(v.actual_cheese)} kg of the ${tt(pCh)} kg of cheese planned went in, so it looks like the job ran out of cheese.`);
+      }
       if (m) {
         // against the nominal output (cases x case weight + offcuts made), as the plant counts it
         const un = m.unaccounted, tol = m.tolerance;
