@@ -1038,16 +1038,6 @@
     return SOURCES.filter(([v]) => vias.has(v)).map(([, n]) => n).join(" + ");
   }
 
-  const NARRATIVE_FLAGS = {
-    PALLET_CONFIRMED_MORE_THAN_ONCE: "a pallet confirmed more than once",
-    OUTPUT_POSTED_IN_BULK_OR_LATE: "pallets posted in bulk or late",
-    OUTPUT_NOT_IN_JOURNAL: "output on the order that isn't in the journal",
-    INPUTS_SHORT_FOR_OUTPUT: "packaging or other inputs issued short for the output",
-    BATCH_OVER_CONSUMED: "a cheese batch consumed for more than it held",
-    OFFCUTS_OVER_PLAN: "more offcuts than planned",
-    BLEND_SPLIT_OFF: "a cheese split different from the recipe",
-    REPACK_WEIGHT_UNKNOWN: "a repack with no case weight",
-  };
   // a number with thousands separators and no trailing zeros (3,515.1; 400)
   const tt = (x, d = 2) => { const t = f(Number(x.toFixed(6)), d); return t.includes(".") ? t.replace(/0+$/, "").replace(/\.$/, "") : t; };
   // What was found for the job, in plain words, from the figures and findings
@@ -1083,13 +1073,9 @@
         // against the nominal output (cases x case weight + offcuts made), as the plant counts it
         const un = m.unaccounted, tol = m.tolerance;
         const gap = Number((m.in - v.nominal_output - v.actual_offcuts).toFixed(6));
-        const allowed = m.cases === v.actual_fg ? Number((gap - un).toFixed(6)) : 0;
         if (gap >= 0.005) {
-          let txt = `${tt(gap)} kg of cheese has no output and is unaccounted for`;
-          if (allowed >= 0.005) txt += un > 0 ? ` (the recipe allows ${tt(allowed)} kg of giveaway, so ${tt(un)} kg is beyond plan` + (un <= tol ? ", within tolerance" : "") + ")"
-            : ` (less than the ${tt(allowed)} kg of giveaway the recipe allows)`;
-          out.push(txt + "." + (un > tol ? " It went to waste or giveaway, or output or offcuts weren't posted." : ""));
-        } else if (gap <= -0.005) out.push(`That's ${tt(-gap)} kg more out than went in, so it's not clear how ${made} were made with less cheese` + (rps.length ? `, even counting the repack of ${rp}` : "") + ".");
+          out.push(`${tt(gap)} kg of cheese has no output and is unaccounted for.` + (un > tol ? " It went to waste or giveaway, or output or offcuts weren't posted." : ""));
+        } else if (gap <= -0.005) out.push(`That's ${tt(-gap)} kg more out than went in, so it's not clear how ${made} were made with less cheese` + (rps.length ? ", even counting the repacks" : "") + ".");
         else out.push("What went in matches what came out.");
       } else if (v.variance_kg < -v.tolerance) out.push(`That's ${tt(-v.variance_kg)} kg less cheese than ${made} need.`);
       else if (v.variance_kg > v.tolerance) out.push(`That's ${tt(v.variance_kg)} kg more cheese than ${made} need.`);
@@ -1101,13 +1087,6 @@
     } else if (s.cheese_diff_kg !== null && s.cheese_diff_kg !== undefined && Math.abs(s.cheese_diff_kg) > (s.cheese_tolerance_kg || 0)) {
       out.push(`Cheese is ${tt(Math.abs(s.cheese_diff_kg))} kg ${s.cheese_diff_kg > 0 ? "over" : "under"} what the output needs.`);
     }
-    const also = [];
-    const p = s.double_booked_pallets || [];
-    if (p.length) also.push(`pallet${p.length > 1 ? "s" : ""} ${p.join(", ")} double booked`);
-    if (findings.some((x) => x.code === "OUTPUT_NOT_ON_ORDER")) also.push(`the journal shows ${tt(s.journal_out)} cases against ${tt(s.order_out)} on the order`);
-    const seen = new Set();
-    for (const x of findings) if (["HIGH", "MEDIUM", "LOW"].includes(x.severity) && NARRATIVE_FLAGS[x.code] && !seen.has(x.code)) { seen.add(x.code); also.push(NARRATIVE_FLAGS[x.code]); }
-    if (also.length) out.push("Also: " + also.join("; ") + ".");
     return out.join(" ");
   }
 

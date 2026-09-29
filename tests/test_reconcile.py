@@ -292,8 +292,8 @@ def test_narrative_summary(repacked):
         "Regarding job C3 (FGSLICE, Slices 6x1kg), I found from consumption matched to the job by line and time that "
         "the total input is 750 kg: 720 kg of cheese blocks and 30 kg of repacks: 30 packs of FGSLICE (5 cases).")
     assert "The plan was 100 cases (100 × 6 kg = 600 kg) and 100 cases were made (100 × 6 kg = 600 kg), plus 110 kg of offcuts." in c["narrative"]
-    assert ("40 kg of cheese has no output and is unaccounted for (the recipe allows 30 kg of giveaway, so 10 kg is "
-            "beyond plan, within tolerance).") in c["narrative"]
+    assert "40 kg of cheese has no output and is unaccounted for." in c["narrative"]
+    assert "giveaway, so" not in c["narrative"] and "Also:" not in c["narrative"]
 
 
 @pytest.fixture(scope="module")

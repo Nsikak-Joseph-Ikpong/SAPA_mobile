@@ -917,18 +917,6 @@ def variance_reasons(oid, v, cons, sends_o, window, consumption, codes, recipe_b
     return sorted(out, key=lambda x: -(x["kg"] or 0))
 
 
-NARRATIVE_FLAGS = {
-    "PALLET_CONFIRMED_MORE_THAN_ONCE": "a pallet confirmed more than once",
-    "OUTPUT_POSTED_IN_BULK_OR_LATE": "pallets posted in bulk or late",
-    "OUTPUT_NOT_IN_JOURNAL": "output on the order that isn't in the journal",
-    "INPUTS_SHORT_FOR_OUTPUT": "packaging or other inputs issued short for the output",
-    "BATCH_OVER_CONSUMED": "a cheese batch consumed for more than it held",
-    "OFFCUTS_OVER_PLAN": "more offcuts than planned",
-    "BLEND_SPLIT_OFF": "a cheese split different from the recipe",
-    "REPACK_WEIGHT_UNKNOWN": "a repack with no case weight",
-}
-
-
 def _t(x, d=2) -> str:
     """A number with thousands separators and no trailing zeros (3,515.1; 400)."""
     t = f"{round(x, 6):,.{d}f}"     # rounded first so the float summing order can't tip it
@@ -982,17 +970,11 @@ def narrative(s: dict, findings: list) -> str:
             # against the nominal output (cases x case weight + offcuts made), as the plant counts it
             un, tol = m["unaccounted"], m["tolerance"]
             gap = round(m["in"] - v["nominal_output"] - v["actual_offcuts"], 6)
-            allowed = round(gap - un, 6) if m["cases"] == v["actual_fg"] else 0.0
             if gap >= 0.005:
-                txt = f"{_t(gap)} kg of cheese has no output and is unaccounted for"
-                if allowed >= 0.005:
-                    txt += (f" (the recipe allows {_t(allowed)} kg of giveaway, so {_t(un)} kg is beyond plan"
-                            + (", within tolerance" if un <= tol else "") + ")" if un > 0
-                            else f" (less than the {_t(allowed)} kg of giveaway the recipe allows)")
-                out.append(txt + "." + (" It went to waste or giveaway, or output or offcuts weren't posted." if un > tol else ""))
+                out.append(f"{_t(gap)} kg of cheese has no output and is unaccounted for." + (" It went to waste or giveaway, or output or offcuts weren't posted." if un > tol else ""))
             elif gap <= -0.005:
                 out.append(f"That's {_t(-gap)} kg more out than went in, so it's not clear how {made} were made with less "
-                           f"cheese" + (f", even counting the repack of {rp}" if rps else "") + ".")
+                           f"cheese" + (", even counting the repacks" if rps else "") + ".")
             else:
                 out.append("What went in matches what came out.")
         elif v["variance_kg"] < -v["tolerance"]:
@@ -1008,19 +990,6 @@ def narrative(s: dict, findings: list) -> str:
     elif s.get("cheese_diff_kg") is not None and abs(s["cheese_diff_kg"]) > (s.get("cheese_tolerance_kg") or 0):
         out.append(f"Cheese is {_t(abs(s['cheese_diff_kg']))} kg {'over' if s['cheese_diff_kg'] > 0 else 'under'} what the "
                    f"output needs.")
-    also = []
-    if s.get("double_booked_pallets"):
-        p = s["double_booked_pallets"]
-        also.append(f"pallet{'s' if len(p) > 1 else ''} {', '.join(str(x) for x in p)} double booked")
-    if any(f.code == "OUTPUT_NOT_ON_ORDER" for f in findings):
-        also.append(f"the journal shows {_t(s['journal_out'])} cases against {_t(s['order_out'])} on the order")
-    seen = set()
-    for f in findings:
-        if f.severity in ("HIGH", "MEDIUM", "LOW") and f.code in NARRATIVE_FLAGS and f.code not in seen:
-            seen.add(f.code)
-            also.append(NARRATIVE_FLAGS[f.code])
-    if also:
-        out.append("Also: " + "; ".join(also) + ".")
     return " ".join(out)
 
 

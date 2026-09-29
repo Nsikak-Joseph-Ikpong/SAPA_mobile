@@ -237,9 +237,12 @@ planned output):
   input is 4,736.26 kg: 3,515.1 kg of cheese blocks, 1,137.56 kg of offcuts, 75.6 kg of starch and 8 kg of
   repacks: 4 packs of MJFG2122EX (0.67 cases). The plan was 400 cases (400 × 12 kg = 4,800 kg) and 420 cases
   were made (420 × 12 kg = 5,040 kg). That's 303.74 kg more out than went in, so it's not clear how 420
-  cases were made with less cheese, even counting the repack of 4 packs…", followed by the cheese-only
-  giveaway, the strongest journal lead and other problems (double-booked pallets, output mismatches). It's
-  also the Summary column of the variance report;
+  cases were made with less cheese, even counting the repacks.", followed, when the variance is outside
+  tolerance, by the cheese-only giveaway and the strongest journal lead. Cheese that went in with no output
+  is stated as "X kg of cheese has no output and is unaccounted for". Other findings stay in the findings
+  list, not the summary. It's also the Summary column of the variance report. Under the figures, two bar
+  charts show product planned / made / in the journal (cases) and cheese planned / needed for what was made
+  / consumed (kg, repacks hatched on the consumed bar);
 * **repacks**: finished goods used as an input (a product some order makes, e.g. REMMCSL10200ALD and
   REMMRSL12160SM going into job 1868). They're taken from the order sheet when it lists them, else the
   order fulfilment report, else the journal: a production confirmation consuming finished goods (not the
