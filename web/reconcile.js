@@ -672,7 +672,7 @@
         }
       }
       for (const m of recipeBlocks) if (!((consumedByMaterial.get(m) || 0) > 0) && consumption) out.push({ kg: null, text: `${m} is in the recipe but none was consumed for this run: it was used without a consumption posting, or the product was made without it.` });
-      if (codes.has("OUTPUT_NOT_ON_ORDER") || codes.has("PALLET_DOUBLE_BOOKED") || codes.has("PALLET_CONFIRMED_MORE_THAN_ONCE") || codes.has("UNUSUAL_PALLET_SIZE")) out.push({ kg: null, text: "Output may be overstated: see the pallet and output findings below." });
+      if (codes.has("OUTPUT_NOT_ON_ORDER") || codes.has("PALLET_DOUBLE_BOOKED") || codes.has("PALLET_CONFIRMED_MORE_THAN_ONCE") || codes.has("UNUSUAL_PALLET_SIZE") || codes.has("PALLET_QUANTITIES_IRREGULAR")) out.push({ kg: null, text: "Output may be overstated: see the pallet and output findings below." });
       if (v.actual_offcuts - v.expected_offcuts > 25) out.push({ kg: v.actual_offcuts - v.expected_offcuts, text: `Offcuts declared are ${f(v.actual_offcuts - v.expected_offcuts, 1)} kg above expected; if they're overstated, less cheese is missing.` });
       if (!out.length) out.push({ kg: null, text: "No trace in the journal: cheese was used without being moved or consumed in SAP, or the output is overstated." });
     } else {
@@ -747,12 +747,13 @@
     }
     if (odd.length) flag("MEDIUM", "OUTPUT_POSTED_IN_BULK_OR_LATE", "Output posted in bulk or late: " + odd.join("; ") + ".");
 
-    const typ = ctx.typical[fg], doubleBooked = [];
+    const typ = ctx.typical[fg], doubleBooked = [], irregular = [];
     if (typ && out.length) {
       const over = [], oddSize = [], double = [];
       const byBatch = [...groupBy(out, "batch")].sort((a, b) => (String(a[0]) < String(b[0]) ? -1 : String(a[0]) > String(b[0]) ? 1 : 0));
       for (const [b, g] of byBatch) {
         const gross = sum(g.filter((r) => r.qty > 0).map((r) => r.qty)), net = sum(g.map((r) => r.qty));
+        if (net > 0.5 && net < 2 * typ && Math.abs(net - typ) > 0.5) irregular.push([b, net]);
         if (net >= 2 * typ) {
           // double booked and still standing: the output is overstated
           const pos = g.filter((r) => r.qty > 0).map((r, i) => [r, i]).sort((x, y) => x[0].time - y[0].time || x[1] - y[1]).map((x) => x[0]);
@@ -763,8 +764,14 @@
       }
       if (double.length) flag("HIGH", "PALLET_DOUBLE_BOOKED", `Usual pallet for ${fg} is ${f(typ)} cases. ` + double.map(([b, net, extra, cs]) => `Pallet ${b} has ${f(net)} cases (${fixed(net / typ, 1)}x the usual), confirmed ${cs}: output is overstated by about ${f(extra)} cases unless it's corrected.`).join(" "));
       if (over.length) flag("MEDIUM", "PALLET_CONFIRMED_MORE_THAN_ONCE", `Usual pallet for ${fg} is ${f(typ)} cases. ` + over.join("; ") + ".");
-      if (oddSize.length) flag("LOW", "UNUSUAL_PALLET_SIZE", `Usual pallet for ${fg} is ${f(typ)} cases; larger pallets: ` + oddSize.join(", ") + ". Worth a physical count.");
+      // one short (or topped-up) pallet at the end of a run is normal; more than that isn't
+      if (irregular.length >= 2) flag("HIGH", "PALLET_QUANTITIES_IRREGULAR", `Usual pallet for ${fg} is ${f(typ)} cases, but ${irregular.length} pallets aren't: ` + irregular.map(([b, n]) => `${b} ${f(n)}`).join(", ") + ". At most one pallet off the usual count is expected (the last of the run).");
+      else if (oddSize.length) flag("LOW", "UNUSUAL_PALLET_SIZE", `Usual pallet for ${fg} is ${f(typ)} cases; larger pallets: ` + oddSize.join(", ") + ". Worth a physical count.");
     }
+    // finished goods belong in FG_STAGING, not on a production line's area
+    const lineAreaSet = new Set(Object.values(RULES.line_areas));
+    const onLine = out.filter((r) => lineAreaSet.has(r.area) && r.qty !== 0).map((r, i) => [r, i]).sort((x, y) => x[0].time - y[0].time || x[1] - y[1]).map((x) => x[0]);
+    if (onLine.length) flag("MEDIUM", "OUTPUT_ON_LINE_AREA", "Output posted to a line area instead of FG_STAGING: " + onLine.map((r) => `${r.conf} at ${dm(r.time)} (${f(r.qty)} on pallet ${r.batch}, ${r.area})`).join("; ") + ".");
     const rev = out.filter((r) => r.qty < 0);
     if (rev.length) flag("INFO", "OUTPUT_REVERSED", "Output reversed: " + rev.map((r) => `${r.conf} at ${dm(r.time)} (${f(r.qty)} on pallet ${r.batch})`).join("; ") + ".");
 
@@ -1016,7 +1023,7 @@
         hasCons ? blocks : [], new Set(cheeseComps.map((c) => c.material)), byMat, ctx);
     }
     const summary = {
-      order_id: oid, status: o.status, open_status: openStatus, double_booked_pallets: doubleBooked, consumption_from: hasCons ? consumptionFrom(cons, oid, ctx) : null, fg, fg_text: o.fg_text, line: o.resource, area, start: o.start, last_regular_output: last,
+      order_id: oid, status: o.status, open_status: openStatus, double_booked_pallets: doubleBooked, irregular_pallets: irregular.length >= 2 ? irregular.map(([b]) => b) : [], consumption_from: hasCons ? consumptionFrom(cons, oid, ctx) : null, fg, fg_text: o.fg_text, line: o.resource, area, start: o.start, last_regular_output: last,
       planned_out, order_out, journal_out, output_confirmations: confs.length, cheese_kg_per_case: perCase,
       cheese_source: cheeseSource, cheese_issued_kg: issued, cheese_needed_kg: needed, cheese_open_kg: cheeseOpen,
       cheese_sent_kg: sent, cheese_returned_kg: back, cheese_used_kg: used, cheese_est_needed_kg: cheeseSource === "consumed" ? needIn : estNeeded, cheese_est_output: estOut, cheese_consumed_kg: consumed, cheese_consumed_by_material: Object.fromEntries(byMat), mass, variance, variance_reasons: reasons,

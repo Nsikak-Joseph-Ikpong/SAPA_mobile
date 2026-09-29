@@ -267,7 +267,10 @@ The confirmation journal backs this up: output in the journal vs fulfilled on th
 bulk or hours late, pallets larger than usual, reversals. A pallet whose confirmed cases are double or more
 its usual size, and not corrected, is double booked (`PALLET_DOUBLE_BOOKED`, HIGH, listing each
 confirmation and the cases the output is overstated by); a pallet confirmed more than once but corrected,
-or under double, is `PALLET_CONFIRMED_MORE_THAN_ONCE` (MEDIUM).
+or under double, is `PALLET_CONFIRMED_MORE_THAN_ONCE` (MEDIUM). One pallet off the usual count (the last of a
+run) is normal; two or more pallets off it (e.g. 112, 112, 7, 43 where 112 is usual) are
+`PALLET_QUANTITIES_IRREGULAR` (HIGH, those pallets in red on the page). Output posted to a line's logistics
+area (SL_1/2/3, GRATINGLINES) instead of FG_STAGING is `OUTPUT_ON_LINE_AREA` (MEDIUM, shaded on the page).
 The Excel report lists the order's inputs, the output postings and the cheese moved to the line.
 On the web page, clicking a pallet or batch number (in the output postings or the cheese consumed table)
 opens that batch's full confirmation history from the journal: every confirmation in time order with its

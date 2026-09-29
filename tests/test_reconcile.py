@@ -325,3 +325,30 @@ def test_order_reference_is_ground_truth(referenced):
     assert set(c.loc[c["via"] == "reference", "conf"]) == {"501", "620"}
     assert ("confirmation journal (confirmations referencing this order) and consumption matched to the job by line "
             "and time") in s["C3"]["narrative"]
+
+
+@pytest.fixture(scope="module")
+def odd_pallets(tmp_path_factory):
+    d = tmp_path_factory.mktemp("odd")
+    write_workbook(d / "SAP_Info.xlsx")
+    head = ["Site", "Product", "Identified Stock (Identified Stock ID)", "Logistics Area (Logistics Area ID)",
+            "Created On", "Conf.Document Type", "Conf.ID", "Restricted", "Effective Qty"]
+    # job A's usual pallet is 100 cases; two more pallets off that count, one of them posted on the line's area
+    rows = [["Confirmation Journal"] + [None] * 8, head,
+            ["EXTHQ1", "FGBLEND", "X1", "FG_STAGING", ts("03:45"), PC, "250", "#", 40],
+            ["EXTHQ1", "FGBLEND", "X2", "GRATINGLINES", ts("03:50"), PC, "251", "#", 7]]
+    pd.DataFrame(rows).to_excel(d / "extra.xlsx", sheet_name="Confirmation Journal", header=False, index=False)
+    return run(read_workbook([str(d / "SAP_Info.xlsx"), str(d / "extra.xlsx")]))
+
+
+def test_pallets_off_the_usual_count_and_on_a_line_area(odd_pallets, result):
+    c = codes(odd_pallets, "A1")
+    f = c["PALLET_QUANTITIES_IRREGULAR"]
+    assert f.severity == "HIGH" and "Usual pallet for FGBLEND is 100 cases, but 2 pallets aren't: X1 40, X2 7." in f.message
+    assert "UNUSUAL_PALLET_SIZE" not in c
+    assert c["OUTPUT_ON_LINE_AREA"].message == ("Output posted to a line area instead of FG_STAGING: 251 at 19.08 03:50 "
+                                               "(7 on pallet X2, GRATINGLINES).")
+    a = next(s for s in odd_pallets.summaries if s["order_id"] == "A1")
+    assert a["irregular_pallets"] == ["X1", "X2"]
+    # the plain workbook: every pallet at the usual count, none on a line area
+    assert not {"PALLET_QUANTITIES_IRREGULAR", "OUTPUT_ON_LINE_AREA"} & set(codes(result, "A1"))

@@ -865,7 +865,8 @@ def variance_reasons(oid, v, cons, sends_o, window, consumption, codes, recipe_b
             if info["consumed_by_material"].get(m, 0.0) <= 0 and consumption is not None:
                 out.append({"kg": None, "text": f"{m} is in the recipe but none was consumed for this run: it was "
                             f"used without a consumption posting, or the product was made without it."})
-        if codes & {"OUTPUT_NOT_ON_ORDER", "PALLET_DOUBLE_BOOKED", "PALLET_CONFIRMED_MORE_THAN_ONCE", "UNUSUAL_PALLET_SIZE"}:
+        if codes & {"OUTPUT_NOT_ON_ORDER", "PALLET_DOUBLE_BOOKED", "PALLET_CONFIRMED_MORE_THAN_ONCE", "UNUSUAL_PALLET_SIZE",
+                     "PALLET_QUANTITIES_IRREGULAR"}:
             out.append({"kg": None, "text": "Output may be overstated: see the pallet and output findings below."})
         if v["actual_offcuts"] - v["expected_offcuts"] > 25:
             out.append({"kg": v["actual_offcuts"] - v["expected_offcuts"],
@@ -1060,10 +1061,13 @@ def check_order(oid: str, wb: Workbook, windows: pd.DataFrame, outputs: pd.DataF
 
     # ---- pallets ----
     typ = typical_pallet.get(fg)
+    irregular = []
     if typ and not out.empty:
         over, odd_size, double = [], [], []
         for b, g in out.groupby("batch"):
             gross, net = g.loc[g["qty"] > 0, "qty"].sum(), g["qty"].sum()
+            if 0.5 < net < 2 * typ and abs(net - typ) > 0.5:
+                irregular.append((b, net))
             if net >= 2 * typ:
                 # double booked and still standing: the output is overstated
                 pos = g[g["qty"] > 0].sort_values("time", kind="stable")
@@ -1082,9 +1086,20 @@ def check_order(oid: str, wb: Workbook, windows: pd.DataFrame, outputs: pd.DataF
         if over:
             flag("MEDIUM", "PALLET_CONFIRMED_MORE_THAN_ONCE",
                  f"Usual pallet for {fg} is {typ:,.0f} cases. " + "; ".join(over) + ".")
-        if odd_size:
+        if len(irregular) >= 2:
+            # one short (or topped-up) pallet at the end of a run is normal; more than that isn't
+            flag("HIGH", "PALLET_QUANTITIES_IRREGULAR",
+                 f"Usual pallet for {fg} is {typ:,.0f} cases, but {len(irregular)} pallets aren't: "
+                 + ", ".join(f"{b} {n:,.0f}" for b, n in irregular)
+                 + ". At most one pallet off the usual count is expected (the last of the run).")
+        elif odd_size:
             flag("LOW", "UNUSUAL_PALLET_SIZE", f"Usual pallet for {fg} is {typ:,.0f} cases; larger pallets: "
                  + ", ".join(odd_size) + ". Worth a physical count.")
+    # finished goods belong in FG_STAGING, not on a production line's area
+    on_line = out[out["area"].isin(set(rules.line_areas.values())) & (out["qty"] != 0)].sort_values("time", kind="stable")
+    if not on_line.empty:
+        flag("MEDIUM", "OUTPUT_ON_LINE_AREA", "Output posted to a line area instead of FG_STAGING: " + "; ".join(
+            f"{r.conf} at {r.time:%d.%m %H:%M} ({r.qty:,.0f} on pallet {r.batch}, {r.area})" for r in on_line.itertuples()) + ".")
     rev = out[out["qty"] < 0]
     if not rev.empty:
         flag("INFO", "OUTPUT_REVERSED", "Output reversed: " + "; ".join(
@@ -1426,6 +1441,7 @@ def check_order(oid: str, wb: Workbook, windows: pd.DataFrame, outputs: pd.DataF
     summary = {
         "order_id": oid, "status": o["status"], "open_status": open_status,
         "double_booked_pallets": [b for b, g in out.groupby("batch") if typ and g["qty"].sum() >= 2 * typ] if not out.empty else [],
+        "irregular_pallets": [b for b, _ in irregular] if len(irregular) >= 2 else [],
         "consumption_from": consumption_from(cons, oid, info) if has_cons else None, "fg": fg, "fg_text": o.get("fg_text"), "line": o["resource"],
         "area": area, "start": o["start"], "last_regular_output": last_regular,
         "planned_out": planned_out, "order_out": order_out, "journal_out": journal_out,
