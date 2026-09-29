@@ -641,6 +641,19 @@
     tr.after(row);
   });
   $("ask").addEventListener("submit", (e) => { e.preventDefault(); run(); });
+  // a list pasted from Excel or a column of numbers (one per line) becomes "589, 719, 746"; a one-line box would
+  // otherwise drop the line breaks and run the numbers together
+  $("oid").addEventListener("paste", (e) => {
+    const text = (e.clipboardData || window.clipboardData)?.getData("text") ?? "";
+    const ids = text.split(/[\s,;]+/).filter(Boolean);
+    if (ids.length < 2) return;
+    e.preventDefault();
+    const el = e.target, before = el.value.slice(0, el.selectionStart).replace(/[\s,;]+$/, ""), after = el.value.slice(el.selectionEnd).replace(/^[\s,;]+/, "");
+    const joined = [before, ids.join(", "), after].filter(Boolean).join(", ");
+    el.value = joined;
+    const pos = (before ? before.length + 2 : 0) + ids.join(", ").length;
+    el.setSelectionRange(pos, pos);
+  });
   document.addEventListener("click", async (e) => {
     const b = e.target.closest("button.rm");
     if (!b || !state.files) return;
