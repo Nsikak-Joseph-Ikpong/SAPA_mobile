@@ -278,5 +278,7 @@ type, Conf.ID, logistics area, Effective Qty and the running stock after each ro
 `https://nsikak-joseph-ikpong.github.io/SAP/`.
 
 The page is static: files you load are read in your browser and kept there (IndexedDB), nothing is uploaded.
+Each loaded file has a **Remove** button that takes just that file out of the check and out of the saved
+files; **Remove all files** clears them all.
 GitHub Pages sites are public on the internet (unless the account is GitHub Enterprise), and Pages on a
 private repository needs a paid GitHub plan; the page itself holds only the synthetic demo data.
