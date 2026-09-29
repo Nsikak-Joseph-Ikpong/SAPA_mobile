@@ -240,9 +240,9 @@ planned output):
   cases were made with less cheese, even counting the repacks.", followed, when the variance is outside
   tolerance, by the cheese-only giveaway and the strongest journal lead. Cheese that went in with no output
   is stated as "X kg of cheese has no output and is unaccounted for". Other findings stay in the findings
-  list, not the summary. It's also the Summary column of the variance report. Under the figures, two bar
+  list, not the summary. It's also the Summary column of the variance report. Under the figures, three bar
   charts show product planned / made / in the journal (cases) and cheese planned / needed for what was made
-  / consumed (kg, repacks hatched on the consumed bar);
+  / consumed (kg, repacks hatched on the consumed bar), and offcuts planned / expected for the cases made / made (kg);
 * **repacks**: finished goods used as an input (a product some order makes, e.g. REMMCSL10200ALD and
   REMMRSL12160SM going into job 1868). They're taken from the order sheet when it lists them, else the
   order fulfilment report, else the journal: a production confirmation consuming finished goods (not the

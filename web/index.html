@@ -87,7 +87,7 @@
   .charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px 32px; margin: 18px 0 6px; }
   .chart { margin: 0; }
   .chart figcaption { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin-bottom: 8px; }
-  .br { display: grid; grid-template-columns: 118px minmax(0, 1fr) auto; align-items: center; gap: 10px; min-height: 26px; }
+  .br { display: grid; grid-template-columns: 104px minmax(0, 1fr) auto; align-items: center; gap: 10px; min-height: 26px; }
   .bl { font-size: 13px; color: var(--muted); }
   .bt { display: flex; gap: 2px; height: 14px; border-left: 1px solid var(--line); }
   .bf { height: 100%; min-width: 2px; }
@@ -96,8 +96,8 @@
   .bf.act { background: var(--accent); }
   .bf.rp { background: repeating-linear-gradient(135deg, var(--accent) 0 3px, transparent 3px 6px); box-shadow: inset 0 0 0 1px var(--accent); }
   .bv { font: 500 13px var(--mono); font-variant-numeric: tabular-nums; color: var(--ink); white-space: nowrap; }
-  .bn { font: 400 11px var(--sans); color: var(--muted); }
-  @media (max-width: 480px) { .br { grid-template-columns: 96px minmax(0, 1fr) auto; } .bn { display: block; } }
+  .bn { display: block; font: 400 11px var(--sans); color: var(--muted); text-align: right; }
+  @media (max-width: 480px) { .br { grid-template-columns: 96px minmax(0, 1fr) auto; } }
   .br:hover .bl { color: var(--ink); }
   .br:hover .bf { filter: brightness(1.12); }
   .story { background: var(--accent-soft); border-left: 4px solid var(--accent); border-radius: 6px; padding: 12px 16px; margin: 0 0 18px; }
@@ -465,9 +465,11 @@
       return `<figure class="chart" role="img" aria-label="${esc(title)}: ${esc(bars.map((b) => `${b.label} ${f(tot(b), 1)} ${unit}`).join(", "))}"><figcaption>${esc(title)} (${esc(unit)})</figcaption>${rows}</figure>`;
     };
     const cheeseBars = !s.cheese_kg_per_case ? null
-      : s.cheese_source === "consumed" ? [["Needed for made", s.cheese_est_needed_kg], ["Consumed", s.cheese_consumed_kg]]
-      : s.cheese_source === "journal" ? [["Needed for made", s.cheese_est_needed_kg], ["Used (estimate)", s.cheese_used_kg]]
-      : [["Needed for made", s.cheese_needed_kg], ["Issued", s.cheese_issued_kg]];
+      : s.cheese_source === "consumed" ? [["Needed", s.cheese_est_needed_kg], ["Consumed", s.cheese_consumed_kg]]
+      : s.cheese_source === "journal" ? [["Needed", s.cheese_est_needed_kg], ["Used (estimate)", s.cheese_used_kg]]
+      : [["Needed", s.cheese_needed_kg], ["Issued", s.cheese_issued_kg]];
+    // offcuts (by-products) planned on the order vs made; expected is the plan scaled to the cases made
+    const offPlanned = ((s.open_status || []).find((r) => r.item === "Offcuts made") || {}).planned || 0;
     const chartsHtml = `<div class="charts">${barChart("Product", s.planned_out && s.variance && s.variance.uom === "kg" ? "kg" : "cases", [
         { label: "Planned", parts: [{ v: s.planned_out || 0, cls: "ref", name: "Planned" }] },
         { label: "Made", parts: [{ v: s.order_out, cls: "act", name: "Made" }] },
@@ -477,6 +479,10 @@
         { label: cheeseBars[0][0], parts: [{ v: cheeseBars[0][1] || 0, cls: "ref", name: cheeseBars[0][0] }] },
         { label: cheeseBars[1][0], parts: [{ v: cheeseBars[1][1] || 0, cls: "act", name: "Cheese" }, ...(s.repack_kg ? [{ v: s.repack_kg, cls: "rp", name: "Repacks" }] : [])],
           note: s.repack_kg ? `incl. ${f(s.repack_kg, 1)} repacks` : "" },
+      ]) : ""}${offPlanned || s.offcuts_kg ? barChart("Offcuts made", "kg", [
+        { label: "Planned", parts: [{ v: offPlanned, cls: "ref", name: "Planned" }] },
+        ...(s.variance ? [{ label: "Expected", parts: [{ v: s.variance.expected_offcuts || 0, cls: "ref", name: "Expected for the cases made" }] }] : []),
+        { label: "Made", parts: [{ v: s.offcuts_kg || 0, cls: "act", name: "Made" }] },
       ]) : ""}</div>`;
     const figs = `<dl class="figs">
       <div class="fig"><dt>Planned</dt><dd>${n0(s.planned_out)}<small>cases</small></dd></div>
