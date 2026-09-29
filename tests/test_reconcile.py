@@ -294,3 +294,34 @@ def test_narrative_summary(repacked):
     assert "The plan was 100 cases (100 × 6 kg = 600 kg) and 100 cases were made (100 × 6 kg = 600 kg), plus 110 kg of offcuts." in c["narrative"]
     assert ("40 kg of cheese has no output and is unaccounted for (the recipe allows 30 kg of giveaway, so 10 kg is "
             "beyond plan, within tolerance).") in c["narrative"]
+
+
+@pytest.fixture(scope="module")
+def referenced(tmp_path_factory):
+    d = tmp_path_factory.mktemp("ref")
+    write_workbook(d / "SAP_Info.xlsx")
+    write_full_journal(d / "Confirmation_Journal.xlsx")
+    head = ["Site", "Product", "Identified Stock (Identified Stock ID)", "Logistics Area (Logistics Area ID)",
+            "Created On", "Conf.Document Type", "Conf.ID", "Reference Document ID", "Effective Qty"]
+    rows = [["Confirmation Journal"] + [None] * 8, head,
+            # the 900 kg of M1 at 07:00 that line-and-time matching gives to job B names job A
+            ["EXTHQ1", "RMMOZZ", "M1", "GRATINGLINES", ts("07:00"), PC, "501", "A1", -900],
+            # 30 kg consumed for job C long after its last pallet: only the reference ties it to C
+            ["EXTHQ1", "RMSLICE", "K2", "SL_1", ts("13:00"), PC, "620", "C3", -30],
+            # on a goods-and-activity confirmation the reference is another document, not an order
+            ["EXTHQ1", "RMSLICE", "K2", "FLOOR5", ts("12:50"), GA, "619", "C3", -30]]
+    pd.DataFrame(rows).to_excel(d / "journal2.xlsx", sheet_name="Confirmation Journal with ref", header=False,
+                                index=False)
+    return run(read_workbook([str(d / "SAP_Info.xlsx"), str(d / "Confirmation_Journal.xlsx"), str(d / "journal2.xlsx")]))
+
+
+def test_order_reference_is_ground_truth(referenced):
+    s = {x["order_id"]: x for x in referenced.summaries}
+    assert s["A1"]["cheese_consumed_kg"] == pytest.approx(1925 + 900)
+    assert s["B2"]["cheese_consumed_kg"] == pytest.approx(1000)
+    assert s["C3"]["cheese_consumed_kg"] == pytest.approx(750)
+    assert s["A1"]["consumption_from"] == "order reference in the journal + matched by line and time"
+    c = referenced.consumption
+    assert set(c.loc[c["via"] == "reference", "conf"]) == {"501", "620"}
+    assert ("confirmation journal (confirmations referencing this order) and consumption matched to the job by line "
+            "and time") in s["C3"]["narrative"]

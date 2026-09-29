@@ -105,7 +105,8 @@
       if (isNaN(t) || isNaN(q)) continue;
       const doc = String(r.confdocumenttype);
       journal.push({ site: r.site, material: str(r.product), batch: id(r[bc]), area: str(r[ac]), time: t, doc,
-        conf: id(r.confid), qty: q, is_prod: /production/i.test(doc) });
+        // the production order on production confirmations (Reference Document ID), when the export has it
+        conf: id(r.confid), qty: q, is_prod: /production/i.test(doc), ref: "referencedocumentid" in r ? id(r.referencedocumentid) : null });
     }
     return journal;
   }
@@ -117,8 +118,16 @@
     const k = (r) => `${r.conf}|${r.material}|${r.batch}`;
     const seen = new Set(js[0].map(k));
     const out = js[0].slice();
-    for (const j of js.slice(1)) for (const r of j) if (!seen.has(k(r))) out.push(r);
-    return out;
+    for (const j of js.slice(1)) {
+      // a posting two of the smaller exports both have is added once (a move has two rows with the same key: both kept)
+      const add = j.filter((r) => !seen.has(k(r)));
+      for (const r of add) out.push(r);
+      for (const r of j) seen.add(k(r));
+    }
+    // a posting's order reference is kept whichever export it came from
+    const refs = new Map();
+    for (const j of js) for (const r of j) if (r.ref !== null && r.ref !== undefined && r.ref !== "#") refs.set(k(r), r.ref);
+    return refs.size ? out.map((r) => (refs.has(k(r)) ? { ...r, ref: refs.get(k(r)) } : r)) : out;
   }
 
   // sheets: [{file, sheet, rows: [[...], ...]}]
@@ -213,7 +222,7 @@
 
   function assignOutputs(wb) {
     const fgs = new Set(wb.orders.map((o) => o.fg));
-    const out = wb.journal.filter((r) => r.is_prod && fgs.has(r.material)).map((r) => ({ ...r, order_id: null, _row: r }));
+    let out = wb.journal.filter((r) => r.is_prod && fgs.has(r.material)).map((r) => ({ ...r, order_id: null, _row: r }));
     const started = wb.orders.filter((o) => !isNaN(o.start_actual) || !["released", "canceled", "cancelled"].includes(String(o.status).toLowerCase()));
     const starts = {};
     for (const o of started) if (!isNaN(o.start)) (starts[o.fg] ||= []).push([o.order_id, o.start]);
@@ -224,6 +233,11 @@
       for (const [oid, st] of starts[r.material] || []) { if (st <= r.time + slack) best = [oid, st]; else break; }
       r.order_id = best && r.time - best[1] <= maxAge ? best[0] : null;
     }
+    // the journal's order reference wins; finished goods referencing an order that makes another product are
+    // an input to it (a repack), not output
+    const fgOf = new Map(wb.orders.map((o) => [o.order_id, o.fg]));
+    for (const r of out) if (r.ref_order) r.order_id = r.ref_order;
+    out = out.filter((r) => !r.ref_order || fgOf.get(r.ref_order) === r.material);
     // A negative row is a reversal only for a pallet the order posted as output; otherwise it's
     // finished goods used as an input (rework)
     const made = new Set(out.filter((r) => r.qty > 0).map((r) => `${r.order_id}|${r.material}|${r.batch}`));
@@ -328,7 +342,8 @@
     for (const [o, ms] of Object.entries(lc.recipe)) types[o] = new Set([...ms].map(ctype));
     const lcTyped = { ...lcc, recipe: types };
     const lineAreas = new Set(Object.values(RULES.line_areas));
-    const cons = consumptionRows(wb.journal).filter((r) => lineAreas.has(r.area) && !ownedPairs.has(r.conf + "\u0000" + r.material)).map((r, i) => [r, i])
+    // a confirmation that names its order (even one not on the order sheets) isn't anyone else's
+    const cons = consumptionRows(wb.journal).filter((r) => lineAreas.has(r.area) && (r.ref === null || r.ref === undefined || r.ref === "#") && !ownedPairs.has(r.conf + "\u0000" + r.material)).map((r, i) => [r, i])
       .sort((a, b) => a[0].time - b[0].time || a[1] - b[1]).map((x) => x[0]);
     const lastUser = new Map(), rows = [];
     for (const r of cons) {
@@ -358,7 +373,16 @@
   // Cheese consumed per order straight from the order fulfilment report (in kg). Each confirmation is matched to its
   // journal rows by Conf.ID and product for the batch, area and time; if the journal doesn't have it (posted after the
   // export) it's kept as one row without a batch.
-  function fulfilmentConsumption(wb) {
+  // Cheese consumed on production confirmations whose Reference Document ID names the order: the ground truth
+  function referenceConsumption(wb) {
+    const recipe = {};
+    for (const c of wb.components) if (isCheese(c.material)) (recipe[c.order_id] ||= new Set()).add(c.material);
+    return consumptionRows(wb.journal).filter((r) => r.ref_order).sort((a, b) => a.time - b.time)
+      .map((r) => ({ order_id: r.ref_order, material: r.material, batch: r.batch, area: r.area, time: r.time, conf: r.conf, consumed: -r.qty,
+        candidates: 1, other_orders: "", substitute: !recipe[r.ref_order]?.has(r.material), via: "reference" }));
+  }
+
+  function fulfilmentConsumption(wb, excludePairs = new Set()) {
     if (!wb.fulfilment || !wb.fulfilment.length) return [];
     const recipe = {};
     for (const c of wb.components) if (isCheese(c.material)) (recipe[c.order_id] ||= new Set()).add(c.material);
@@ -374,6 +398,7 @@
     const rows = [];
     for (const r of wb.fulfilment) {
       if (!isCheese(r.material)) continue;
+      if (excludePairs.has(r.conf + "\u0000" + r.material)) continue;   // already in the journal with its order reference
       let g = byKey.get(r.conf + "\u0000" + r.material);
       const gn = byKeyNeg.get(r.conf + "\u0000" + r.material);
       const base = { order_id: r.order_id, material: r.material, conf: r.conf, candidates: 1, other_orders: "", substitute: !recipe[r.order_id]?.has(r.material), via: "fulfilment" };
@@ -384,7 +409,6 @@
     return rows;
   }
 
-  // Starch is backflushed with the output: its rows sit on the order's output confirmations
   // Products made by the orders (not cheese or offcut bins): as an input they're repacks
   function finishedGoods(wb) {
     return new Set(wb.orders.map((o) => o.fg).filter((m) => !isCheese(m) && !RULES.offcut_pattern.test(m.toUpperCase())));
@@ -409,8 +433,10 @@
       }
     }
     const kept = new Set(outputs.map((r) => r._row));
-    const cand = wb.journal.filter((r) => r.is_prod && fgs.has(r.material) && r.qty < 0 && !kept.has(r) && !owned.has(r.conf + "\u0000" + r.material))
-      .sort((a, b) => a.time - b.time);
+    const cand0 = wb.journal.filter((r) => r.is_prod && fgs.has(r.material) && r.qty < 0 && !kept.has(r) && !owned.has(r.conf + "\u0000" + r.material));
+    // the journal's order reference is the order it went into
+    for (const x of cand0) if (x.ref_order) rows.push({ order_id: x.ref_order, material: x.material, batch: x.batch, area: x.area, time: x.time, conf: x.conf, cases: -x.qty, via: "reference" });
+    const cand = cand0.filter((x) => !x.ref_order).sort((a, b) => a.time - b.time);
     const started = wb.orders.filter((o) => !isNaN(o.start_actual) && !RULES.skip_resources.includes(o.resource)).sort((a, b) => a.start_actual - b.start_actual);
     const win = RULES.repack_minutes * 60000, tol = RULES.start_anchor_seconds * 1000;
     const isRe = (fg) => RULES.repack_prefixes.some((p) => fg.toUpperCase().startsWith(p));
@@ -449,11 +475,14 @@
       if (!byConf.has(r.conf)) byConf.set(r.conf, []);
       byConf.get(r.conf).push(r.order_id);
     }
-    const out = new Map();
+    const out = new Map(), byRef = new Map();
     for (const r of journal) {
       if (!r.is_prod || !RULES.not_cheese_prefixes.some((p) => r.material.toUpperCase().startsWith(p))) continue;
+      // starch whose confirmation references the order goes to that order
+      if (r.ref_order) { byRef.set(r.ref_order, (byRef.get(r.ref_order) || 0) - r.qty); continue; }
       for (const oid of byConf.get(r.conf) || []) out.set(oid, (out.get(oid) || 0) - r.qty);
     }
+    for (const [oid, q] of [...byRef].sort((a, b) => cmpStr(a[0], b[0]))) out.set(oid, (out.get(oid) || 0) + q);
     return out;
   }
 
@@ -860,7 +889,7 @@
       // the order sheet first; the fulfilment report or journal when the sheet shows none
       let cases, src;
       if (casesS) { cases = casesS; src = "issued on the order"; }
-      else { cases = casesJ || 0; src = jr.length ? (jr.some((r) => r.via === "fulfilment") ? "order fulfilment report" : "journal") : "issued on the order"; }
+      else { cases = casesJ || 0; src = jr.length ? (jr.some((r) => r.via === "fulfilment") ? "order fulfilment report" : jr.some((r) => r.via === "reference") ? "order reference in the journal" : "journal") : "issued on the order"; }
       const [rw, rwFrom] = ctx.repackWeights.get(m) || [null, null];
       repacks.push({ material: m, planned: sr.length ? sum(sr.map((c) => (isNaN(c.planned) ? 0 : c.planned))) : 0, cases, packs_per_case: ctx.repackPacks.has(m) ? ctx.repackPacks.get(m) : null, source: src, kg_per_case: rw, weight_from: rwFrom, kg: rw ? cases * rw : null });
     }
@@ -987,7 +1016,7 @@
         hasCons ? blocks : [], new Set(cheeseComps.map((c) => c.material)), byMat, ctx);
     }
     const summary = {
-      order_id: oid, status: o.status, open_status: openStatus, double_booked_pallets: doubleBooked, consumption_from: hasCons ? (ctx.covered.has(oid) ? "order fulfilment report" : "matched by line and time") : null, fg, fg_text: o.fg_text, line: o.resource, area, start: o.start, last_regular_output: last,
+      order_id: oid, status: o.status, open_status: openStatus, double_booked_pallets: doubleBooked, consumption_from: hasCons ? consumptionFrom(cons, oid, ctx) : null, fg, fg_text: o.fg_text, line: o.resource, area, start: o.start, last_regular_output: last,
       planned_out, order_out, journal_out, output_confirmations: confs.length, cheese_kg_per_case: perCase,
       cheese_source: cheeseSource, cheese_issued_kg: issued, cheese_needed_kg: needed, cheese_open_kg: cheeseOpen,
       cheese_sent_kg: sent, cheese_returned_kg: back, cheese_used_kg: used, cheese_est_needed_kg: cheeseSource === "consumed" ? needIn : estNeeded, cheese_est_output: estOut, cheese_consumed_kg: consumed, cheese_consumed_by_material: Object.fromEntries(byMat), mass, variance, variance_reasons: reasons,
@@ -998,6 +1027,15 @@
     findings.sort((a, b) => SEV[a.severity] - SEV[b.severity]);
     summary.narrative = narrative(summary, findings);
     return { summary, findings };
+  }
+
+  // Where the order's cheese consumption comes from: order references in the journal, the order fulfilment report,
+  // matching by line and time, or a mix (joined with " + ")
+  const SOURCES = [["reference", "order reference in the journal"], ["fulfilment", "order fulfilment report"], ["time", "matched by line and time"]];
+  function consumptionFrom(cons, oid, ctx) {
+    let vias = new Set(cons.map((c) => c.via));
+    if (!vias.size) vias = new Set([ctx.covered.has(oid) ? "fulfilment" : "time"]);
+    return SOURCES.filter(([v]) => vias.has(v)).map(([, n]) => n).join(" + ");
   }
 
   const NARRATIVE_FLAGS = {
@@ -1025,7 +1063,8 @@
       if (m.offcuts_in) bits.push(`${tt(m.offcuts_in)} kg of offcuts`);
       if (m.starch_in) bits.push(`${tt(m.starch_in)} kg of starch`);
       if (m.repack_in) bits.push(`${tt(m.repack_in)} kg of repacks: ${rp}`);
-      const src = s.consumption_from === "order fulfilment report" ? "the order fulfilment report" : "consumption matched to the job by line and time";
+      const names = { "order reference in the journal": "the confirmation journal (confirmations referencing this order)", "order fulfilment report": "the order fulfilment report", "matched by line and time": "consumption matched to the job by line and time" };
+      const src = String(s.consumption_from || "matched by line and time").split(" + ").map((x) => names[x]).join(" and ");
       const listed = bits.length === 1 ? bits[0] : bits.slice(0, -1).join(", ") + " and " + bits[bits.length - 1];
       out.push(head + `I found from ${src} that the total input is ${tt(m.in)} kg: ${listed}.`);
     } else if (s.cheese_source === "consumed") out.push(head + "I found no cheese consumed for it" + (rps.length ? `, only a repack of ${rp}` : "") + ".");
@@ -1102,6 +1141,10 @@
   // ------------------------------------------------------------ entry points
   function prepare(wb) {
     const orders = wb.orders.filter((o) => !RULES.skip_resources.includes(o.resource));
+    // the production order of each journal row from its Reference Document ID: production confirmations only (on other
+    // confirmations the reference is another document), and only orders on the order sheets
+    const known = new Set(wb.orders.map((o) => o.order_id));
+    for (const r of wb.journal) r.ref_order = r.is_prod && r.ref !== null && r.ref !== undefined && known.has(r.ref) ? r.ref : null;
     const outputs = assignOutputs(wb);
     const perConf = perConfirmation(outputs);
     const windows = orderWindows(orders, perConf);
@@ -1109,17 +1152,20 @@
     // journals exported with both sides carry cheese consumption; receiving-only exports don't
     const journalCons = consumptionRows(wb.journal).some((r) => r.qty < 0 && !RULES.offcut_pattern.test(r.material.toUpperCase()));
     const fulfil = wb.fulfilment && wb.fulfilment.length ? wb.fulfilment : null;
-    const hasCons = journalCons || !!fulfil;
-    // orders in the order fulfilment report take their consumption from it; the rest are matched by line and time
+    // the journal's order references come first, then the order fulfilment report, then line and time
+    const refc = referenceConsumption(wb);
+    const hasCons = journalCons || !!fulfil || refc.length > 0;
+    const refPairs = new Set(refc.map((r) => r.conf + "\u0000" + r.material));
+    const refCovered = new Set(refc.map((r) => r.order_id));
     const covered = new Set(fulfil ? fulfil.map((r) => r.order_id) : []);
-    const owned = new Set(fulfil ? fulfil.map((r) => r.conf + "\u0000" + r.material) : []);
-    const consumption = hasCons ? [...fulfilmentConsumption(wb), ...(journalCons ? assignConsumption(wb, windows, perConf, outputs, owned, covered) : [])] : [];
+    const owned = new Set([...(fulfil ? fulfil.map((r) => r.conf + "\u0000" + r.material) : []), ...refPairs]);
+    const consumption = hasCons ? [...refc, ...fulfilmentConsumption(wb, refPairs), ...(journalCons ? assignConsumption(wb, windows, perConf, outputs, owned, covered) : [])] : [];
     const overBatches = journalCons ? overConsumedBatches(wb.journal) : new Map();
     const starchUsed = journalCons ? starchConsumed(wb.journal, outputs) : new Map();
     if (fulfil) {
       const stBy = new Map();
       for (const r of fulfil) if (RULES.not_cheese_prefixes.some((p) => r.material.toUpperCase().startsWith(p))) stBy.set(r.order_id, (stBy.get(r.order_id) || 0) + r.kg);
-      for (const o of covered) starchUsed.set(o, stBy.get(o) || 0);
+      for (const o of covered) if (!refCovered.has(o)) starchUsed.set(o, stBy.get(o) || 0);
     }
     const consumedByBatch = new Map(), movesByBatch = new Map();
     if (journalCons) for (const r of consumptionRows(wb.journal)) { const k = r.material + "\u0000" + r.batch; consumedByBatch.set(k, (consumedByBatch.get(k) || 0) - r.qty); }

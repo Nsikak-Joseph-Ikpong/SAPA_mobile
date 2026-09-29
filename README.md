@@ -163,7 +163,19 @@ file (`python -m sap_variance.reconcile SAP_Info.xlsx Confirmation_Journal.xlsx`
 Where two journals overlap, the bigger one is used whole and the other only adds postings it lacks
 (matched on Conf.ID, product and batch).
 
-The journal has no order ID, so postings are tied to orders:
+**Order reference (ground truth).** When the journal export has a *Reference Document ID* column (e.g.
+*confirmation journal 2*, sheet *Confirmation Journal with ref*), a production confirmation's reference
+is its production order. Every production confirmation that references an order on the order sheets is
+tied to that order outright: cheese and offcuts consumed, starch, output pallets and repacks (finished goods
+referencing an order that makes another product are a repack into it). The reference wins over the order
+fulfilment report and over the rules below. On warehouse and goods-and-activity confirmations the reference
+is another document, so they're not tied this way. A confirmation that references an order not on the
+order sheets is left alone rather than given to another order. When the referenced journal is loaded next
+to an older journal without the column, each posting keeps its reference whichever export it came from.
+Postings with no reference (older exports) still go through the fulfilment report and line-and-time
+matching, and the summary says which source each order's cheese came from.
+
+Without a reference, postings are tied to orders:
 
 * **Output:** a pallet of product X goes to the latest order for X that had started when it was posted
   (actual start = the order's *Production Start Date Time*).
