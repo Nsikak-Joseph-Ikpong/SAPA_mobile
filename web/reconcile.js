@@ -1224,8 +1224,46 @@
     return (ctx._batchIdx.get(material + "\u0000" + batch) || []).map((r) => ({ ...r, balance: (bal += r.qty) }));
   }
 
+  // Stock trace: every journal row for a batch (one product, or every product carrying that batch number), oldest
+  // first, with the running stock, the order each row belongs to, where the stock sits now and the stock overview
+  function traceStock(ctx, material, batch) {
+    const b = String(batch ?? "").trim(), m = String(material ?? "").trim().toUpperCase();
+    if (!ctx._traceIdx) {
+      const idx = new Map();
+      for (const r of ctx.wb.journal) { const k = String(r.batch); if (!idx.has(k)) idx.set(k, []); idx.get(k).push(r); }
+      ctx._traceIdx = idx;
+      // which order a posting belongs to: output pallets, cheese consumed, repacks (as tied by the checks)
+      const key = (r) => `${r.conf}\u0000${r.material}\u0000${r.batch}`, ord = new Map();
+      for (const r of ctx.outputs) if (r.order_id) ord.set(key(r), [r.order_id, "made by"]);
+      for (const c of ctx.consumption) if (c.order_id && c.batch !== null && !ord.has(key(c))) ord.set(key(c), [c.order_id, "consumed by"]);
+      for (const c of ctx.repacks || []) if (c.order_id && c.batch !== null && !ord.has(key(c))) ord.set(key(c), [c.order_id, "repacked into"]);
+      ctx._traceOrd = ord;
+    }
+    const all = (ctx._traceIdx.get(b) || []).filter((r) => !m || r.material.toUpperCase() === m);
+    const products = [];
+    for (const [mat, g] of groupBy(all, "material")) {
+      let bal = 0;
+      // same time stamp (the two rows of a move): the "out" row first, so the running total doesn't briefly double
+      const rows = g.map((r, i) => [r, i]).sort((x, y) => x[0].time - y[0].time || (x[0].qty < 0 ? 0 : 1) - (y[0].qty < 0 ? 0 : 1) || x[1] - y[1]).map(([r]) => {
+        const o = r.ref_order ? [r.ref_order, r.qty < 0 ? "consumed by" : "made by"] : ctx._traceOrd.get(`${r.conf}\u0000${r.material}\u0000${r.batch}`);
+        return { ...r, balance: (bal += r.qty), order: o ? o[0] : null, link: o ? o[1] : "" };
+      });
+      const areas = new Map();
+      for (const r of rows) areas.set(r.area, (areas.get(r.area) || 0) + r.qty);
+      const prod = rows.filter((r) => r.is_prod);
+      products.push({
+        material: mat, rows,
+        made: sum(prod.filter((r) => r.qty > 0).map((r) => r.qty)), consumed: -sum(prod.filter((r) => r.qty < 0).map((r) => r.qty)),
+        areas: [...areas].filter(([, q]) => Math.abs(q) > 1e-6).sort((x, y) => y[1] - x[1]),
+        orders: [...new Set(rows.filter((r) => r.order).map((r) => `${r.link} ${r.order}`))],
+        stock: (ctx.wb.stock || []).filter((s) => s.material === mat && String(s.batch) === b),
+      });
+    }
+    return { batch: b, material: m, products: products.sort((x, y) => cmpStr(x.material, y.material)) };
+  }
+
   const sheetKinds = (sheets) => [...new Set(sheets.map((sh) => findHeader(sh.rows)[0]).filter(Boolean))].sort();
-  const api = { RULES, readWorkbook, sheetKinds, batchHistory, prepare, check, verdict, isCheese, fmt: { f, fs, dm, dmy } };
+  const api = { RULES, readWorkbook, sheetKinds, batchHistory, traceStock, prepare, check, verdict, isCheese, fmt: { f, fs, dm, dmy } };
   root.OrderCheck = api;
   if (typeof module !== "undefined" && module.exports) module.exports = api;
 })(typeof window !== "undefined" ? window : globalThis);

@@ -286,6 +286,12 @@ type, Conf.ID, logistics area, Effective Qty and the running stock after each ro
 `https://nsikak-joseph-ikpong.github.io/SAP/`.
 
 The page is static: files you load are read in your browser and kept there (IndexedDB), nothing is uploaded.
+The **Stock trace** section takes a batch (pallet) number, and optionally a product code, and lists every
+confirmation journal posting for it in time order: receipts, moves, consumption, output, reversals and scrap, with
+the running stock, the logistics area, and the order each posting belongs to (as tied by the checks: the journal's
+order reference, output pallets, cheese consumed, repacks). It also shows where the batch sits by the journal, the
+stock overview for it, and links to the orders involved. Several batches can be traced at once (comma-separated).
+
 Each loaded file has a **Remove** button that takes just that file out of the check and out of the saved
 files; **Remove all files** clears them all.
 GitHub Pages sites are public on the internet (unless the account is GitHub Enterprise), and Pages on a
