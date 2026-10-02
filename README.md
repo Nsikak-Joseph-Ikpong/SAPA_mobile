@@ -161,7 +161,9 @@ Reads a workbook with these sheets (found by their column headers, names don't m
 *Confirmation Journal* and *Stock Overview*. A separate, fuller journal export can be passed as a second
 file (`python -m sap_variance.reconcile SAP_Info.xlsx Confirmation_Journal.xlsx`, or added on the web page).
 Where two journals overlap, the bigger one is used whole and the other only adds postings it lacks
-(matched on Conf.ID, product and batch).
+(matched on Conf.ID, product and batch). When another kind of sheet comes from more than one file (for example
+the order inputs in SAP_Info and in a newer "Production order input-output" export), each order's lines are
+taken from the latest file only, so nothing is counted twice; the stock overview is taken from the latest file.
 
 **Order reference (ground truth).** When the journal export has a *Reference Document ID* column (e.g.
 *confirmation journal 2*, sheet *Confirmation Journal with ref*), a production confirmation's reference

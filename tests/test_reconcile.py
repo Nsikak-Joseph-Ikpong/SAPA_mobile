@@ -361,3 +361,17 @@ def test_summary_says_job_ran_out_of_cheese_only_when_far_short(full):
             "so it looks like the job ran out of cheese.") in s["A1"]["narrative"]
     # B2 made more than planned, C3 made the plan: nothing about running out
     assert "ran out of cheese" not in s["B2"]["narrative"] and "ran out of cheese" not in s["C3"]["narrative"]
+
+
+def test_same_order_sheet_in_two_files_is_not_counted_twice(tmp_path):
+    # a newer export of the order inputs next to SAP_Info: each order's lines come from the latest file only
+    write_workbook(tmp_path / "SAP_Info.xlsx")
+    write_full_journal(tmp_path / "Confirmation_Journal.xlsx")
+    comp = pd.read_excel(tmp_path / "SAP_Info.xlsx", sheet_name="OUT+IN", header=None)
+    comp.loc[comp[7] == "RMSLICE", 10] = 800            # job C's cheese plan changed in the newer export
+    comp.to_excel(tmp_path / "input_output.xlsx", sheet_name="Production order input-output", header=False, index=False)
+    res = run(read_workbook([str(tmp_path / f) for f in ("SAP_Info.xlsx", "Confirmation_Journal.xlsx", "input_output.xlsx")]))
+    s = {x["order_id"]: x for x in res.summaries}
+    assert s["C3"]["cheese_planned_kg"] == pytest.approx(800)                      # not 700 + 800, and the newer value
+    assert s["A1"]["cheese_planned_kg"] == pytest.approx(1477.5 + 3447.5)          # not doubled
+    assert sum(1 for c in s["A1"]["components"] if c["material"] == "BOBOX") == 1

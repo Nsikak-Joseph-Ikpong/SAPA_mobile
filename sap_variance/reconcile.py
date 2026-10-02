@@ -195,9 +195,32 @@ def read_workbook(paths: list[str]) -> Workbook:
                 names.setdefault("journal", [])
                 names["journal"].append(f"{path.name} [{name}]")
             elif kind:
-                df = _frame(raw, row)
-                found[kind] = pd.concat([found[kind], df], ignore_index=True) if kind in found else df
+                found.setdefault(kind, []).append(_frame(raw, row))
                 names[kind] = f"{path.name} [{name}]"
+    # the same kind of sheet in more than one file (e.g. order inputs in SAP_Info and in a newer export): for each
+    # order only the rows of the latest file count, so nothing is counted twice; snapshots (stock) take the latest file
+    order_col = {"components": ("productionorderid", ["productionorderid", "productionorderstatus", "outputproductid",
+                                                      "resourceid", "earlieststartdatetime", "requestedstartdatetime"]),
+                 "outputs": ("productionorder", ["productionorder", "productionorderoutputproduct",
+                                                 "productionorderoutputproducttext"]),
+                 "fulfilment": ("productionlot", ["productionlot", "outputproduct", "inputproduct"])}
+    for kind, frames in list(found.items()):
+        if len(frames) == 1 or kind not in order_col:
+            found[kind] = frames[-1]
+            continue
+        key, fill = order_col[kind]
+        parts = []
+        for i, df in enumerate(frames):
+            df = df.copy()
+            for col in fill:
+                if col in df:
+                    df[col] = df[col].ffill()
+            df["_src"], df["_oid"] = i, _id(df[key])
+            parts.append(df)
+        allf = pd.concat(parts, ignore_index=True)
+        latest = allf.dropna(subset=["_oid"]).groupby("_oid")["_src"].max()
+        allf = allf[allf["_oid"].notna() & (allf["_src"] == allf["_oid"].map(latest))]
+        found[kind] = allf.drop(columns=["_src", "_oid"]).reset_index(drop=True)
     if journals:
         found["journal"] = _merge_journals(journals)
         names["journal"] = ", ".join(names["journal"])

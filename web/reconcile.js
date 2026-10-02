@@ -138,10 +138,26 @@
       if (!kind) continue;
       const fr = frame(sh.rows, h);
       if (kind === "journal") { journals.push(journalRows(fr)); jnames.push(`${sh.file} [${sh.sheet}]`); continue; }
-      if (found[kind]) found[kind].rows.push(...fr.rows); else found[kind] = fr;
+      (found[kind] ||= []).push(fr);
       names[kind] = `${sh.file} [${sh.sheet}]`;
     }
     if (journals.length) { found.journal = mergeJournals(journals); names.journal = jnames.join(", "); }
+    // the same kind of sheet in more than one file (e.g. order inputs in SAP_Info and in a newer export): for each
+    // order only the rows of the latest file count, so nothing is counted twice; snapshots (stock) take the latest file
+    const ORDER_COL = { components: ["productionorderid", ["productionorderid", "productionorderstatus", "outputproductid", "resourceid", "earlieststartdatetime", "requestedstartdatetime"]],
+      outputs: ["productionorder", ["productionorder", "productionorderoutputproduct", "productionorderoutputproducttext"]],
+      fulfilment: ["productionlot", ["productionlot", "outputproduct", "inputproduct"]] };
+    for (const kind of Object.keys(found)) {
+      if (kind === "journal") continue;
+      const frs = found[kind];
+      if (frs.length === 1) { found[kind] = frs[0]; continue; }
+      const oc = ORDER_COL[kind];
+      if (!oc) { found[kind] = frs[frs.length - 1]; continue; }
+      const tagged = frs.flatMap((fr, i) => { ffill(fr.rows, oc[1]); return fr.rows.map((r) => [r, i, id(r[oc[0]])]); });
+      const latest = new Map();
+      for (const [, i, o] of tagged) if (o !== null) latest.set(o, i);
+      found[kind] = { names: frs[frs.length - 1].names, rows: tagged.filter(([, i, o]) => o !== null && latest.get(o) === i).map(([r]) => r) };
+    }
     const missing = ["journal", "components"].filter((k) => !found[k]);
     if (missing.length) throw new Error("Could not find these sheets (by their column headers): " + missing.join(", "));
 
