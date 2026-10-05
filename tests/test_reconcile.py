@@ -3,7 +3,7 @@
 import pandas as pd
 import pytest
 
-from sap_variance.reconcile import read_workbook, run
+from sap_variance.reconcile import Rules, consumption_rows, read_workbook, run
 
 GA, PC = "Goods and Activity Confirmation", "Production Confirmation"
 
@@ -375,3 +375,22 @@ def test_same_order_sheet_in_two_files_is_not_counted_twice(tmp_path):
     assert s["C3"]["cheese_planned_kg"] == pytest.approx(800)                      # not 700 + 800, and the newer value
     assert s["A1"]["cheese_planned_kg"] == pytest.approx(1477.5 + 3447.5)          # not doubled
     assert sum(1 for c in s["A1"]["components"] if c["material"] == "BOBOX") == 1
+
+
+def test_offcut_bin_put_back_is_a_reversal_not_offcuts_made():
+    # job 2173: bin batches consumed, most put back later on the same order (same weight, positive);
+    # a positive row on a bin batch the order never consumed is offcuts made
+    t = lambda hm: pd.Timestamp(f"2026-09-29 {hm}")
+    rows = [("MBMJOFF", "55459", "2173", t("08:22"), -9.69), ("MBMJOFF", "55459", "2173", t("08:55"), 9.69),
+            ("MBMJOFF", "55642", "2173", t("08:16"), -9.72),
+            ("MBMJOFF", "55653", "2173", t("08:17"), -9.83),
+            ("MBMJOFF", "55472", "2173", t("08:23"), -9.83), ("MBMJOFF", "55472", "2173", t("08:53"), 9.83),
+            ("MBMJOFF", "90001", "2173", t("09:30"), 12.00),     # new bin: offcuts made
+            ("MBMJOFF", "55642", "9999", t("09:40"), 9.72)]      # another order: not this order's reversal
+    j = pd.DataFrame(rows, columns=["material", "batch", "ref", "time", "qty"]).assign(is_prod=True)
+    c = consumption_rows(j, Rules())
+    assert c["qty"].sum() == pytest.approx(-(9.72 + 9.83))
+    assert set(c.loc[c["qty"] > 0, "batch"]) == {"55459", "55472"}
+    # without an order reference a bin filled and emptied by different jobs can't be told from a reversal
+    c2 = consumption_rows(j.assign(ref=None), Rules())
+    assert (c2["qty"] > 0).sum() == 0

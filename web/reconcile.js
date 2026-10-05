@@ -325,8 +325,28 @@
   }
 
   // Cheese consumed on production confirmations: negative cheese rows (positive block-cheese rows are
-  // reversals). Positive offcut-bin rows are offcuts produced, not consumption.
-  const consumptionRows = (journal) => journal.filter((r) => r.is_prod && r.qty !== 0 && isCheese(r.material) && !(RULES.offcut_pattern.test(r.material.toUpperCase()) && r.qty > 0));
+  // reversals). A positive offcut-bin row reverses an earlier consumption of the same bin batch on the same
+  // order (both rows carry that order's Reference Document ID) when it fits within what is still consumed; otherwise
+  // (or with no reference) it's offcuts produced.
+  const offcutReversals = (journal) => {
+    const rev = new Set(), bal = new Map();
+    const rows = journal.filter((r) => r.is_prod && r.qty !== 0 && RULES.offcut_pattern.test(r.material.toUpperCase())).sort((a, b) => a.time - b.time);
+    for (const r of rows) {
+      if (r.ref === null || r.ref === undefined || r.ref === "" || r.ref === "#") continue;
+      const k = `${r.material}\u0000${r.batch}\u0000${r.ref}`, b = bal.get(k) || 0;
+      if (r.qty < 0) bal.set(k, b - r.qty);
+      else if (r.qty <= b + 0.005) { rev.add(r); bal.set(k, b - r.qty); }
+    }
+    return rev;
+  };
+  const consCache = new WeakMap();
+  const consumptionRows = (journal) => {
+    if (consCache.has(journal)) return consCache.get(journal);
+    const rev = offcutReversals(journal);
+    const out = journal.filter((r) => r.is_prod && r.qty !== 0 && isCheese(r.material) && !(RULES.offcut_pattern.test(r.material.toUpperCase()) && r.qty > 0 && !rev.has(r)));
+    consCache.set(journal, out);
+    return out;
+  };
 
   const ctype = (m) => { const u = String(m).toUpperCase(); return RULES.offcut_pattern.test(u) ? u : u.slice(0, 4); };
 
@@ -1279,7 +1299,7 @@
   }
 
   const sheetKinds = (sheets) => [...new Set(sheets.map((sh) => findHeader(sh.rows)[0]).filter(Boolean))].sort();
-  const api = { RULES, readWorkbook, sheetKinds, batchHistory, traceStock, prepare, check, verdict, isCheese, fmt: { f, fs, dm, dmy } };
+  const api = { RULES, readWorkbook, sheetKinds, batchHistory, traceStock, prepare, check, verdict, isCheese, consumptionRows, fmt: { f, fs, dm, dmy } };
   root.OrderCheck = api;
   if (typeof module !== "undefined" && module.exports) module.exports = api;
 })(typeof window !== "undefined" ? window : globalThis);

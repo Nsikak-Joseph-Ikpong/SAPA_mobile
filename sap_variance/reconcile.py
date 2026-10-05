@@ -422,9 +422,26 @@ def _line_context(wb: Workbook, windows: pd.DataFrame, outputs: pd.DataFrame, ru
 
 def consumption_rows(journal: pd.DataFrame, rules: Rules) -> pd.DataFrame:
     """Cheese consumed on production confirmations: negative cheese rows (positive block-cheese rows
-    are reversals). Positive offcut-bin rows are offcuts produced, not consumption."""
+    are reversals). A positive offcut-bin row reverses an earlier consumption of the same bin batch on the
+    same order (both rows carry that order's Reference Document ID) when it fits within what is still consumed;
+    otherwise (or with no reference) it's offcuts produced, not consumption."""
     ch = journal["is_prod"] & journal["material"].map(lambda m: is_cheese(m, rules)) & (journal["qty"] != 0)
-    offcut_made = journal["material"].str.upper().str.match(rules.offcut_pattern) & (journal["qty"] > 0)
+    off = journal["material"].str.upper().str.match(rules.offcut_pattern)
+    reversal = pd.Series(False, index=journal.index)
+    refs = journal["ref"] if "ref" in journal else pd.Series(None, index=journal.index)
+    bal: dict = {}
+    for i, r in journal[ch & off].sort_values("time", kind="stable").iterrows():
+        ref = refs[i]
+        if ref is None or pd.isna(ref) or ref in ("", "#"):
+            continue
+        k = (r["material"], r["batch"], ref)
+        b = bal.get(k, 0.0)
+        if r["qty"] < 0:
+            bal[k] = b - r["qty"]
+        elif r["qty"] <= b + 0.005:
+            reversal[i] = True
+            bal[k] = b - r["qty"]
+    offcut_made = off & (journal["qty"] > 0) & ~reversal
     return journal[ch & ~offcut_made]
 
 
