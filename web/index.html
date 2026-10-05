@@ -135,6 +135,11 @@
   details.ev { border-top: 1px solid var(--line); padding-top: 10px; }
   details.ev summary { cursor: pointer; font-size: 13px; color: var(--accent); font-weight: 500; }
   .scroll { overflow-x: auto; margin-top: 8px; }
+  table.sortable th { cursor: pointer; user-select: none; }
+  table.sortable th:hover { color: var(--ink); }
+  table.sortable th[aria-sort="ascending"]::after { content: " \25B2"; }
+  table.sortable th[aria-sort="descending"]::after { content: " \25BC"; }
+  input.tfilter { margin-top: 8px; width: 100%; max-width: 320px; font: inherit; font-size: 13px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--ink); }
   table { border-collapse: collapse; width: 100%; font-size: 12.5px; }
   th, td { text-align: left; padding: 5px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
   th { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); font-weight: 600; }
@@ -564,8 +569,8 @@
     // as in the SAP confirmation journal: Effective Qty negative for consumption, positive for a reversal
     const p2 = (n) => String(n).padStart(2, "0");
     const sapTime = (t) => { if (t === null || t === undefined || isNaN(t)) return ""; const d = new Date(t); return `${p2(d.getUTCDate())}.${p2(d.getUTCMonth() + 1)}.${d.getUTCFullYear()} ${p2(d.getUTCHours())}:${p2(d.getUTCMinutes())}:${p2(d.getUTCSeconds())}`; };
-    const consRows = (s.consumption || []).map((c) => `<tr class="${c.consumed < 0 ? "neg" : ""}"><td class="m">${esc(c.material)}</td><td class="m">${batchBtn(c.material, c.batch)}</td><td class="m">${esc(c.area)}</td><td class="m">${esc(sapTime(c.time))}</td><td>Production Confirmation</td><td class="m">${esc(c.conf)}</td><td class="n">${f(-c.consumed, 2)}</td><td>${VIA[c.via] || c.via}</td><td>${esc(c.other_orders || "")}</td></tr>`).join("")
-      + ((s.consumption || []).length ? `<tr class="tot"><td colspan="6"><strong>Total</strong></td><td class="n"><strong>${f(-s.cheese_consumed_kg, 2)}</strong></td><td></td><td></td></tr>` : "");
+    const consRows = (s.consumption || []).map((c) => `<tr class="${c.consumed < 0 ? "neg" : ""}"><td class="m">${esc(c.material)}</td><td class="m" data-v="${esc(c.batch ?? "")}">${batchBtn(c.material, c.batch)}</td><td class="m">${esc(c.area)}</td><td class="m" data-v="${c.time}">${esc(sapTime(c.time))}</td><td>Production Confirmation</td><td class="m" data-v="${esc(c.conf)}">${esc(c.conf)}</td><td class="n" data-v="${-c.consumed}">${f(-c.consumed, 2)}</td><td>${VIA[c.via] || c.via}</td><td>${esc(c.other_orders || "")}</td></tr>`).join("");
+    const consFoot = (s.consumption || []).length ? `<tfoot><tr class="tot"><td colspan="6"><strong class="ftLabel">Total</strong></td><td class="n" data-col="6"><strong class="ftSum">${f(-s.cheese_consumed_kg, 2)}</strong></td><td></td><td></td></tr></tfoot>` : "";
     const rpPost = s.repack_postings || [];
     const rpW = Object.fromEntries(rps.map((x) => [x.material, x.kg_per_case]));
     const rpRows = rpPost.map((c) => `<tr class="${c.cases < 0 ? "neg" : ""}"><td class="m">${esc(c.material)}</td><td class="m">${batchBtn(c.material, c.batch)}</td><td class="m">${esc(c.area)}</td><td class="m">${esc(sapTime(c.time))}</td><td class="m">${esc(c.conf)}</td><td class="n">${f(-c.cases, 2)}</td><td class="n">${rpW[c.material] ? f(rpW[c.material], 3) : ""}</td><td class="n">${rpW[c.material] ? f(c.cases * rpW[c.material], 1) : ""}</td><td>${c.via === "journal" ? "job start / run" : VIA[c.via] || c.via}</td></tr>`).join("")
@@ -577,8 +582,9 @@
       <details class="ev" open><summary>Inputs on the order (${s.components.length})</summary><div class="scroll"><table>
         <thead><tr><th>Material</th><th>Planned</th><th>Issued</th><th>Open</th>${consumedCol ? "<th>Consumed (journal)</th>" : ""}<th>Needed for cases made</th><th>Issued − needed</th><th></th></tr></thead><tbody>${compRows}</tbody></table></div></details>
       ${consumedCol ? `<details class="ev"><summary>Cheese consumed (${s.consumption.length})</summary>
-        <p class="hint">${srcHint(s)} As in the SAP journal: negative Effective Qty is cheese consumed, positive is a reversal (highlighted).</p><div class="scroll"><table>
-        <thead><tr><th>Product</th><th>Identified Stock ID</th><th>Logistics Area ID</th><th>Created On</th><th>Conf.Document Type</th><th>Conf.ID</th><th>Effective Qty</th><th>Tied to the order by</th><th>Could also be</th></tr></thead><tbody>${consRows || `<tr><td colspan="9">None</td></tr>`}</tbody></table></div></details>` : ""}
+        <p class="hint">${srcHint(s)} As in the SAP journal: negative Effective Qty is cheese consumed, positive is a reversal (highlighted). Click a column heading to sort by it.</p>
+        ${consRows ? `<input type="search" class="tfilter" placeholder="Filter by stock ID, Conf.ID, product…" aria-label="Filter cheese consumed">` : ""}<div class="scroll"><table class="sortable">
+        <thead><tr><th>Product</th><th>Identified Stock ID</th><th>Logistics Area ID</th><th>Created On</th><th>Conf.Document Type</th><th>Conf.ID</th><th>Effective Qty</th><th>Tied to the order by</th><th>Could also be</th></tr></thead><tbody>${consRows || `<tr><td colspan="9">None</td></tr>`}</tbody>${consFoot}</table></div></details>` : ""}
       ${rpHtml}
       <details class="ev"${dbl.size || irr.size || s.outputs.some((o) => lineAreas.has(o.area)) ? " open" : ""}><summary>Output postings in the journal (${s.outputs.length}) · click a pallet for its history${dbl.size ? ` · double-booked pallet${dbl.size > 1 ? "s" : ""} ${[...dbl].join(", ")} in red` : ""}${irr.size ? ` · pallets off the usual count (${[...irr].join(", ")}) in red` : ""}${s.outputs.some((o) => lineAreas.has(o.area)) ? " · posted on a line area shaded" : ""}</summary><div class="scroll"><table>
         <thead><tr><th>Conf.ID</th><th>Posted</th><th>Pallet</th><th>Cases</th><th>Area</th></tr></thead><tbody>${outRows || `<tr><td colspan="5">None</td></tr>`}</tbody></table></div></details>
@@ -642,6 +648,43 @@
   ["dragleave", "drop"].forEach((ev) => drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.remove("over"); }));
   drop.addEventListener("drop", (e) => onFiles([...e.dataTransfer.files]));
   $("report").onclick = () => downloadReport().catch((e) => toast("Couldn't build the report: " + e.message));
+  // sortable tables: click a heading to sort by that column (again to reverse); history rows are closed first
+  const cellKey = (td) => (td ? (td.dataset.v !== undefined ? td.dataset.v : td.textContent.trim()) : "");
+  $("result").addEventListener("click", (e) => {
+    const th = e.target.closest("table.sortable thead th");
+    if (!th) return;
+    const table = th.closest("table"), body = table.tBodies[0], col = th.cellIndex;
+    body.querySelectorAll("tr.histrow").forEach((r) => r.remove());
+    const dir = th.getAttribute("aria-sort") === "ascending" ? -1 : 1;
+    table.querySelectorAll("thead th").forEach((h) => h.removeAttribute("aria-sort"));
+    th.setAttribute("aria-sort", dir === 1 ? "ascending" : "descending");
+    const rows = [...body.rows];
+    if (rows.length < 2) return;
+    rows.sort((a, b) => {
+      const x = cellKey(a.cells[col]), y = cellKey(b.cells[col]), nx = Number(x), ny = Number(y);
+      const c = x !== "" && y !== "" && isFinite(nx) && isFinite(ny) ? nx - ny : x.localeCompare(y, undefined, { numeric: true });
+      return c * dir;
+    });
+    rows.forEach((r) => body.appendChild(r));
+  });
+  // filter box above a table: keep the rows that contain the text; the total covers the rows shown
+  $("result").addEventListener("input", (e) => {
+    const box = e.target.closest("input.tfilter");
+    if (!box) return;
+    const table = box.parentElement.querySelector("table"), q = box.value.trim().toLowerCase();
+    table.tBodies[0].querySelectorAll("tr.histrow").forEach((r) => r.remove());
+    const sumTd = table.querySelector("tfoot td[data-col]"), col = sumTd ? Number(sumTd.dataset.col) : -1;
+    let total = 0, shown = 0;
+    for (const r of table.tBodies[0].rows) {
+      const keep = !q || r.textContent.toLowerCase().includes(q);
+      r.hidden = !keep;
+      if (keep) { shown++; if (col >= 0) total += Number(cellKey(r.cells[col])) || 0; }
+    }
+    if (sumTd) {
+      sumTd.querySelector(".ftSum").textContent = f(total, 2);
+      table.querySelector("tfoot .ftLabel").textContent = q ? `Total of ${shown} shown` : "Total";
+    }
+  });
   // click a pallet or batch number: its full confirmation history from the journal, under the row
   $("result").addEventListener("click", (e) => {
     const btn = e.target.closest("button.hist");
