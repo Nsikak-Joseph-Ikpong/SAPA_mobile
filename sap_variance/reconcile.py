@@ -256,7 +256,7 @@ def read_workbook(paths: list[str]) -> Workbook:
             "fg_text": o["productionorderoutputproducttext"], "material": o["product"].astype(str).str.strip(),
             "text": o["producttext"], "planned": _num(o["plannedquantity"]), "fulfilled": _num(o["fulfilledquantity"]),
             "open": _num(o["openquantity"]) if "openquantity" in o else float("nan"),
-            "start_actual": _time(o["productionstartdatetime"]), "latest_end": _time(o["productionorderlatestenddatetime"]),
+            "start_actual": _time(o["productionstartdatetime"]), "latest_end": _time(o["productionorderlatestenddatetime"]) if "productionorderlatestenddatetime" in o else pd.NaT,
         })
         main = o[o["material"] == o["fg"]]
         head = main.groupby("order_id").agg(planned_out=("planned", "sum"), fulfilled_out=("fulfilled", "sum"),
