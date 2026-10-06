@@ -23,6 +23,27 @@ and the tool flags any disagreement between them.
 pip install -r requirements.txt
 ```
 
+## Run the checker page on your computer (localhost)
+
+```bash
+python serve.py
+```
+
+This opens http://localhost:8000 in your browser (`--port 8080` for another port,
+`--no-browser` to not open it). Only your computer can reach it, and the files you
+load stay in the browser. The spreadsheet reader is bundled in `web/vendor/`, so it
+works without internet access. Stop it with Ctrl+C.
+
+The page itself needs nothing from `requirements.txt`, only Python 3.9 or later.
+
+**In PyCharm:**
+1. Open this folder as a project (File > Open), and pick a Python interpreter when
+   asked (or Settings > Project > Python Interpreter > Add Interpreter > Virtualenv).
+2. Open `requirements.txt` and click *Install requirements* in the yellow bar (for the
+   command-line checker and tests).
+3. Right-click `serve.py` > *Run 'serve'*. The browser opens on the checker; the red
+   Stop button stops it. After that, the green Run button starts it again.
+
 ## Use
 
 ```bash
@@ -161,9 +182,23 @@ Reads a workbook with these sheets (found by their column headers, names don't m
 *Confirmation Journal* and *Stock Overview*. A separate, fuller journal export can be passed as a second
 file (`python -m sap_variance.reconcile SAP_Info.xlsx Confirmation_Journal.xlsx`, or added on the web page).
 Where two journals overlap, the bigger one is used whole and the other only adds postings it lacks
-(matched on Conf.ID, product and batch).
+(matched on Conf.ID, product and batch). When another kind of sheet comes from more than one file (for example
+the order inputs in SAP_Info and in a newer "Production order input-output" export), each order's lines are
+taken from the latest file only, so nothing is counted twice; the stock overview is taken from the latest file.
 
-The journal has no order ID, so postings are tied to orders:
+**Order reference (ground truth).** When the journal export has a *Reference Document ID* column (e.g.
+*confirmation journal 2*, sheet *Confirmation Journal with ref*), a production confirmation's reference
+is its production order. Every production confirmation that references an order on the order sheets is
+tied to that order outright: cheese and offcuts consumed, starch, output pallets and repacks (finished goods
+referencing an order that makes another product are a repack into it). The reference wins over the order
+fulfilment report and over the rules below. On warehouse and goods-and-activity confirmations the reference
+is another document, so they're not tied this way. A confirmation that references an order not on the
+order sheets is left alone rather than given to another order. When the referenced journal is loaded next
+to an older journal without the column, each posting keeps its reference whichever export it came from.
+Postings with no reference (older exports) still go through the fulfilment report and line-and-time
+matching, and the summary says which source each order's cheese came from.
+
+Without a reference, postings are tied to orders:
 
 * **Output:** a pallet of product X goes to the latest order for X that had started when it was posted
   (actual start = the order's *Production Start Date Time*).
@@ -220,8 +255,30 @@ planned output):
   or given to a neighbouring job, a recipe cheese not consumed at all, cheese moved back off the line
   without the consumption being reversed, offcuts above or below expected, output findings. The page can
   download the variance report for every order; the Excel report has it as its first sheet;
-* **planned, actual and open** for the product (cases), offcuts made, cheese blocks, offcuts used and
-  starch. Open is worked out as planned − actual (the order sheet's open quantity isn't reliable); actual
+* **summary**: each order opens with a plain-words summary of what was found, e.g. "Regarding job 1971
+  (MJFG2122EX, Finely Grated Monterey Jack 6x2kg), I found from the order fulfilment report that the total
+  input is 4,736.26 kg: 3,515.1 kg of cheese blocks, 1,137.56 kg of offcuts, 75.6 kg of starch and 8 kg of
+  repacks: 4 packs of MJFG2122EX (0.67 cases). The plan was 400 cases (400 × 12 kg = 4,800 kg) and 420 cases
+  were made (420 × 12 kg = 5,040 kg). That's 303.74 kg more out than went in, so it's not clear how 420
+  cases were made with less cheese, even counting the repacks.", followed, when the variance is outside
+  tolerance, by the cheese-only giveaway and the strongest journal lead. Cheese that went in with no output
+  is stated as "X kg of cheese has no output and is unaccounted for". When 75% or less of the planned cases
+  were made and 75% or less of the planned cheese went in, and that cheese is about what the cases made need
+  (75-125%), it adds "so it looks like the job ran out of cheese"; small shortfalls say nothing. Other findings stay in the findings
+  list, not the summary. It's also the Summary column of the variance report. Under the figures, three bar
+  charts show product planned / made / in the journal (cases) and cheese planned / needed for what was made
+  / consumed (kg, repacks hatched on the consumed bar), and offcuts planned / expected for the cases made / made (kg);
+* **repacks**: finished goods used as an input (a product some order makes, e.g. REMMCSL10200ALD and
+  REMMRSL12160SM going into job 1868). They're taken from the order sheet when it lists them, else the
+  order fulfilment report, else the journal: a production confirmation consuming finished goods (not the
+  reversal of a job's own pallet) belongs to the job making that same product while it runs (start to
+  last pallet plus 15 minutes), or else to a repack job (`RE...`) that started up to 10 minutes before it. Cases are weighed by the product's own case weight
+  (from its text, pack code or recipe: 189 cases of a 10x200g product = 378 kg) and added to the cheese in
+  the cheese check, mass balance and variance, but always shown apart: their own tile, variance columns
+  (cheese consumed, repacks in, actual cheese issued = both), rows in planned/actual/open, and a table of
+  the postings (`REPACK_INPUT`; `REPACK_WEIGHT_UNKNOWN` when no case weight is found);
+* **planned, actual and open** for the product (cases), offcuts made, cheese blocks, offcuts used,
+  starch and repacks (cases). Open is worked out as planned − actual (the order sheet's open quantity isn't reliable); actual
   cheese and starch are what the journal shows consumed, product and offcuts as made on the order. Open
   quantities are also in the variance report;
 * when the journal has no consumption lines: cheese issued on the order sheet vs needed, or, when the
@@ -235,7 +292,10 @@ The confirmation journal backs this up: output in the journal vs fulfilled on th
 bulk or hours late, pallets larger than usual, reversals. A pallet whose confirmed cases are double or more
 its usual size, and not corrected, is double booked (`PALLET_DOUBLE_BOOKED`, HIGH, listing each
 confirmation and the cases the output is overstated by); a pallet confirmed more than once but corrected,
-or under double, is `PALLET_CONFIRMED_MORE_THAN_ONCE` (MEDIUM).
+or under double, is `PALLET_CONFIRMED_MORE_THAN_ONCE` (MEDIUM). One pallet off the usual count (the last of a
+run) is normal; two or more pallets off it (e.g. 112, 112, 7, 43 where 112 is usual) are
+`PALLET_QUANTITIES_IRREGULAR` (HIGH, those pallets in red on the page). Output posted to a line's logistics
+area (SL_1/2/3, GRATINGLINES) instead of FG_STAGING is `OUTPUT_ON_LINE_AREA` (MEDIUM, shaded on the page).
 The Excel report lists the order's inputs, the output postings and the cheese moved to the line.
 On the web page, clicking a pallet or batch number (in the output postings or the cheese consumed table)
 opens that batch's full confirmation history from the journal: every confirmation in time order with its
@@ -249,5 +309,13 @@ type, Conf.ID, logistics area, Effective Qty and the running stock after each ro
 `https://nsikak-joseph-ikpong.github.io/SAP/`.
 
 The page is static: files you load are read in your browser and kept there (IndexedDB), nothing is uploaded.
+The **Stock trace** section takes a batch (pallet) number, and optionally a product code, and lists every
+confirmation journal posting for it in time order: receipts, moves, consumption, output, reversals and scrap, with
+the running stock, the logistics area, and the order each posting belongs to (as tied by the checks: the journal's
+order reference, output pallets, cheese consumed, repacks). It also shows where the batch sits by the journal, the
+stock overview for it, and links to the orders involved. Several batches can be traced at once (comma-separated).
+
+Each loaded file has a **Remove** button that takes just that file out of the check and out of the saved
+files; **Remove all files** clears them all.
 GitHub Pages sites are public on the internet (unless the account is GitHub Enterprise), and Pages on a
 private repository needs a paid GitHub plan; the page itself holds only the synthetic demo data.

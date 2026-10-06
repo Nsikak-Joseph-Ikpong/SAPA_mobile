@@ -8,7 +8,7 @@
     skip_resources: ["FLOOR_WASTE", "LINE_RECOVERY"],
     cheese_prefixes: ["RM"], not_cheese_prefixes: ["RMPS"], offcut_pattern: /^MB.*OFF$/,
     lead_hours: 2, tail_hours: 1, return_hours: 24, order_start_slack_hours: 1, max_order_age_hours: 72,
-    bulk_pallets: 4, late_hours: 2, handoff_minutes: 30, consumption_grace_minutes: 15, start_anchor_seconds: 2, tolerance_pct: 0.05, tolerance_kg: 50, blend_tolerance: 0.08, offcut_tolerance: 0.03,
+    bulk_pallets: 4, late_hours: 2, handoff_minutes: 30, consumption_grace_minutes: 15, start_anchor_seconds: 2, repack_minutes: 10, repack_prefixes: ["RE"], tolerance_pct: 0.05, tolerance_kg: 50, blend_tolerance: 0.08, offcut_tolerance: 0.03,
   };
   const SEV = { HIGH: 0, MEDIUM: 1, LOW: 2, INFO: 3 };
   const H = 3600000;
@@ -105,7 +105,8 @@
       if (isNaN(t) || isNaN(q)) continue;
       const doc = String(r.confdocumenttype);
       journal.push({ site: r.site, material: str(r.product), batch: id(r[bc]), area: str(r[ac]), time: t, doc,
-        conf: id(r.confid), qty: q, is_prod: /production/i.test(doc) });
+        // the production order on production confirmations (Reference Document ID), when the export has it
+        conf: id(r.confid), qty: q, is_prod: /production/i.test(doc), ref: "referencedocumentid" in r ? id(r.referencedocumentid) : null });
     }
     return journal;
   }
@@ -117,8 +118,16 @@
     const k = (r) => `${r.conf}|${r.material}|${r.batch}`;
     const seen = new Set(js[0].map(k));
     const out = js[0].slice();
-    for (const j of js.slice(1)) for (const r of j) if (!seen.has(k(r))) out.push(r);
-    return out;
+    for (const j of js.slice(1)) {
+      // a posting two of the smaller exports both have is added once (a move has two rows with the same key: both kept)
+      const add = j.filter((r) => !seen.has(k(r)));
+      for (const r of add) out.push(r);
+      for (const r of j) seen.add(k(r));
+    }
+    // a posting's order reference is kept whichever export it came from
+    const refs = new Map();
+    for (const j of js) for (const r of j) if (r.ref !== null && r.ref !== undefined && r.ref !== "#") refs.set(k(r), r.ref);
+    return refs.size ? out.map((r) => (refs.has(k(r)) ? { ...r, ref: refs.get(k(r)) } : r)) : out;
   }
 
   // sheets: [{file, sheet, rows: [[...], ...]}]
@@ -129,10 +138,26 @@
       if (!kind) continue;
       const fr = frame(sh.rows, h);
       if (kind === "journal") { journals.push(journalRows(fr)); jnames.push(`${sh.file} [${sh.sheet}]`); continue; }
-      if (found[kind]) found[kind].rows.push(...fr.rows); else found[kind] = fr;
+      (found[kind] ||= []).push(fr);
       names[kind] = `${sh.file} [${sh.sheet}]`;
     }
     if (journals.length) { found.journal = mergeJournals(journals); names.journal = jnames.join(", "); }
+    // the same kind of sheet in more than one file (e.g. order inputs in SAP_Info and in a newer export): for each
+    // order only the rows of the latest file count, so nothing is counted twice; snapshots (stock) take the latest file
+    const ORDER_COL = { components: ["productionorderid", ["productionorderid", "productionorderstatus", "outputproductid", "resourceid", "earlieststartdatetime", "requestedstartdatetime"]],
+      outputs: ["productionorder", ["productionorder", "productionorderoutputproduct", "productionorderoutputproducttext"]],
+      fulfilment: ["productionlot", ["productionlot", "outputproduct", "inputproduct"]] };
+    for (const kind of Object.keys(found)) {
+      if (kind === "journal") continue;
+      const frs = found[kind];
+      if (frs.length === 1) { found[kind] = frs[0]; continue; }
+      const oc = ORDER_COL[kind];
+      if (!oc) { found[kind] = frs[frs.length - 1]; continue; }
+      const tagged = frs.flatMap((fr, i) => { ffill(fr.rows, oc[1]); return fr.rows.map((r) => [r, i, id(r[oc[0]])]); });
+      const latest = new Map();
+      for (const [, i, o] of tagged) if (o !== null) latest.set(o, i);
+      found[kind] = { names: frs[frs.length - 1].names, rows: tagged.filter(([, i, o]) => o !== null && latest.get(o) === i).map(([r]) => r) };
+    }
     const missing = ["journal", "components"].filter((k) => !found[k]);
     if (missing.length) throw new Error("Could not find these sheets (by their column headers): " + missing.join(", "));
 
@@ -198,7 +223,7 @@
       const fr = found.fulfilment.rows;
       ffill(fr, ["productionlot", "outputproduct", "inputproduct"]);
       fulfilment = fr.map((r) => ({ order_id: id(r.productionlot), material: str(r.inputproduct), conf: id(r.confid),
-        kg: num(r.inventoryvaluationqty), planned: num(r.inputproductplannedquantity) }))   // kg (Confirmed Qty can be in blocks)
+        kg: num(r.inventoryvaluationqty), planned: num(r.inputproductplannedquantity), qty: num(r.confirmedqty) }))   // kg (Confirmed Qty can be in blocks or cases)
         .filter((r) => r.order_id !== null && !["#", "Result", "nan"].includes(r.material) && r.conf !== null && r.conf !== "#" && !isNaN(r.kg));
     }
     return { orders, components: comp, byproducts: byp, journal, stock, sheets: names, fulfilment };
@@ -213,7 +238,7 @@
 
   function assignOutputs(wb) {
     const fgs = new Set(wb.orders.map((o) => o.fg));
-    const out = wb.journal.filter((r) => r.is_prod && fgs.has(r.material)).map((r) => ({ ...r, order_id: null }));
+    let out = wb.journal.filter((r) => r.is_prod && fgs.has(r.material)).map((r) => ({ ...r, order_id: null, _row: r }));
     const started = wb.orders.filter((o) => !isNaN(o.start_actual) || !["released", "canceled", "cancelled"].includes(String(o.status).toLowerCase()));
     const starts = {};
     for (const o of started) if (!isNaN(o.start)) (starts[o.fg] ||= []).push([o.order_id, o.start]);
@@ -224,6 +249,11 @@
       for (const [oid, st] of starts[r.material] || []) { if (st <= r.time + slack) best = [oid, st]; else break; }
       r.order_id = best && r.time - best[1] <= maxAge ? best[0] : null;
     }
+    // the journal's order reference wins; finished goods referencing an order that makes another product are
+    // an input to it (a repack), not output
+    const fgOf = new Map(wb.orders.map((o) => [o.order_id, o.fg]));
+    for (const r of out) if (r.ref_order) r.order_id = r.ref_order;
+    out = out.filter((r) => !r.ref_order || fgOf.get(r.ref_order) === r.material);
     // A negative row is a reversal only for a pallet the order posted as output; otherwise it's
     // finished goods used as an input (rework)
     const made = new Set(out.filter((r) => r.qty > 0).map((r) => `${r.order_id}|${r.material}|${r.batch}`));
@@ -295,8 +325,28 @@
   }
 
   // Cheese consumed on production confirmations: negative cheese rows (positive block-cheese rows are
-  // reversals). Positive offcut-bin rows are offcuts produced, not consumption.
-  const consumptionRows = (journal) => journal.filter((r) => r.is_prod && r.qty !== 0 && isCheese(r.material) && !(RULES.offcut_pattern.test(r.material.toUpperCase()) && r.qty > 0));
+  // reversals). A positive offcut-bin row reverses an earlier consumption of the same bin batch on the same
+  // order (both rows carry that order's Reference Document ID) when it fits within what is still consumed; otherwise
+  // (or with no reference) it's offcuts produced.
+  const offcutReversals = (journal) => {
+    const rev = new Set(), bal = new Map();
+    const rows = journal.filter((r) => r.is_prod && r.qty !== 0 && RULES.offcut_pattern.test(r.material.toUpperCase())).sort((a, b) => a.time - b.time);
+    for (const r of rows) {
+      if (r.ref === null || r.ref === undefined || r.ref === "" || r.ref === "#") continue;
+      const k = `${r.material}\u0000${r.batch}\u0000${r.ref}`, b = bal.get(k) || 0;
+      if (r.qty < 0) bal.set(k, b - r.qty);
+      else if (r.qty <= b + 0.005) { rev.add(r); bal.set(k, b - r.qty); }
+    }
+    return rev;
+  };
+  const consCache = new WeakMap();
+  const consumptionRows = (journal) => {
+    if (consCache.has(journal)) return consCache.get(journal);
+    const rev = offcutReversals(journal);
+    const out = journal.filter((r) => r.is_prod && r.qty !== 0 && isCheese(r.material) && !(RULES.offcut_pattern.test(r.material.toUpperCase()) && r.qty > 0 && !rev.has(r)));
+    consCache.set(journal, out);
+    return out;
+  };
 
   const ctype = (m) => { const u = String(m).toUpperCase(); return RULES.offcut_pattern.test(u) ? u : u.slice(0, 4); };
 
@@ -328,7 +378,8 @@
     for (const [o, ms] of Object.entries(lc.recipe)) types[o] = new Set([...ms].map(ctype));
     const lcTyped = { ...lcc, recipe: types };
     const lineAreas = new Set(Object.values(RULES.line_areas));
-    const cons = consumptionRows(wb.journal).filter((r) => lineAreas.has(r.area) && !ownedPairs.has(r.conf + "\u0000" + r.material)).map((r, i) => [r, i])
+    // a confirmation that names its order (even one not on the order sheets) isn't anyone else's
+    const cons = consumptionRows(wb.journal).filter((r) => lineAreas.has(r.area) && (r.ref === null || r.ref === undefined || r.ref === "#") && !ownedPairs.has(r.conf + "\u0000" + r.material)).map((r, i) => [r, i])
       .sort((a, b) => a[0].time - b[0].time || a[1] - b[1]).map((x) => x[0]);
     const lastUser = new Map(), rows = [];
     for (const r of cons) {
@@ -358,7 +409,16 @@
   // Cheese consumed per order straight from the order fulfilment report (in kg). Each confirmation is matched to its
   // journal rows by Conf.ID and product for the batch, area and time; if the journal doesn't have it (posted after the
   // export) it's kept as one row without a batch.
-  function fulfilmentConsumption(wb) {
+  // Cheese consumed on production confirmations whose Reference Document ID names the order: the ground truth
+  function referenceConsumption(wb) {
+    const recipe = {};
+    for (const c of wb.components) if (isCheese(c.material)) (recipe[c.order_id] ||= new Set()).add(c.material);
+    return consumptionRows(wb.journal).filter((r) => r.ref_order).sort((a, b) => a.time - b.time)
+      .map((r) => ({ order_id: r.ref_order, material: r.material, batch: r.batch, area: r.area, time: r.time, conf: r.conf, consumed: -r.qty,
+        candidates: 1, other_orders: "", substitute: !recipe[r.ref_order]?.has(r.material), via: "reference" }));
+  }
+
+  function fulfilmentConsumption(wb, excludePairs = new Set()) {
     if (!wb.fulfilment || !wb.fulfilment.length) return [];
     const recipe = {};
     for (const c of wb.components) if (isCheese(c.material)) (recipe[c.order_id] ||= new Set()).add(c.material);
@@ -374,6 +434,7 @@
     const rows = [];
     for (const r of wb.fulfilment) {
       if (!isCheese(r.material)) continue;
+      if (excludePairs.has(r.conf + "\u0000" + r.material)) continue;   // already in the journal with its order reference
       let g = byKey.get(r.conf + "\u0000" + r.material);
       const gn = byKeyNeg.get(r.conf + "\u0000" + r.material);
       const base = { order_id: r.order_id, material: r.material, conf: r.conf, candidates: 1, other_orders: "", substitute: !recipe[r.order_id]?.has(r.material), via: "fulfilment" };
@@ -384,7 +445,63 @@
     return rows;
   }
 
-  // Starch is backflushed with the output: its rows sit on the order's output confirmations
+  // Products made by the orders (not cheese or offcut bins): as an input they're repacks
+  function finishedGoods(wb) {
+    return new Set(wb.orders.map((o) => o.fg).filter((m) => !isCheese(m) && !RULES.offcut_pattern.test(m.toUpperCase())));
+  }
+  // Finished goods used as an input (repacks), in cases. From the order fulfilment report when it lists them (the batch
+  // from the journal by Conf.ID and product); otherwise from the journal: a production confirmation consuming finished
+  // goods that isn't the reversal of a job's own pallet goes to the job that started up to repack_minutes before it and is
+  // a repack product (RE...), or to the job making that same product while it runs (from its start to its last pallet
+  // plus the consumption grace).
+  function repackInputs(wb, outputs) {
+    const fgs = finishedGoods(wb), rows = [], owned = new Set();
+    if (wb.fulfilment && wb.fulfilment.length) {
+      const byKey = groupBy(wb.journal.filter((r) => r.is_prod && r.qty < 0).map((r) => ({ ...r, k: r.conf + "\u0000" + r.material })), "k");
+      for (const r of wb.fulfilment) {
+        if (!fgs.has(r.material)) continue;
+        const cases = !isNaN(r.qty) ? r.qty : r.kg, k = r.conf + "\u0000" + r.material;
+        owned.add(k);
+        const g = byKey.get(k);
+        if (g && Math.abs(-sum(g.map((x) => x.qty)) - cases) < 0.01) {
+          for (const x of g) rows.push({ order_id: r.order_id, material: r.material, batch: x.batch, area: x.area, time: x.time, conf: r.conf, cases: -x.qty, via: "fulfilment" });
+        } else rows.push({ order_id: r.order_id, material: r.material, batch: null, area: "", time: g ? Math.min(...g.map((x) => x.time)) : NaN, conf: r.conf, cases, via: "fulfilment" });
+      }
+    }
+    const kept = new Set(outputs.map((r) => r._row));
+    const cand0 = wb.journal.filter((r) => r.is_prod && fgs.has(r.material) && r.qty < 0 && !kept.has(r) && !owned.has(r.conf + "\u0000" + r.material));
+    // the journal's order reference is the order it went into
+    for (const x of cand0) if (x.ref_order) rows.push({ order_id: x.ref_order, material: x.material, batch: x.batch, area: x.area, time: x.time, conf: x.conf, cases: -x.qty, via: "reference" });
+    const cand = cand0.filter((x) => !x.ref_order).sort((a, b) => a.time - b.time);
+    const started = wb.orders.filter((o) => !isNaN(o.start_actual) && !RULES.skip_resources.includes(o.resource)).sort((a, b) => a.start_actual - b.start_actual);
+    const win = RULES.repack_minutes * 60000, tol = RULES.start_anchor_seconds * 1000;
+    const isRe = (fg) => RULES.repack_prefixes.some((p) => fg.toUpperCase().startsWith(p));
+    const lastOut = new Map();
+    for (const r of outputs) if (r.qty > 0 && r.order_id !== null && !(lastOut.get(r.order_id) >= r.time)) lastOut.set(r.order_id, r.time);
+    const grace = RULES.consumption_grace_minutes * 60000;
+    const runEnd = new Map(started.map((o) => [o.order_id, Math.max(lastOut.has(o.order_id) ? lastOut.get(o.order_id) + grace : -Infinity, o.start_actual + win)]));
+    for (const x of cand) {
+      let ok = started.filter((o) => o.start_actual <= x.time + tol && o.fg === x.material && runEnd.get(o.order_id) >= x.time);
+      if (!ok.length) ok = started.filter((o) => o.start_actual <= x.time + tol && o.start_actual >= x.time - win && isRe(o.fg));
+      if (!ok.length) continue;
+      rows.push({ order_id: ok[ok.length - 1].order_id, material: x.material, batch: x.batch, area: x.area, time: x.time, conf: x.conf, cases: -x.qty, via: "journal" });
+    }
+    return rows;
+  }
+  // Weight per case of a product, as for its own jobs: from its text, its pack code or its recipe
+  function productWeight(wb, material, codeWeights, idx) {
+    const os = wb.orders.filter((o) => o.fg === material && o.planned_out > 0);
+    if (!os.length) {
+      const code = packCode(material);
+      return code && codeWeights.has(code) ? [codeWeights.get(code), `pack code ${code}, as other products with that code`] : [null, null];
+    }
+    const o = os[os.length - 1], comps = idx.comps.get(o.order_id) || [];
+    const ch = comps.filter((c) => isCheese(c.material)), st = comps.filter((c) => RULES.not_cheese_prefixes.some((p) => c.material.toUpperCase().startsWith(p)));
+    const off = idx.byp.get(o.order_id) || [];
+    const net = (sum(ch.map((c) => c.planned)) + sum(st.map((c) => c.planned)) - sum(off.map((b) => (isNaN(b.planned) ? 0 : b.planned)))) / o.planned_out;
+    return caseWeight(o.fg_text, net, material, codeWeights);
+  }
+
   function starchConsumed(journal, outputs) {
     const byConf = new Map(), seen = new Set();
     for (const r of outputs) {
@@ -394,11 +511,14 @@
       if (!byConf.has(r.conf)) byConf.set(r.conf, []);
       byConf.get(r.conf).push(r.order_id);
     }
-    const out = new Map();
+    const out = new Map(), byRef = new Map();
     for (const r of journal) {
       if (!r.is_prod || !RULES.not_cheese_prefixes.some((p) => r.material.toUpperCase().startsWith(p))) continue;
+      // starch whose confirmation references the order goes to that order
+      if (r.ref_order) { byRef.set(r.ref_order, (byRef.get(r.ref_order) || 0) - r.qty); continue; }
       for (const oid of byConf.get(r.conf) || []) out.set(oid, (out.get(oid) || 0) - r.qty);
     }
+    for (const [oid, q] of [...byRef].sort((a, b) => cmpStr(a[0], b[0]))) out.set(oid, (out.get(oid) || 0) + q);
     return out;
   }
 
@@ -470,6 +590,12 @@
     const w = grams ? (n * q) / 1000 : n * q;
     return w >= 0.05 && w <= 1000 ? w : null;
   }
+  // packs per case from the pack size in the product text (12x160g -> 12)
+  function packCount(text) {
+    const found = [...String(text ?? "").matchAll(PACK)];
+    if (!found.length || !packWeight(text)) return null;
+    return parseInt((found.find((x) => x[3]) || found[0])[1], 10);
+  }
   // the pack code in a job code: the first run of two or more digits (MAGR200GB -> 200, MOGR2122EU -> 2122)
   const packCode = (fg) => { const m = /\d{2,}/.exec(String(fg ?? "")); return m ? m[0] : null; };
   // case weight per pack code, learnt from products whose text states the pack size; codes whose products disagree are left out
@@ -509,7 +635,7 @@
       recipe_net: net, scale: k, corrected: k !== 1, case_weight: cw };
   }
 
-  function varianceView(o, comps, cheeseComps, offc, order_out, journal_out, cheeseSource, consumed, starchIn, issued, usedEst, codeWeights, rec) {
+  function varianceView(o, comps, cheeseComps, offc, order_out, journal_out, cheeseSource, consumed, starchIn, issued, usedEst, codeWeights, rec, repackKg = 0) {
     const planned_out = isNaN(o.planned_out) ? null : o.planned_out;
     if (!planned_out) return null;
     const starchComps = comps.filter((c) => RULES.not_cheese_prefixes.some((p) => c.material.toUpperCase().startsWith(p)));
@@ -526,11 +652,15 @@
     else if (cheeseSource === "order") { actualCheese = issued; cheeseFrom = "cheese issued on the order sheet (no starch)"; }
     else if (cheeseSource === "journal") { actualCheese = usedEst; cheeseFrom = "estimate from cheese moved to the line (no starch)"; }
     else return null;
+    // repacked finished goods went in as product: counted with the cheese, shown apart
+    const cheeseOnly = actualCheese;
+    actualCheese = cheeseOnly + repackKg;
+    if (repackKg) cheeseFrom += " + repacked finished goods";
     const nominalOut = actual * cw, starchOut = actual * (rec ? rec.starch_pc : pStarch / planned_out), nominalCheese = nominalOut - starchOut;
     const expected = rec ? actual * rec.cheese_pc : (actual * pCheese) / planned_out, expOff = rec ? actual * rec.off_pc : (actual * pOff) / planned_out;
     const gaExp = expected - nominalCheese - expOff, gaAct = actualCheese - nominalCheese - madeOff, outOff = nominalCheese + madeOff, diff = outOff - actualCheese;
     return { case_weight: cw, case_weight_from: cwFrom, uom: cwFrom.startsWith("output counted in kg") ? "kg" : "Case", planned_fg: planned_out, actual_fg: actual, nominal_planned: planned_out * cw,
-      nominal_output: nominalOut, starch_in_output: starchOut, nominal_cheese_output: nominalCheese, expected_cheese: expected, actual_cheese: actualCheese, actual_cheese_from: cheeseFrom,
+      nominal_output: nominalOut, starch_in_output: starchOut, nominal_cheese_output: nominalCheese, expected_cheese: expected, actual_cheese: actualCheese, actual_cheese_from: cheeseFrom, cheese_input_kg: cheeseOnly, repack_kg: repackKg,
       expected_offcuts: expOff, actual_offcuts: madeOff, ga_expected: gaExp, ga_actual: gaAct, output_plus_offcuts: outOff,
       difference: diff, diff_pct: actualCheese ? diff / actualCheese : null, planned_input_pct: nominalCheese ? expected / nominalCheese : null,
       variance_kg: gaAct - gaExp, tolerance: Math.max(RULES.tolerance_pct * expected, RULES.tolerance_kg), recipe_kg_per_case: recipeNet };
@@ -578,7 +708,7 @@
         }
       }
       for (const m of recipeBlocks) if (!((consumedByMaterial.get(m) || 0) > 0) && consumption) out.push({ kg: null, text: `${m} is in the recipe but none was consumed for this run: it was used without a consumption posting, or the product was made without it.` });
-      if (codes.has("OUTPUT_NOT_ON_ORDER") || codes.has("PALLET_DOUBLE_BOOKED") || codes.has("PALLET_CONFIRMED_MORE_THAN_ONCE") || codes.has("UNUSUAL_PALLET_SIZE")) out.push({ kg: null, text: "Output may be overstated: see the pallet and output findings below." });
+      if (codes.has("OUTPUT_NOT_ON_ORDER") || codes.has("PALLET_DOUBLE_BOOKED") || codes.has("PALLET_CONFIRMED_MORE_THAN_ONCE") || codes.has("UNUSUAL_PALLET_SIZE") || codes.has("PALLET_QUANTITIES_IRREGULAR")) out.push({ kg: null, text: "Output may be overstated: see the pallet and output findings below." });
       if (v.actual_offcuts - v.expected_offcuts > 25) out.push({ kg: v.actual_offcuts - v.expected_offcuts, text: `Offcuts declared are ${f(v.actual_offcuts - v.expected_offcuts, 1)} kg above expected; if they're overstated, less cheese is missing.` });
       if (!out.length) out.push({ kg: null, text: "No trace in the journal: cheese was used without being moved or consumed in SAP, or the output is overstated." });
     } else {
@@ -653,12 +783,13 @@
     }
     if (odd.length) flag("MEDIUM", "OUTPUT_POSTED_IN_BULK_OR_LATE", "Output posted in bulk or late: " + odd.join("; ") + ".");
 
-    const typ = ctx.typical[fg], doubleBooked = [];
+    const typ = ctx.typical[fg], doubleBooked = [], irregular = [];
     if (typ && out.length) {
       const over = [], oddSize = [], double = [];
       const byBatch = [...groupBy(out, "batch")].sort((a, b) => (String(a[0]) < String(b[0]) ? -1 : String(a[0]) > String(b[0]) ? 1 : 0));
       for (const [b, g] of byBatch) {
         const gross = sum(g.filter((r) => r.qty > 0).map((r) => r.qty)), net = sum(g.map((r) => r.qty));
+        if (net > 0.5 && net < 2 * typ && Math.abs(net - typ) > 0.5) irregular.push([b, net]);
         if (net >= 2 * typ) {
           // double booked and still standing: the output is overstated
           const pos = g.filter((r) => r.qty > 0).map((r, i) => [r, i]).sort((x, y) => x[0].time - y[0].time || x[1] - y[1]).map((x) => x[0]);
@@ -669,8 +800,14 @@
       }
       if (double.length) flag("HIGH", "PALLET_DOUBLE_BOOKED", `Usual pallet for ${fg} is ${f(typ)} cases. ` + double.map(([b, net, extra, cs]) => `Pallet ${b} has ${f(net)} cases (${fixed(net / typ, 1)}x the usual), confirmed ${cs}: output is overstated by about ${f(extra)} cases unless it's corrected.`).join(" "));
       if (over.length) flag("MEDIUM", "PALLET_CONFIRMED_MORE_THAN_ONCE", `Usual pallet for ${fg} is ${f(typ)} cases. ` + over.join("; ") + ".");
-      if (oddSize.length) flag("LOW", "UNUSUAL_PALLET_SIZE", `Usual pallet for ${fg} is ${f(typ)} cases; larger pallets: ` + oddSize.join(", ") + ". Worth a physical count.");
+      // one short (or topped-up) pallet at the end of a run is normal; more than that isn't
+      if (irregular.length >= 2) flag("HIGH", "PALLET_QUANTITIES_IRREGULAR", `Usual pallet for ${fg} is ${f(typ)} cases, but ${irregular.length} pallets aren't: ` + irregular.map(([b, n]) => `${b} ${f(n)}`).join(", ") + ". At most one pallet off the usual count is expected (the last of the run).");
+      else if (oddSize.length) flag("LOW", "UNUSUAL_PALLET_SIZE", `Usual pallet for ${fg} is ${f(typ)} cases; larger pallets: ` + oddSize.join(", ") + ". Worth a physical count.");
     }
+    // finished goods belong in FG_STAGING, not on a production line's area
+    const lineAreaSet = new Set(Object.values(RULES.line_areas));
+    const onLine = out.filter((r) => lineAreaSet.has(r.area) && r.qty !== 0).map((r, i) => [r, i]).sort((x, y) => x[0].time - y[0].time || x[1] - y[1]).map((x) => x[0]);
+    if (onLine.length) flag("MEDIUM", "OUTPUT_ON_LINE_AREA", "Output posted to a line area instead of FG_STAGING: " + onLine.map((r) => `${r.conf} at ${dm(r.time)} (${f(r.qty)} on pallet ${r.batch}, ${r.area})`).join("; ") + ".");
     const rev = out.filter((r) => r.qty < 0);
     if (rev.length) flag("INFO", "OUTPUT_REVERSED", "Output reversed: " + rev.map((r) => `${r.conf} at ${dm(r.time)} (${f(r.qty)} on pallet ${r.batch})`).join("; ") + ".");
 
@@ -689,12 +826,13 @@
     const scale = planned_out ? order_out / planned_out : null;
     const compRows = [], short = [], over = [];
     const cheeseComps = comps.filter((c) => isCheese(c.material));
+    const fgs = ctx.finishedGoods;
     for (const c of comps) {
       const need = scale !== null ? c.planned * scale : null;
       const booked = isNaN(c.fulfilled) ? 0 : c.fulfilled;
       compRows.push({ material: c.material, planned: c.planned, fulfilled: booked, open: c.open, needed_for_output: need,
         difference: need !== null ? booked - need : null, cheese: isCheese(c.material) });
-      if (isCheese(c.material) || need === null || !(need > 0)) continue;
+      if (isCheese(c.material) || fgs.has(c.material) || need === null || !(need > 0)) continue;
       if (booked < need - Math.max(2, 0.03 * need)) short.push([c.material, booked, need]);
       else if (booked > need + Math.max(2, 0.1 * need)) over.push([c.material, booked, need]);
     }
@@ -782,10 +920,33 @@
       }
     }
 
-    // cheese consumed, from the journal's production confirmations
-    let mass = null, consumedIn = null, needIn = null;
     // sums rounded to 6 decimals so the float summing order can't tip a displayed figure
     const r6 = (x) => Number(x.toFixed(6));
+    // repacks: finished goods used as an input, in cases, weighed by their own case weight
+    const rpO = idx.repacks.get(oid) || [], sheetRp = comps.filter((c) => fgs.has(c.material));
+    const repacks = [];
+    for (const m of [...new Set([...rpO.map((r) => r.material), ...sheetRp.map((c) => c.material)])].sort()) {
+      const jr = rpO.filter((r) => r.material === m), sr = sheetRp.filter((c) => c.material === m);
+      const casesJ = jr.length ? r6(sum(jr.map((r) => r.cases))) : null;
+      const casesS = sr.length ? sum(sr.map((c) => (isNaN(c.fulfilled) ? 0 : c.fulfilled))) : null;
+      // the order sheet first; the fulfilment report or journal when the sheet shows none
+      let cases, src;
+      if (casesS) { cases = casesS; src = "issued on the order"; }
+      else { cases = casesJ || 0; src = jr.length ? (jr.some((r) => r.via === "fulfilment") ? "order fulfilment report" : jr.some((r) => r.via === "reference") ? "order reference in the journal" : "journal") : "issued on the order"; }
+      const [rw, rwFrom] = ctx.repackWeights.get(m) || [null, null];
+      repacks.push({ material: m, planned: sr.length ? sum(sr.map((c) => (isNaN(c.planned) ? 0 : c.planned))) : 0, cases, packs_per_case: ctx.repackPacks.has(m) ? ctx.repackPacks.get(m) : null, source: src, kg_per_case: rw, weight_from: rwFrom, kg: rw ? cases * rw : null });
+    }
+    const repackKg = r6(sum(repacks.filter((r) => r.kg).map((r) => r.kg)));
+    if (repacks.length) {
+      flag("INFO", "REPACK_INPUT", "Finished goods repacked into this job (counted as cheese in, shown apart): "
+        + repacks.map((r) => `${r.material} ${f(r.cases, 2)} cases` + (r.kg_per_case ? ` × ${f(r.kg_per_case, 3)} kg = ${f(r.kg, 1)} kg` : "") + ` (${r.source})`).join("; ")
+        + (repackKg ? `. Total ${f(repackKg, 1)} kg.` : "."));
+      const unknown = repacks.filter((r) => !r.kg_per_case && r.cases).map((r) => r.material);
+      if (unknown.length) flag("LOW", "REPACK_WEIGHT_UNKNOWN", `No case weight found for ${unknown.join(", ")} (not in its text, pack code or recipe), so it isn't counted in the cheese.`);
+    }
+
+    // cheese consumed, from the journal's production confirmations
+    let mass = null, consumedIn = null, needIn = null;
     const consumed = r6(sum(cons.map((c) => c.consumed)));
     const byMat = new Map();
     for (const c of cons) byMat.set(c.material, (byMat.get(c.material) || 0) + c.consumed);
@@ -799,7 +960,7 @@
       // cheese only: starch is shown but not counted
       const stPc = rec.starch_pc, inPc = perCase;
       const starchUsedO = ctx.starchUsed.get(oid) || 0;
-      consumedIn = consumed;
+      consumedIn = consumed + repackKg;
       needIn = perCase * estOut;
       const cheeseNeed = needIn;
       const matsTxt = mats.map((m) => `${m} ${f(byMat.get(m) || 0, 1)} of ${f(share.get(m) * cheeseNeed, 1)} kg`).join("; ");
@@ -815,12 +976,12 @@
       const netPc = rec.net_pc;
       const starchIn = ctx.starchUsed.get(oid) || 0;
       const offcutIn = sum([...byMat.keys()].sort().filter((m) => RULES.offcut_pattern.test(m.toUpperCase())).map((m) => byMat.get(m)));
-      const massIn = consumed + starchIn, productKg = estOut * netPc, massOut = productKg + madeOff, unacc = massIn - massOut;
+      const massIn = consumed + starchIn + repackKg, productKg = estOut * netPc, massOut = productKg + madeOff, unacc = massIn - massOut;
       const massTol = Math.max(RULES.tolerance_pct * massIn, RULES.tolerance_kg);
       const offScale = pOff ? (estOut * rec.off_pc) / pOff : 0;
-      mass = { in: massIn, blocks_in: consumed - offcutIn, offcuts_in: offcutIn, starch_in: starchIn, out: massOut, product: productKg,
+      mass = { in: massIn, blocks_in: consumed - offcutIn, offcuts_in: offcutIn, starch_in: starchIn, repack_in: repackKg, out: massOut, product: productKg,
         kg_per_case: netPc, cases: estOut, offcuts_made: madeOff, offcuts_planned: pOff * offScale, unaccounted: unacc, tolerance: massTol };
-      const massText = `In ${f(massIn, 1)} kg (cheese blocks ${f(consumed - offcutIn, 1)}, offcuts ${f(offcutIn, 1)}, starch ${f(starchIn, 1)}); out ${f(massOut, 1)} kg (product ${f(estOut)} cases × ${fixed(netPc, 3)} kg = ${f(productKg, 1)}, offcuts made ${f(madeOff, 1)}).`;
+      const massText = `In ${f(massIn, 1)} kg (cheese blocks ${f(consumed - offcutIn, 1)}, offcuts ${f(offcutIn, 1)}, starch ${f(starchIn, 1)}${repackKg ? `, repacks ${f(repackKg, 1)}` : ""}); out ${f(massOut, 1)} kg (product ${f(estOut)} cases × ${fixed(netPc, 3)} kg = ${f(productKg, 1)}, offcuts made ${f(madeOff, 1)}).`;
       if (!cons.length) {
         mass = null;
         const moved = sent ? ` ${f(sent, 1)} kg was moved to ${area} during the run.` : "";
@@ -828,7 +989,7 @@
       } else {
         const tol = Math.max(RULES.tolerance_pct * needIn, RULES.tolerance_kg);
         cheese_diff = consumedIn - needIn; cheese_tol = tol;
-        const msg = `Cheese consumed ${f(consumedIn, 1)} kg, the ${f(estOut)} cases ${journal_out ? "in the journal " : ""}need ${f(needIn, 1)} kg (${fixed(inPc, 3)} kg/case)${otherOut}: ${matsTxt}`
+        const msg = `Cheese consumed ${f(consumedIn, 1)} kg${repackKg ? ` (${f(consumed, 1)} kg cheese + ${f(repackKg, 1)} kg repacked finished goods)` : ""}, the ${f(estOut)} cases ${journal_out ? "in the journal " : ""}need ${f(needIn, 1)} kg (${fixed(inPc, 3)} kg/case)${otherOut}: ${matsTxt}`
           + (others.length ? `; also ${others.map((m) => `${m} ${f(byMat.get(m), 1)} kg`).join(", ")}` : "") + "." + sheet
           + (rec.corrected ? ` The recipe plans ${f(rec.recipe_net, 3)} kg per case for a ${f(rec.case_weight, 3)} kg case, so it's scaled to the case weight.` : "")
           + (stPc ? ` Starch (${f(starchUsedO, 1)} of ${f(stPc * estOut, 1)} kg) isn't counted.` : "");
@@ -888,8 +1049,9 @@
       { item: "Cheese blocks", unit: "kg", planned: tot(blk, "planned"), actual: jOr(consBlk, tot(blk, "fulfilled")), source: src },
       { item: "Offcuts used", unit: "kg", planned: tot(offi, "planned"), actual: jOr(consOff, tot(offi, "fulfilled")), source: src },
       { item: "Starch", unit: "kg", planned: tot(stc, "planned"), actual: jOr(ctx.starchUsed.get(oid) || 0, tot(stc, "fulfilled")), source: src },
+      ...repacks.map((r) => ({ item: `Repack ${r.material}`, unit: "cases", planned: r.planned, actual: r.cases, source: r.source })),
     ].filter((r) => r.planned || r.actual).map((r) => ({ ...r, open: r.planned - r.actual }));
-    const variance = varianceView(o, comps, cheeseComps, offcuts, order_out, journal_out, cheeseSource, consumed, ctx.starchUsed.get(oid) || 0, issued, used, ctx.codeWeights, rec);
+    const variance = varianceView(o, comps, cheeseComps, offcuts, order_out, journal_out, cheeseSource, consumed, ctx.starchUsed.get(oid) || 0, issued, used, ctx.codeWeights, rec, repackKg);
     let reasons = [];
     if (variance) {
       const blocks = [...new Set(cheeseComps.map((c) => c.material))].filter((m) => !RULES.offcut_pattern.test(m.toUpperCase())).sort();
@@ -897,16 +1059,83 @@
         hasCons ? blocks : [], new Set(cheeseComps.map((c) => c.material)), byMat, ctx);
     }
     const summary = {
-      order_id: oid, status: o.status, open_status: openStatus, double_booked_pallets: doubleBooked, consumption_from: hasCons ? (ctx.covered.has(oid) ? "order fulfilment report" : "matched by line and time") : null, fg, fg_text: o.fg_text, line: o.resource, area, start: o.start, last_regular_output: last,
+      order_id: oid, status: o.status, open_status: openStatus, double_booked_pallets: doubleBooked, irregular_pallets: irregular.length >= 2 ? irregular.map(([b]) => b) : [], consumption_from: hasCons ? consumptionFrom(cons, oid, ctx) : null, fg, fg_text: o.fg_text, line: o.resource, area, start: o.start, last_regular_output: last,
       planned_out, order_out, journal_out, output_confirmations: confs.length, cheese_kg_per_case: perCase,
       cheese_source: cheeseSource, cheese_issued_kg: issued, cheese_needed_kg: needed, cheese_open_kg: cheeseOpen,
       cheese_sent_kg: sent, cheese_returned_kg: back, cheese_used_kg: used, cheese_est_needed_kg: cheeseSource === "consumed" ? needIn : estNeeded, cheese_est_output: estOut, cheese_consumed_kg: consumed, cheese_consumed_by_material: Object.fromEntries(byMat), mass, variance, variance_reasons: reasons,
-      cheese_planned_kg: sum(cheeseComps.map((c) => c.planned)), starch_planned_kg: sum(comps.filter((c) => RULES.not_cheese_prefixes.some((p) => c.material.toUpperCase().startsWith(p))).map((c) => c.planned)), input_kg_per_case: rec ? rec.in_pc : null, offcut_kg_per_case: rec ? rec.off_pc : null, starch_kg_per_case: rec ? rec.starch_pc : null, input_consumed_kg: cheeseSource === "consumed" ? consumed + (ctx.starchUsed.get(oid) || 0) : null, cheese_planned_offcuts_kg: sum(cheeseComps.filter((c) => RULES.offcut_pattern.test(c.material.toUpperCase())).map((c) => c.planned)), consumption: cons.slice().sort((a, b) => a.time - b.time), offcuts_kg: sum(offcuts.map((b) => (isNaN(b.fulfilled) ? 0 : b.fulfilled))),
+      cheese_planned_kg: sum(cheeseComps.map((c) => c.planned)), starch_planned_kg: sum(comps.filter((c) => RULES.not_cheese_prefixes.some((p) => c.material.toUpperCase().startsWith(p))).map((c) => c.planned)), input_kg_per_case: rec ? rec.in_pc : null, offcut_kg_per_case: rec ? rec.off_pc : null, starch_kg_per_case: rec ? rec.starch_pc : null, input_consumed_kg: cheeseSource === "consumed" ? consumed + (ctx.starchUsed.get(oid) || 0) + repackKg : null, repacks, repack_kg: repackKg, repack_postings: rpO.slice().sort((a, b) => a.time - b.time), cheese_planned_offcuts_kg: sum(cheeseComps.filter((c) => RULES.offcut_pattern.test(c.material.toUpperCase())).map((c) => c.planned)), consumption: cons.slice().sort((a, b) => a.time - b.time), offcuts_kg: sum(offcuts.map((b) => (isNaN(b.fulfilled) ? 0 : b.fulfilled))),
       cheese_diff_kg: cheese_diff, cheese_tolerance_kg: cheese_tol, components: compRows,
       outputs: out.slice().sort((a, b) => a.time - b.time), confirmations: confs, cheese_moves: cheese.slice().sort((a, b) => a.time - b.time),
     };
     findings.sort((a, b) => SEV[a.severity] - SEV[b.severity]);
+    summary.narrative = narrative(summary, findings);
     return { summary, findings };
+  }
+
+  // Where the order's cheese consumption comes from: order references in the journal, the order fulfilment report,
+  // matching by line and time, or a mix (joined with " + ")
+  const SOURCES = [["reference", "order reference in the journal"], ["fulfilment", "order fulfilment report"], ["time", "matched by line and time"]];
+  function consumptionFrom(cons, oid, ctx) {
+    let vias = new Set(cons.map((c) => c.via));
+    if (!vias.size) vias = new Set([ctx.covered.has(oid) ? "fulfilment" : "time"]);
+    return SOURCES.filter(([v]) => vias.has(v)).map(([, n]) => n).join(" + ");
+  }
+
+  // a number with thousands separators and no trailing zeros (3,515.1; 400)
+  const tt = (x, d = 2) => { const t = f(Number(x.toFixed(6)), d); return t.includes(".") ? t.replace(/0+$/, "").replace(/\.$/, "") : t; };
+  // What was found for the job, in plain words, from the figures and findings
+  function narrative(s, findings) {
+    const oid = s.order_id, v = s.variance, m = s.mass;
+    const name = s.fg + (typeof s.fg_text === "string" && s.fg_text ? `, ${s.fg_text}` : "");
+    const rps = (s.repacks || []).filter((r) => r.cases);
+    const rp = rps.map((r) => (r.packs_per_case ? `${tt(r.cases * r.packs_per_case, 1)} packs of ${r.material} (${tt(r.cases)} cases)` : `${tt(r.cases)} cases of ${r.material}`)).join(" and ");
+    const head = `Regarding job ${oid} (${name}), `;
+    const out = [];
+    if (m) {
+      const bits = [`${tt(m.blocks_in)} kg of cheese blocks`];
+      if (m.offcuts_in) bits.push(`${tt(m.offcuts_in)} kg of offcuts`);
+      if (m.starch_in) bits.push(`${tt(m.starch_in)} kg of starch`);
+      if (m.repack_in) bits.push(`${tt(m.repack_in)} kg of repacks: ${rp}`);
+      const names = { "order reference in the journal": "the confirmation journal (confirmations referencing this order)", "order fulfilment report": "the order fulfilment report", "matched by line and time": "consumption matched to the job by line and time" };
+      const src = String(s.consumption_from || "matched by line and time").split(" + ").map((x) => names[x]).join(" and ");
+      const listed = bits.length === 1 ? bits[0] : bits.slice(0, -1).join(", ") + " and " + bits[bits.length - 1];
+      out.push(head + `I found from ${src} that the total input is ${tt(m.in)} kg: ${listed}.`);
+    } else if (s.cheese_source === "consumed") out.push(head + "I found no cheese consumed for it" + (rps.length ? `, only a repack of ${rp}` : "") + ".");
+    else if (s.cheese_source === "order") out.push(head + `the order sheet shows ${tt(s.cheese_issued_kg)} kg of cheese issued.`);
+    else if (s.cheese_source === "journal") out.push(head + `no cheese is on the order sheet; about ${tt(s.cheese_used_kg)} kg was moved to the line during the run (an estimate).`);
+    else out.push(head + "there's no cheese recipe to check it against.");
+    if (v) {
+      if (v.uom === "kg") out.push(`The plan was ${tt(v.planned_fg)} kg of product and ${tt(v.actual_fg)} kg was made` + (v.actual_offcuts ? `, plus ${tt(v.actual_offcuts)} kg of offcuts` : "") + ".");
+      else {
+        const cw = tt(v.case_weight, 3);
+        out.push(`The plan was ${tt(v.planned_fg)} cases (${tt(v.planned_fg)} × ${cw} kg = ${tt(v.nominal_planned)} kg) and ${tt(v.actual_fg)} cases were made (${tt(v.actual_fg)} × ${cw} kg = ${tt(v.nominal_output)} kg)`
+          + (v.actual_offcuts ? `, plus ${tt(v.actual_offcuts)} kg of offcuts` : "") + ".");
+      }
+      const made = `${tt(v.actual_fg)} ${v.uom === "kg" ? "kg" : "cases"}`;
+      // far fewer cases than planned, and the cheese that went in only covers those: the job ran out of cheese
+      const pCh = s.cheese_planned_kg || 0, RUN_OUT_SHARE = 0.75;
+      if (v.planned_fg && v.actual_fg <= RUN_OUT_SHARE * v.planned_fg && pCh && v.actual_cheese <= RUN_OUT_SHARE * pCh && v.actual_cheese >= 0.75 * v.expected_cheese && v.actual_cheese <= 1.25 * v.expected_cheese) {
+        out.push(`Only ${tt(v.actual_fg)} of the ${tt(v.planned_fg)} ${v.uom === "kg" ? "kg" : "cases"} planned were made, and only ${tt(v.actual_cheese)} kg of the ${tt(pCh)} kg of cheese planned went in, so it looks like the job ran out of cheese.`);
+      }
+      if (m) {
+        // against the nominal output (cases x case weight + offcuts made), as the plant counts it
+        const un = m.unaccounted, tol = m.tolerance;
+        const gap = Number((m.in - v.nominal_output - v.actual_offcuts).toFixed(6));
+        if (gap >= 0.005) {
+          out.push(`${tt(gap)} kg of cheese has no output and is unaccounted for.` + (un > tol ? " It went to waste or giveaway, or output or offcuts weren't posted." : ""));
+        } else if (gap <= -0.005) out.push(`That's ${tt(-gap)} kg more out than went in, so it's not clear how ${made} were made with less cheese` + (rps.length ? ", even counting the repacks" : "") + ".");
+        else out.push("What went in matches what came out.");
+      } else if (v.variance_kg < -v.tolerance) out.push(`That's ${tt(-v.variance_kg)} kg less cheese than ${made} need.`);
+      else if (v.variance_kg > v.tolerance) out.push(`That's ${tt(v.variance_kg)} kg more cheese than ${made} need.`);
+      if (Math.abs(v.variance_kg) > v.tolerance) {
+        out.push(`On cheese alone (no starch), giveaway is ${tt(v.ga_actual, 1)} kg against ${tt(v.ga_expected, 1)} kg planned (${fs(v.variance_kg, 1)} kg).`);
+        const lead = (s.variance_reasons || []).filter((x) => x.kg);
+        if (lead.length) out.push("The journal points to: " + lead[0].text);
+      }
+    } else if (s.cheese_diff_kg !== null && s.cheese_diff_kg !== undefined && Math.abs(s.cheese_diff_kg) > (s.cheese_tolerance_kg || 0)) {
+      out.push(`Cheese is ${tt(Math.abs(s.cheese_diff_kg))} kg ${s.cheese_diff_kg > 0 ? "over" : "under"} what the output needs.`);
+    }
+    return out.join(" ");
   }
 
   function pairCarryOver(results, ctx) {
@@ -939,6 +1168,10 @@
   // ------------------------------------------------------------ entry points
   function prepare(wb) {
     const orders = wb.orders.filter((o) => !RULES.skip_resources.includes(o.resource));
+    // the production order of each journal row from its Reference Document ID: production confirmations only (on other
+    // confirmations the reference is another document), and only orders on the order sheets
+    const known = new Set(wb.orders.map((o) => o.order_id));
+    for (const r of wb.journal) r.ref_order = r.is_prod && r.ref !== null && r.ref !== undefined && known.has(r.ref) ? r.ref : null;
     const outputs = assignOutputs(wb);
     const perConf = perConfirmation(outputs);
     const windows = orderWindows(orders, perConf);
@@ -946,17 +1179,20 @@
     // journals exported with both sides carry cheese consumption; receiving-only exports don't
     const journalCons = consumptionRows(wb.journal).some((r) => r.qty < 0 && !RULES.offcut_pattern.test(r.material.toUpperCase()));
     const fulfil = wb.fulfilment && wb.fulfilment.length ? wb.fulfilment : null;
-    const hasCons = journalCons || !!fulfil;
-    // orders in the order fulfilment report take their consumption from it; the rest are matched by line and time
+    // the journal's order references come first, then the order fulfilment report, then line and time
+    const refc = referenceConsumption(wb);
+    const hasCons = journalCons || !!fulfil || refc.length > 0;
+    const refPairs = new Set(refc.map((r) => r.conf + "\u0000" + r.material));
+    const refCovered = new Set(refc.map((r) => r.order_id));
     const covered = new Set(fulfil ? fulfil.map((r) => r.order_id) : []);
-    const owned = new Set(fulfil ? fulfil.map((r) => r.conf + "\u0000" + r.material) : []);
-    const consumption = hasCons ? [...fulfilmentConsumption(wb), ...(journalCons ? assignConsumption(wb, windows, perConf, outputs, owned, covered) : [])] : [];
+    const owned = new Set([...(fulfil ? fulfil.map((r) => r.conf + "\u0000" + r.material) : []), ...refPairs]);
+    const consumption = hasCons ? [...refc, ...fulfilmentConsumption(wb, refPairs), ...(journalCons ? assignConsumption(wb, windows, perConf, outputs, owned, covered) : [])] : [];
     const overBatches = journalCons ? overConsumedBatches(wb.journal) : new Map();
     const starchUsed = journalCons ? starchConsumed(wb.journal, outputs) : new Map();
     if (fulfil) {
       const stBy = new Map();
       for (const r of fulfil) if (RULES.not_cheese_prefixes.some((p) => r.material.toUpperCase().startsWith(p))) stBy.set(r.order_id, (stBy.get(r.order_id) || 0) + r.kg);
-      for (const o of covered) starchUsed.set(o, stBy.get(o) || 0);
+      for (const o of covered) if (!refCovered.has(o)) starchUsed.set(o, stBy.get(o) || 0);
     }
     const consumedByBatch = new Map(), movesByBatch = new Map();
     if (journalCons) for (const r of consumptionRows(wb.journal)) { const k = r.material + "\u0000" + r.batch; consumedByBatch.set(k, (consumedByBatch.get(k) || 0) - r.qty); }
@@ -967,6 +1203,12 @@
       windows: new Map(windows.map((w) => [w.order_id, w])), outputs: groupBy(outputs.filter((r) => r.order_id !== null), "order_id"),
       perConf: groupBy(perConf, "order_id"), sends: groupBy(sends, "order_id"), cons: groupBy(consumption.filter((c) => c.order_id !== null), "order_id"), byp: groupBy(wb.byproducts, "order_id"),
     };
+    const codeWeights = learnPackCodes(wb.orders), fgs = finishedGoods(wb);
+    const repacks = repackInputs(wb, outputs);
+    idx.repacks = groupBy(repacks, "order_id");
+    const needsW = [...new Set([...repacks.map((r) => r.material), ...wb.components.filter((c) => fgs.has(c.material)).map((c) => c.material)])].sort();
+    const repackWeights = new Map(needsW.map((m) => [m, productWeight(wb, m, codeWeights, idx)]));
+    const repackPacks = new Map(needsW.map((m) => { const o = wb.orders.find((x) => x.fg === m && !isNil(x.fg_text)); return [m, packCount(o ? o.fg_text : null)]; }));
     const active = new Set([...idx.outputs.keys(), ...idx.sends.keys()]);
     const seqByRes = new Map();
     for (const o of orders.filter((o) => !isNaN(o.start)).sort((a, b) => a.start - b.start)) {
@@ -976,7 +1218,7 @@
     let jmin = Infinity, jmax = -Infinity;
     for (const r of wb.journal) { if (r.time < jmin) jmin = r.time; if (r.time > jmax) jmax = r.time; }
     const journalRange = wb.journal.length ? [jmin, jmax] : null;
-    return { wb, orders, outputs, sends, idx, active, seqByRes, hasCons, covered, overBatches, starchUsed, codeWeights: learnPackCodes(wb.orders), consumption, consumedByBatch, movesByBatch, typical: typicalPallets(outputs), journalRange,
+    return { wb, orders, outputs, sends, idx, active, seqByRes, hasCons, covered, overBatches, starchUsed, codeWeights, finishedGoods: fgs, repacks, repackWeights, repackPacks, consumption, consumedByBatch, movesByBatch, typical: typicalPallets(outputs), journalRange,
       unassigned: outputs.filter((r) => r.order_id === null) };
   }
 
@@ -1018,8 +1260,46 @@
     return (ctx._batchIdx.get(material + "\u0000" + batch) || []).map((r) => ({ ...r, balance: (bal += r.qty) }));
   }
 
+  // Stock trace: every journal row for a batch (one product, or every product carrying that batch number), oldest
+  // first, with the running stock, the order each row belongs to, where the stock sits now and the stock overview
+  function traceStock(ctx, material, batch) {
+    const b = String(batch ?? "").trim(), m = String(material ?? "").trim().toUpperCase();
+    if (!ctx._traceIdx) {
+      const idx = new Map();
+      for (const r of ctx.wb.journal) { const k = String(r.batch); if (!idx.has(k)) idx.set(k, []); idx.get(k).push(r); }
+      ctx._traceIdx = idx;
+      // which order a posting belongs to: output pallets, cheese consumed, repacks (as tied by the checks)
+      const key = (r) => `${r.conf}\u0000${r.material}\u0000${r.batch}`, ord = new Map();
+      for (const r of ctx.outputs) if (r.order_id) ord.set(key(r), [r.order_id, "made by"]);
+      for (const c of ctx.consumption) if (c.order_id && c.batch !== null && !ord.has(key(c))) ord.set(key(c), [c.order_id, "consumed by"]);
+      for (const c of ctx.repacks || []) if (c.order_id && c.batch !== null && !ord.has(key(c))) ord.set(key(c), [c.order_id, "repacked into"]);
+      ctx._traceOrd = ord;
+    }
+    const all = (ctx._traceIdx.get(b) || []).filter((r) => !m || r.material.toUpperCase() === m);
+    const products = [];
+    for (const [mat, g] of groupBy(all, "material")) {
+      let bal = 0;
+      // same time stamp (the two rows of a move): the "out" row first, so the running total doesn't briefly double
+      const rows = g.map((r, i) => [r, i]).sort((x, y) => x[0].time - y[0].time || (x[0].qty < 0 ? 0 : 1) - (y[0].qty < 0 ? 0 : 1) || x[1] - y[1]).map(([r]) => {
+        const o = r.ref_order ? [r.ref_order, r.qty < 0 ? "consumed by" : "made by"] : ctx._traceOrd.get(`${r.conf}\u0000${r.material}\u0000${r.batch}`);
+        return { ...r, balance: (bal += r.qty), order: o ? o[0] : null, link: o ? o[1] : "" };
+      });
+      const areas = new Map();
+      for (const r of rows) areas.set(r.area, (areas.get(r.area) || 0) + r.qty);
+      const prod = rows.filter((r) => r.is_prod);
+      products.push({
+        material: mat, rows,
+        made: sum(prod.filter((r) => r.qty > 0).map((r) => r.qty)), consumed: -sum(prod.filter((r) => r.qty < 0).map((r) => r.qty)),
+        areas: [...areas].filter(([, q]) => Math.abs(q) > 1e-6).sort((x, y) => y[1] - x[1]),
+        orders: [...new Set(rows.filter((r) => r.order).map((r) => `${r.link} ${r.order}`))],
+        stock: (ctx.wb.stock || []).filter((s) => s.material === mat && String(s.batch) === b),
+      });
+    }
+    return { batch: b, material: m, products: products.sort((x, y) => cmpStr(x.material, y.material)) };
+  }
+
   const sheetKinds = (sheets) => [...new Set(sheets.map((sh) => findHeader(sh.rows)[0]).filter(Boolean))].sort();
-  const api = { RULES, readWorkbook, sheetKinds, batchHistory, prepare, check, verdict, isCheese, fmt: { f, fs, dm, dmy } };
+  const api = { RULES, readWorkbook, sheetKinds, batchHistory, traceStock, prepare, check, verdict, isCheese, consumptionRows, fmt: { f, fs, dm, dmy } };
   root.OrderCheck = api;
   if (typeof module !== "undefined" && module.exports) module.exports = api;
 })(typeof window !== "undefined" ? window : globalThis);

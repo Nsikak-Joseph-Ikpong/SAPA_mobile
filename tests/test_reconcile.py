@@ -3,7 +3,7 @@
 import pandas as pd
 import pytest
 
-from sap_variance.reconcile import read_workbook, run
+from sap_variance.reconcile import Rules, consumption_rows, read_workbook, run
 
 GA, PC = "Goods and Activity Confirmation", "Production Confirmation"
 
@@ -251,3 +251,146 @@ def test_pallet_double_booked_is_high(double_booked):
     assert "P1: 200 cases confirmed on one pallet, corrected to 100" in c["PALLET_CONFIRMED_MORE_THAN_ONCE"].message
     a = next(s for s in double_booked.summaries if s["order_id"] == "A1")
     assert a["double_booked_pallets"] == ["P9"]
+
+
+@pytest.fixture(scope="module")
+def repacked(tmp_path_factory):
+    d = tmp_path_factory.mktemp("repack")
+    write_workbook(d / "SAP_Info.xlsx")
+    write_full_journal(d / "Confirmation_Journal.xlsx")
+    head = ["Site", "Product", "Identified Stock (Identified Stock ID)", "Logistics Area (Logistics Area ID)",
+            "Created On", "Conf.Document Type", "Conf.ID", "Restricted", "Effective Qty"]
+    rows = [["Confirmation Journal"] + [None] * 8, head,
+            # 3 minutes after job C starts: 5 cases of an old FGSLICE pallet repacked into it
+            ["EXTHQ1", "FGSLICE", "OLD1", "REPACK", ts("09:03"), PC, "605", "#", -5],
+            # another product (C isn't a repack job) and a posting long after the start: not repacks of C
+            ["EXTHQ1", "FGMOZZ", "R0", "REPACK", ts("09:04"), PC, "606", "#", -2],
+            ["EXTHQ1", "FGSLICE", "OLD2", "REPACK", ts("11:00"), PC, "607", "#", -1]]
+    pd.DataFrame(rows).to_excel(d / "extra.xlsx", sheet_name="Confirmation Journal", header=False, index=False)
+    return run(read_workbook([str(d / "SAP_Info.xlsx"), str(d / "Confirmation_Journal.xlsx"), str(d / "extra.xlsx")]))
+
+
+def test_repacks_counted_apart_from_cheese(repacked):
+    c = next(s for s in repacked.summaries if s["order_id"] == "C3")
+    # 5 cases x 6 kg (Slices 6x1kg), weighed by the product's own case weight
+    assert c["repacks"] == [{"material": "FGSLICE", "planned": 0.0, "cases": 5.0, "packs_per_case": 6, "source": "journal", "kg_per_case": 6.0,
+                             "weight_from": "pack size in the product text", "kg": 30.0}]
+    assert c["repack_kg"] == pytest.approx(30) and c["cheese_consumed_kg"] == pytest.approx(720)
+    assert c["mass"]["repack_in"] == pytest.approx(30) and c["mass"]["in"] == pytest.approx(750)
+    v = c["variance"]
+    assert v["cheese_input_kg"] == pytest.approx(720) and v["repack_kg"] == pytest.approx(30)
+    assert v["actual_cheese"] == pytest.approx(750)
+    assert "FGSLICE 5.00 cases × 6.000 kg = 30.0 kg (journal)" in codes(repacked, "C3")["REPACK_INPUT"].message
+    assert {"item": "Repack FGSLICE", "unit": "cases", "planned": 0.0, "actual": 5.0, "source": "journal",
+            "open": -5.0} in c["open_status"]
+    assert set(repacked.repacks["conf"]) == {"605"}
+
+
+def test_narrative_summary(repacked):
+    c = next(s for s in repacked.summaries if s["order_id"] == "C3")
+    assert c["narrative"].startswith(
+        "Regarding job C3 (FGSLICE, Slices 6x1kg), I found from consumption matched to the job by line and time that "
+        "the total input is 750 kg: 720 kg of cheese blocks and 30 kg of repacks: 30 packs of FGSLICE (5 cases).")
+    assert "The plan was 100 cases (100 × 6 kg = 600 kg) and 100 cases were made (100 × 6 kg = 600 kg), plus 110 kg of offcuts." in c["narrative"]
+    assert "40 kg of cheese has no output and is unaccounted for." in c["narrative"]
+    assert "giveaway, so" not in c["narrative"] and "Also:" not in c["narrative"]
+
+
+@pytest.fixture(scope="module")
+def referenced(tmp_path_factory):
+    d = tmp_path_factory.mktemp("ref")
+    write_workbook(d / "SAP_Info.xlsx")
+    write_full_journal(d / "Confirmation_Journal.xlsx")
+    head = ["Site", "Product", "Identified Stock (Identified Stock ID)", "Logistics Area (Logistics Area ID)",
+            "Created On", "Conf.Document Type", "Conf.ID", "Reference Document ID", "Effective Qty"]
+    rows = [["Confirmation Journal"] + [None] * 8, head,
+            # the 900 kg of M1 at 07:00 that line-and-time matching gives to job B names job A
+            ["EXTHQ1", "RMMOZZ", "M1", "GRATINGLINES", ts("07:00"), PC, "501", "A1", -900],
+            # 30 kg consumed for job C long after its last pallet: only the reference ties it to C
+            ["EXTHQ1", "RMSLICE", "K2", "SL_1", ts("13:00"), PC, "620", "C3", -30],
+            # on a goods-and-activity confirmation the reference is another document, not an order
+            ["EXTHQ1", "RMSLICE", "K2", "FLOOR5", ts("12:50"), GA, "619", "C3", -30]]
+    pd.DataFrame(rows).to_excel(d / "journal2.xlsx", sheet_name="Confirmation Journal with ref", header=False,
+                                index=False)
+    return run(read_workbook([str(d / "SAP_Info.xlsx"), str(d / "Confirmation_Journal.xlsx"), str(d / "journal2.xlsx")]))
+
+
+def test_order_reference_is_ground_truth(referenced):
+    s = {x["order_id"]: x for x in referenced.summaries}
+    assert s["A1"]["cheese_consumed_kg"] == pytest.approx(1925 + 900)
+    assert s["B2"]["cheese_consumed_kg"] == pytest.approx(1000)
+    assert s["C3"]["cheese_consumed_kg"] == pytest.approx(750)
+    assert s["A1"]["consumption_from"] == "order reference in the journal + matched by line and time"
+    c = referenced.consumption
+    assert set(c.loc[c["via"] == "reference", "conf"]) == {"501", "620"}
+    assert ("confirmation journal (confirmations referencing this order) and consumption matched to the job by line "
+            "and time") in s["C3"]["narrative"]
+
+
+@pytest.fixture(scope="module")
+def odd_pallets(tmp_path_factory):
+    d = tmp_path_factory.mktemp("odd")
+    write_workbook(d / "SAP_Info.xlsx")
+    head = ["Site", "Product", "Identified Stock (Identified Stock ID)", "Logistics Area (Logistics Area ID)",
+            "Created On", "Conf.Document Type", "Conf.ID", "Restricted", "Effective Qty"]
+    # job A's usual pallet is 100 cases; two more pallets off that count, one of them posted on the line's area
+    rows = [["Confirmation Journal"] + [None] * 8, head,
+            ["EXTHQ1", "FGBLEND", "X1", "FG_STAGING", ts("03:45"), PC, "250", "#", 40],
+            ["EXTHQ1", "FGBLEND", "X2", "GRATINGLINES", ts("03:50"), PC, "251", "#", 7]]
+    pd.DataFrame(rows).to_excel(d / "extra.xlsx", sheet_name="Confirmation Journal", header=False, index=False)
+    return run(read_workbook([str(d / "SAP_Info.xlsx"), str(d / "extra.xlsx")]))
+
+
+def test_pallets_off_the_usual_count_and_on_a_line_area(odd_pallets, result):
+    c = codes(odd_pallets, "A1")
+    f = c["PALLET_QUANTITIES_IRREGULAR"]
+    assert f.severity == "HIGH" and "Usual pallet for FGBLEND is 100 cases, but 2 pallets aren't: X1 40, X2 7." in f.message
+    assert "UNUSUAL_PALLET_SIZE" not in c
+    assert c["OUTPUT_ON_LINE_AREA"].message == ("Output posted to a line area instead of FG_STAGING: 251 at 19.08 03:50 "
+                                               "(7 on pallet X2, GRATINGLINES).")
+    a = next(s for s in odd_pallets.summaries if s["order_id"] == "A1")
+    assert a["irregular_pallets"] == ["X1", "X2"]
+    # the plain workbook: every pallet at the usual count, none on a line area
+    assert not {"PALLET_QUANTITIES_IRREGULAR", "OUTPUT_ON_LINE_AREA"} & set(codes(result, "A1"))
+
+
+def test_summary_says_job_ran_out_of_cheese_only_when_far_short(full):
+    s = {x["order_id"]: x for x in full.summaries}
+    # A1: 400 of 1,000 cases made and 1,925 of 4,925 kg of cheese in (about what 400 cases need)
+    assert ("Only 400 of the 1,000 cases planned were made, and only 1,925 kg of the 4,925 kg of cheese planned went in, "
+            "so it looks like the job ran out of cheese.") in s["A1"]["narrative"]
+    # B2 made more than planned, C3 made the plan: nothing about running out
+    assert "ran out of cheese" not in s["B2"]["narrative"] and "ran out of cheese" not in s["C3"]["narrative"]
+
+
+def test_same_order_sheet_in_two_files_is_not_counted_twice(tmp_path):
+    # a newer export of the order inputs next to SAP_Info: each order's lines come from the latest file only
+    write_workbook(tmp_path / "SAP_Info.xlsx")
+    write_full_journal(tmp_path / "Confirmation_Journal.xlsx")
+    comp = pd.read_excel(tmp_path / "SAP_Info.xlsx", sheet_name="OUT+IN", header=None)
+    comp.loc[comp[7] == "RMSLICE", 10] = 800            # job C's cheese plan changed in the newer export
+    comp.to_excel(tmp_path / "input_output.xlsx", sheet_name="Production order input-output", header=False, index=False)
+    res = run(read_workbook([str(tmp_path / f) for f in ("SAP_Info.xlsx", "Confirmation_Journal.xlsx", "input_output.xlsx")]))
+    s = {x["order_id"]: x for x in res.summaries}
+    assert s["C3"]["cheese_planned_kg"] == pytest.approx(800)                      # not 700 + 800, and the newer value
+    assert s["A1"]["cheese_planned_kg"] == pytest.approx(1477.5 + 3447.5)          # not doubled
+    assert sum(1 for c in s["A1"]["components"] if c["material"] == "BOBOX") == 1
+
+
+def test_offcut_bin_put_back_is_a_reversal_not_offcuts_made():
+    # job 2173: bin batches consumed, most put back later on the same order (same weight, positive);
+    # a positive row on a bin batch the order never consumed is offcuts made
+    t = lambda hm: pd.Timestamp(f"2026-09-29 {hm}")
+    rows = [("MBMJOFF", "55459", "2173", t("08:22"), -9.69), ("MBMJOFF", "55459", "2173", t("08:55"), 9.69),
+            ("MBMJOFF", "55642", "2173", t("08:16"), -9.72),
+            ("MBMJOFF", "55653", "2173", t("08:17"), -9.83),
+            ("MBMJOFF", "55472", "2173", t("08:23"), -9.83), ("MBMJOFF", "55472", "2173", t("08:53"), 9.83),
+            ("MBMJOFF", "90001", "2173", t("09:30"), 12.00),     # new bin: offcuts made
+            ("MBMJOFF", "55642", "9999", t("09:40"), 9.72)]      # another order: not this order's reversal
+    j = pd.DataFrame(rows, columns=["material", "batch", "ref", "time", "qty"]).assign(is_prod=True)
+    c = consumption_rows(j, Rules())
+    assert c["qty"].sum() == pytest.approx(-(9.72 + 9.83))
+    assert set(c.loc[c["qty"] > 0, "batch"]) == {"55459", "55472"}
+    # without an order reference a bin filled and emptied by different jobs can't be told from a reversal
+    c2 = consumption_rows(j.assign(ref=None), Rules())
+    assert (c2["qty"] > 0).sum() == 0
