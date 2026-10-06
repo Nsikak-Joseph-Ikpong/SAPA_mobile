@@ -207,7 +207,9 @@
 </div>
 <div class="toast" id="toast" hidden></div>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<!-- the spreadsheet reader (SheetJS 0.18.5): the copy next to the page when there is one (local server), else the CDN -->
+<script src="vendor/xlsx.full.min.js"></script>
+<script>window.XLSX || document.write('<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"><\/script>');</script>
 <script src="reconcile.js"></script>
 <script src="demo-workbook.js"></script>
 <script>

@@ -31,6 +31,7 @@ jobs:
         run: |
           mkdir -p _site
           cp web/*.js _site/
+          cp -r web/vendor _site/
           { printf '%s\n' '<!doctype html>' '<html lang="en"><head><meta charset="utf-8">' \
               '<meta name="viewport" content="width=device-width, initial-scale=1">'; cat web/index.html; } > _site/index.html
       - uses: actions/upload-pages-artifact@v3

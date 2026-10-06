@@ -23,6 +23,27 @@ and the tool flags any disagreement between them.
 pip install -r requirements.txt
 ```
 
+## Run the checker page on your computer (localhost)
+
+```bash
+python serve.py
+```
+
+This opens http://localhost:8000 in your browser (`--port 8080` for another port,
+`--no-browser` to not open it). Only your computer can reach it, and the files you
+load stay in the browser. The spreadsheet reader is bundled in `web/vendor/`, so it
+works without internet access. Stop it with Ctrl+C.
+
+The page itself needs nothing from `requirements.txt`, only Python 3.9 or later.
+
+**In PyCharm:**
+1. Open this folder as a project (File > Open), and pick a Python interpreter when
+   asked (or Settings > Project > Python Interpreter > Add Interpreter > Virtualenv).
+2. Open `requirements.txt` and click *Install requirements* in the yellow bar (for the
+   command-line checker and tests).
+3. Right-click `serve.py` > *Run 'serve'*. The browser opens on the checker; the red
+   Stop button stops it. After that, the green Run button starts it again.
+
 ## Use
 
 ```bash

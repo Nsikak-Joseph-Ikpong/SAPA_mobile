@@ -1,4 +1,8 @@
+# The browser page (python serve.py) needs only Python 3.9+; nothing below is required for it.
+# Command-line checker (python -m sap_variance.reconcile) and its analysis:
 pandas>=2.0
+numpy>=1.24
 openpyxl>=3.1
 scipy>=1.10
+# Tests (python -m pytest):
 pytest>=7
