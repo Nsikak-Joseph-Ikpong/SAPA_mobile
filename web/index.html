@@ -171,7 +171,7 @@
       <div class="source" id="source"><span class="loading">Loading…</span></div>
       <div class="drop" id="drop" tabindex="0" role="button">
         <strong>Load SAP files</strong>
-        <span>Drop or choose the SAP workbook (.xlsx), the confirmation journal and the production order fulfilment export, together or one at a time. Each file is added to what's loaded; a newer file of the same kind replaces the older one. Files stay in this browser and are remembered for next time.</span>
+        <span>Drop anywhere on this page, or click to choose, the SAP workbook (.xlsx), the confirmation journal and the production order fulfilment export, together or one at a time. Each file is added to what's loaded; a newer file of the same kind replaces the older one. Files stay in this browser and are remembered for next time.</span>
       </div>
       <input type="file" id="file" accept=".xlsx,.xlsm,.xls" multiple hidden>
       <input type="file" id="addfile" accept=".xlsx,.xlsm,.xls" multiple hidden>
@@ -646,9 +646,18 @@
   input.onchange = () => { onFiles([...input.files]); input.value = ""; };
   $("add").onclick = () => addInput.click();
   addInput.onchange = () => { onFiles([...addInput.files]); addInput.value = ""; };
-  ["dragenter", "dragover"].forEach((ev) => drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.add("over"); }));
-  ["dragleave", "drop"].forEach((ev) => drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.remove("over"); }));
-  drop.addEventListener("drop", (e) => onFiles([...e.dataTransfer.files]));
+  // files can be dropped anywhere on the page (the browser would otherwise open the file instead)
+  const hasFiles = (e) => [...(e.dataTransfer?.types || [])].includes("Files");
+  let dragDepth = 0;
+  window.addEventListener("dragenter", (e) => { if (!hasFiles(e)) return; e.preventDefault(); dragDepth++; drop.classList.add("over"); });
+  window.addEventListener("dragover", (e) => { if (!hasFiles(e)) return; e.preventDefault(); e.dataTransfer.dropEffect = "copy"; });
+  window.addEventListener("dragleave", (e) => { if (!hasFiles(e)) return; if (--dragDepth <= 0) { dragDepth = 0; drop.classList.remove("over"); } });
+  window.addEventListener("drop", (e) => {
+    if (!hasFiles(e)) return;
+    e.preventDefault(); dragDepth = 0; drop.classList.remove("over");
+    const files = [...e.dataTransfer.files].filter((f) => /\.(xlsx|xlsm|xls)$/i.test(f.name));
+    if (files.length) onFiles(files); else toast("Drop Excel files (.xlsx) from SAP.");
+  });
   $("report").onclick = () => downloadReport().catch((e) => toast("Couldn't build the report: " + e.message));
   // sortable tables: click a heading to sort by that column (again to reverse); history rows are closed first
   const cellKey = (td) => (td ? (td.dataset.v !== undefined ? td.dataset.v : td.textContent.trim()) : "");
