@@ -34,7 +34,6 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
-import numpy as np
 import pandas as pd
 
 from .config import alias_key
@@ -178,13 +177,29 @@ def _merge_journals(journals: list) -> pd.DataFrame:
     if refs:
         mapped = key(out).map(refs)
         out["ref"] = mapped.where(mapped.notna(), out["ref"] if "ref" in out else None)
-    # and so is a restricted mark (per row of a move: its two rows share the key, so the area and sign tell them apart)
-    rkey = lambda d: key(d) + "|" + d["area"].astype(str) + "|" + np.sign(d["qty"]).astype(int).astype(str)
-    restr = set()
+    # restricted stock: putting stock on restricted is a status change, -qty unrestricted and +qty restricted on the
+    # same posting. An export without the Restricted column nets the two to one 0 row, so where an export marks a
+    # posting restricted, its rows for that posting replace the others'
+    if "restricted" not in out:
+        out["restricted"] = False
+    out["restricted"] = out["restricted"].fillna(False).astype(bool)
+    taken: set = set()
+    add = []
     for d in journals:
-        if "restricted" in d:
-            restr |= set(rkey(d[d["restricted"].astype(bool)]))
-    out["restricted"] = (out["restricted"].astype(bool) if "restricted" in out else False) | rkey(out).isin(restr)
+        if "restricted" not in d:
+            continue
+        r = d["restricted"].fillna(False).astype(bool)
+        ks = set(key(d[r])) - taken
+        if ks:
+            rows = d[key(d).isin(ks)].copy()
+            rows["restricted"] = rows["restricted"].fillna(False).astype(bool)
+            add.append(rows)
+            taken |= ks
+    if taken:
+        out = pd.concat([out[~key(out).isin(taken)], *add], ignore_index=True)
+        if refs:
+            mapped = key(out).map(refs)
+            out["ref"] = mapped.where(mapped.notna(), out["ref"])
     return out
 
 
@@ -434,7 +449,7 @@ def restricted_stock(journal: pd.DataFrame) -> pd.DataFrame:
     """Journal rows marked X in the Restricted column, oldest first."""
     if "restricted" not in journal:
         return journal.iloc[0:0]
-    return journal[journal["restricted"].astype(bool)].sort_values("time", kind="stable")
+    return journal[journal["restricted"].fillna(False).astype(bool)].sort_values("time", kind="stable")
 
 
 def restricted_by_batch(journal: pd.DataFrame) -> dict:

@@ -129,13 +129,19 @@
     // a posting's order reference is kept whichever export it came from
     const refs = new Map();
     for (const j of js) for (const r of j) if (r.ref !== null && r.ref !== undefined && r.ref !== "#") refs.set(k(r), r.ref);
-    // and so is a restricted mark (per row of a move: its two rows share the key, so the area and sign tell them apart)
-    const rk = (r) => `${k(r)}|${r.area}|${Math.sign(r.qty)}`, restr = new Set();
-    for (const j of js) for (const r of j) if (r.restricted) restr.add(rk(r));
-    return out.map((r) => {
-      const ref = refs.has(k(r)) ? refs.get(k(r)) : r.ref, restricted = r.restricted || restr.has(rk(r));
-      return ref === r.ref && restricted === r.restricted ? r : { ...r, ref, restricted };
-    });
+    // restricted stock: putting stock on restricted is a status change, -qty unrestricted and +qty restricted on the
+    // same posting. An export without the Restricted column nets the two to one 0 row, so where an export marks a
+    // posting restricted, its rows for that posting replace the others'
+    const marked = new Map();
+    for (const j of js) {
+      const ks = new Set(j.filter((r) => r.restricted).map(k));
+      for (const r of j) if (ks.has(k(r)) && (!marked.has(k(r)) || marked.get(k(r)).src === j)) {
+        if (!marked.has(k(r))) marked.set(k(r), { src: j, rows: [] });
+        marked.get(k(r)).rows.push(r);
+      }
+    }
+    const merged = marked.size ? [...out.filter((r) => !marked.has(k(r))), ...[...marked.values()].flatMap((x) => x.rows)] : out;
+    return refs.size ? merged.map((r) => (refs.has(k(r)) && refs.get(k(r)) !== r.ref ? { ...r, ref: refs.get(k(r)) } : r)) : merged;
   }
 
   // sheets: [{file, sheet, rows: [[...], ...]}]

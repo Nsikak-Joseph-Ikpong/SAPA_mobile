@@ -424,3 +424,20 @@ def test_restricted_stock_is_flagged_on_the_orders_that_used_it(restricted):
     assert f.message == ("Restricted stock on 1 batch(es) this job made or used: RMMOZZ M1 50.00 at EDH01-REGRADING "
                          "19.08 23:59 (Goods and Activity Confirmation 900).")
     assert "RESTRICTED_STOCK" not in codes(res, "C3")
+
+
+def test_restricted_status_change_survives_a_journal_without_the_column():
+    # put on restricted: -789.82 unrestricted and +789.82 restricted on one posting; an export without the
+    # Restricted column nets them to a single 0 row
+    from sap_variance.reconcile import _merge_journals
+    t = pd.Timestamp("2026-08-03 09:31")
+    cols = ["conf", "material", "batch", "area", "time", "doc", "qty", "is_prod"]
+    big = pd.DataFrame([["47", "RMRF20EX50", "80000084869", "5F05B3", t, GA, 0.0, False],
+                        ["48", "RMMOZZ", "M1", "GRATINGLINES", t, PC, -10.0, True]], columns=cols)
+    small = pd.DataFrame([["47", "RMRF20EX50", "80000084869", "5F05B3", t, GA, -789.82, False, False],
+                          ["47", "RMRF20EX50", "80000084869", "5F05B3", t, GA, 789.82, False, True]],
+                         columns=cols + ["restricted"])
+    m = _merge_journals([big, pd.concat([small] * 3, ignore_index=True).iloc[:2]])
+    assert len(m) == 3 and m["qty"].sum() == pytest.approx(-10.0)
+    r = restricted_stock(m)
+    assert list(r["qty"]) == [789.82] and list(r["batch"]) == ["80000084869"]
