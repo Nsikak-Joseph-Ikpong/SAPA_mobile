@@ -23,13 +23,6 @@ and the tool flags any disagreement between them.
 pip install -r requirements.txt
 ```
 
-## Open the checker page with nothing installed
-
-Double-click **`Cheese Variance Checker.html`** (or `web/index.html`). The page opens
-in your browser straight from the folder, with no Python or install needed. Drop the
-SAP files on it as usual; they stay in the browser and are remembered next time. To get
-the folder without Git: on GitHub, *Code > Download ZIP*, and unzip it.
-
 ## Run the checker page on your computer (localhost)
 
 ```bash

@@ -19,10 +19,25 @@ from pathlib import Path
 
 WEB = Path(__file__).resolve().parent / "web"
 
+# web/index.html has no document skeleton (the Claude artifact and the Pages build add one): add it here
+HEAD = ('<!doctype html>\n<html lang="en"><head><meta charset="utf-8">\n'
+        '<meta name="viewport" content="width=device-width, initial-scale=1">\n')
+
 
 class Handler(http.server.SimpleHTTPRequestHandler):
     extensions_map = {**http.server.SimpleHTTPRequestHandler.extensions_map,
                       ".js": "text/javascript; charset=utf-8", ".html": "text/html; charset=utf-8"}
+
+    def do_GET(self):
+        if self.path.split("?")[0] in ("/", "/index.html"):
+            body = (HEAD + (WEB / "index.html").read_text(encoding="utf-8")).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+        super().do_GET()
 
     def end_headers(self):
         # always the latest page after an update
