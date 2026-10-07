@@ -106,7 +106,9 @@
       const doc = String(r.confdocumenttype);
       journal.push({ site: r.site, material: str(r.product), batch: id(r[bc]), area: str(r[ac]), time: t, doc,
         // the production order on production confirmations (Reference Document ID), when the export has it
-        conf: id(r.confid), qty: q, is_prod: /production/i.test(doc), ref: "referencedocumentid" in r ? id(r.referencedocumentid) : null });
+        conf: id(r.confid), qty: q, is_prod: /production/i.test(doc), ref: "referencedocumentid" in r ? id(r.referencedocumentid) : null,
+        // restricted stock: "X" in the journal's Restricted column ("#" or blank is unrestricted)
+        restricted: /^x$/i.test(String(r.restricted ?? "").trim()) });
     }
     return journal;
   }
@@ -127,7 +129,13 @@
     // a posting's order reference is kept whichever export it came from
     const refs = new Map();
     for (const j of js) for (const r of j) if (r.ref !== null && r.ref !== undefined && r.ref !== "#") refs.set(k(r), r.ref);
-    return refs.size ? out.map((r) => (refs.has(k(r)) ? { ...r, ref: refs.get(k(r)) } : r)) : out;
+    // and so is a restricted mark (per row of a move: its two rows share the key, so the area and sign tell them apart)
+    const rk = (r) => `${k(r)}|${r.area}|${Math.sign(r.qty)}`, restr = new Set();
+    for (const j of js) for (const r of j) if (r.restricted) restr.add(rk(r));
+    return out.map((r) => {
+      const ref = refs.has(k(r)) ? refs.get(k(r)) : r.ref, restricted = r.restricted || restr.has(rk(r));
+      return ref === r.ref && restricted === r.restricted ? r : { ...r, ref, restricted };
+    });
   }
 
   // sheets: [{file, sheet, rows: [[...], ...]}]
@@ -1032,6 +1040,12 @@
       if (over.length) flag("MEDIUM", "BATCH_OVER_CONSUMED", "Batch consumed for more than it held: " + over.map(([m, b, u, sz]) => `${m} ${b} consumed ${f(u, 2)} kg in total (this job ${f(sum(cons.filter((c) => c.material === m && c.batch === b).map((c) => c.consumed)), 2)}), largest quantity posted for it ${f(sz, 2)} kg`).join("; ") + ".");
     }
 
+    // restricted stock: any restricted posting on a batch this job made, consumed, moved to its line or repacked
+    const jobBatches = new Set([...out, ...cheese, ...cons, ...(idx.repacks.get(oid) || [])].filter((r) => r.batch !== null && r.batch !== undefined).map((r) => r.material + "\u0000" + r.batch));
+    const restrictedRows = [...jobBatches].flatMap((k) => ctx.restrictedByBatch.get(k) || []).sort((a, b) => a.time - b.time);
+    if (restrictedRows.length) flag("HIGH", "RESTRICTED_STOCK", `Restricted stock on ${new Set(restrictedRows.map((r) => r.material + " " + r.batch)).size} batch(es) this job made or used: `
+      + restrictedRows.map((r) => `${r.material} ${r.batch} ${f(r.qty, 2)} at ${r.area || "#"} ${dm(r.time)} (${r.doc} ${r.conf})`).join("; ") + ".");
+
     const offcuts = idx.byp.get(oid) || [];
     // planned / done / open on the order, with what the journal shows consumed next to it
     const tot = (rows, k) => sum(rows.map((x) => (isNaN(x[k]) ? 0 : x[k])));
@@ -1218,7 +1232,10 @@
     let jmin = Infinity, jmax = -Infinity;
     for (const r of wb.journal) { if (r.time < jmin) jmin = r.time; if (r.time > jmax) jmax = r.time; }
     const journalRange = wb.journal.length ? [jmin, jmax] : null;
-    return { wb, orders, outputs, sends, idx, active, seqByRes, hasCons, covered, overBatches, starchUsed, codeWeights, finishedGoods: fgs, repacks, repackWeights, repackPacks, consumption, consumedByBatch, movesByBatch, typical: typicalPallets(outputs), journalRange,
+    // restricted stock postings, oldest first, and by batch
+    const restricted = wb.journal.filter((r) => r.restricted).sort((a, b) => a.time - b.time), restrictedByBatch = new Map();
+    for (const r of restricted) { const k = r.material + "\u0000" + r.batch; if (!restrictedByBatch.has(k)) restrictedByBatch.set(k, []); restrictedByBatch.get(k).push(r); }
+    return { wb, orders, outputs, sends, idx, active, seqByRes, hasCons, restricted, restrictedByBatch, covered, overBatches, starchUsed, codeWeights, finishedGoods: fgs, repacks, repackWeights, repackPacks, consumption, consumedByBatch, movesByBatch, typical: typicalPallets(outputs), journalRange,
       unassigned: outputs.filter((r) => r.order_id === null) };
   }
 

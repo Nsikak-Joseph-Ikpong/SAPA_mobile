@@ -3,7 +3,7 @@
 import pandas as pd
 import pytest
 
-from sap_variance.reconcile import Rules, consumption_rows, read_workbook, run
+from sap_variance.reconcile import Rules, consumption_rows, read_workbook, restricted_stock, run
 
 GA, PC = "Goods and Activity Confirmation", "Production Confirmation"
 
@@ -394,3 +394,33 @@ def test_offcut_bin_put_back_is_a_reversal_not_offcuts_made():
     # without an order reference a bin filled and emptied by different jobs can't be told from a reversal
     c2 = consumption_rows(j.assign(ref=None), Rules())
     assert (c2["qty"] > 0).sum() == 0
+
+
+@pytest.fixture(scope="module")
+def restricted(tmp_path_factory):
+    d = tmp_path_factory.mktemp("restricted")
+    write_workbook(d / "SAP_Info.xlsx")
+    write_full_journal(d / "Confirmation_Journal.xlsx")
+    head = ["Site", "Product", "Identified Stock (Identified Stock ID)", "Logistics Area (Logistics Area ID)",
+            "Created On", "Conf.Document Type", "Conf.ID", "Reference Document ID", "Restricted", "Effective Qty"]
+    rows = [["Confirmation Journal"] + [None] * 9, head,
+            ["EXTHQ1", "RMMOZZ", "M1", "GRATINGLINES", ts("07:00"), PC, "501", "A1", "#", -900],
+            # job A's cheese batch put on restricted (X) afterwards, and an unrelated restricted batch
+            ["EXTHQ1", "RMMOZZ", "M1", "EDH01-REGRADING", ts("23:59"), GA, "900", "#", "X", 50],
+            ["EXTHQ1", "RMBIR20EX", "80000075090", "EDH01-REGRADING", ts("23:58"), GA, "901", "#", "X", 20],
+            # unrestricted: a move with "#" in the Restricted column
+            ["EXTHQ1", "BUSL108RM", "46209", "EDH01-REGRADING", ts("15:10"), "Warehouse Confirmation", "902", "2141", "#", -60]]
+    pd.DataFrame(rows).to_excel(d / "journal2.xlsx", sheet_name="Confirmation Journal", header=False, index=False)
+    wb = read_workbook([str(d / "SAP_Info.xlsx"), str(d / "Confirmation_Journal.xlsx"), str(d / "journal2.xlsx")])
+    return wb, run(wb)
+
+
+def test_restricted_stock_is_flagged_on_the_orders_that_used_it(restricted):
+    wb, res = restricted
+    r = restricted_stock(wb.journal)
+    assert list(zip(r["material"], r["batch"])) == [("RMBIR20EX", "80000075090"), ("RMMOZZ", "M1")]
+    f = codes(res, "A1")["RESTRICTED_STOCK"]
+    assert f.severity == "HIGH"
+    assert f.message == ("Restricted stock on 1 batch(es) this job made or used: RMMOZZ M1 50.00 at EDH01-REGRADING "
+                         "19.08 23:59 (Goods and Activity Confirmation 900).")
+    assert "RESTRICTED_STOCK" not in codes(res, "C3")

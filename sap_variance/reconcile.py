@@ -34,6 +34,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 from .config import alias_key
@@ -148,6 +149,8 @@ def _journal(j: pd.DataFrame) -> pd.DataFrame:
         "conf": _id(j["confid"]), "qty": _num(j["effectiveqty"]),
         # the production order on production confirmations (Reference Document ID), when the export has it
         "ref": _id(j["referencedocumentid"]) if "referencedocumentid" in j else None,
+        # restricted stock: "X" in the journal's Restricted column ("#" or blank is unrestricted)
+        "restricted": (j["restricted"].astype(str).str.strip().str.upper() == "X") if "restricted" in j else False,
     }).dropna(subset=["time", "qty"])
     journal["is_prod"] = journal["doc"].str.contains("Production", case=False)
     return journal
@@ -175,6 +178,13 @@ def _merge_journals(journals: list) -> pd.DataFrame:
     if refs:
         mapped = key(out).map(refs)
         out["ref"] = mapped.where(mapped.notna(), out["ref"] if "ref" in out else None)
+    # and so is a restricted mark (per row of a move: its two rows share the key, so the area and sign tell them apart)
+    rkey = lambda d: key(d) + "|" + d["area"].astype(str) + "|" + np.sign(d["qty"]).astype(int).astype(str)
+    restr = set()
+    for d in journals:
+        if "restricted" in d:
+            restr |= set(rkey(d[d["restricted"].astype(bool)]))
+    out["restricted"] = (out["restricted"].astype(bool) if "restricted" in out else False) | rkey(out).isin(restr)
     return out
 
 
@@ -418,6 +428,21 @@ def _line_context(wb: Workbook, windows: pd.DataFrame, outputs: pd.DataFrame, ru
     starts = dict(zip(windows["order_id"], windows["start"]))
     resources = dict(zip(windows["order_id"], windows["resource"]))
     return wins, recipe_by_order, next_out, starts, resources
+
+
+def restricted_stock(journal: pd.DataFrame) -> pd.DataFrame:
+    """Journal rows marked X in the Restricted column, oldest first."""
+    if "restricted" not in journal:
+        return journal.iloc[0:0]
+    return journal[journal["restricted"].astype(bool)].sort_values("time", kind="stable")
+
+
+def restricted_by_batch(journal: pd.DataFrame) -> dict:
+    """Restricted postings per (material, batch), oldest first."""
+    out: dict = {}
+    for r in restricted_stock(journal).to_dict("records"):
+        out.setdefault((r["material"], r["batch"]), []).append(r)
+    return out
 
 
 def consumption_rows(journal: pd.DataFrame, rules: Rules) -> pd.DataFrame:
@@ -1449,6 +1474,20 @@ def check_order(oid: str, wb: Workbook, windows: pd.DataFrame, outputs: pd.DataF
                 f"{m} {b} consumed {u:,.2f} kg in total (this job {cons[(cons['material'] == m) & (cons['batch'] == b)]['consumed'].sum():,.2f}), "
                 f"largest quantity posted for it {sz:,.2f} kg" for m, b, u, sz in over) + ".")
 
+    # restricted stock: any restricted posting on a batch this job made, consumed, moved to its line or repacked
+    rp_job = (info or {}).get("repacks")
+    rp_job = rp_job[rp_job["order_id"] == oid] if rp_job is not None and not rp_job.empty else None
+    job_batches = set()
+    for d in (out, cheese, cons, rp_job):
+        if d is not None and not d.empty and "batch" in d:
+            job_batches |= {(m, b) for m, b in d[["material", "batch"]].itertuples(index=False) if b is not None and not pd.isna(b)}
+    restricted_by_batch = (info or {}).get("restricted_by_batch") or {}
+    rrows = sorted((r for k in job_batches for r in restricted_by_batch.get(k, [])), key=lambda r: r["time"])
+    if rrows:
+        flag("HIGH", "RESTRICTED_STOCK", f"Restricted stock on {len({(r['material'], r['batch']) for r in rrows})} batch(es) this job made or used: "
+             + "; ".join(f"{r['material']} {r['batch']} {r['qty']:,.2f} at {r['area'] or '#'} {r['time']:%d.%m %H:%M} ({r['doc']} {r['conf']})"
+                         for r in rrows) + ".")
+
     offcuts = wb.byproducts[wb.byproducts["order_id"] == oid]
     variance = variance_view(o, comps, cheese_comps, offcuts, order_out, journal_out, cheese_source, consumed,
                              float((starch_used or {}).get(oid, 0.0)), issued, used, rules,
@@ -1577,7 +1616,8 @@ def run(wb: Workbook, order_ids: list[str] | None = None, rules: Rules | None = 
                              for m in sorted(needs_w)}, "ctype": lambda m: m.upper()[:4] if not re.match(rules.offcut_pattern, m.upper()) else m.upper(),
             "consumed_by_batch": ((-raw_cons.groupby(["material", "batch"])["qty"].sum()).to_dict() if journal_cons else {}),
             "moves_by_batch": {k: g.sort_values("time", kind="stable") for k, g in
-                               wb.journal[~wb.journal["is_prod"] & (wb.journal["qty"] > 0)].groupby(["material", "batch"])}}
+                               wb.journal[~wb.journal["is_prod"] & (wb.journal["qty"] > 0)].groupby(["material", "batch"])},
+            "restricted_by_batch": restricted_by_batch(wb.journal)}
     pos = outputs[outputs["qty"] > 0]
     typical = {}
     for fg, g in pos.groupby("material"):

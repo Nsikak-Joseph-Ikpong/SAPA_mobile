@@ -198,6 +198,15 @@ to an older journal without the column, each posting keeps its reference whichev
 Postings with no reference (older exports) still go through the fulfilment report and line-and-time
 matching, and the summary says which source each order's cheese came from.
 
+**Restricted stock.** When the journal export has a *Restricted* column, rows marked `X` are restricted
+stock (`#` or blank is unrestricted). As soon as the journal is loaded, the page shows a red alert listing
+every restricted posting (product, Identified Stock ID, area, time, document, Conf.ID, quantity), sortable
+and filterable, with each batch's history a click away. Any order that made, consumed, moved to its line or
+repacked a batch with a restricted posting gets a HIGH `RESTRICTED_STOCK` flag naming those postings, and
+batch history and the stock trace mark restricted rows. Quantities aren't changed: a restricted posting
+still counts as the stock movement it is. Older exports without the column show no restricted stock, so add
+*Restricted* to the journal report's layout.
+
 Without a reference, postings are tied to orders:
 
 * **Output:** a pallet of product X goes to the latest order for X that had started when it was posted

@@ -110,6 +110,12 @@
   .story h3 { margin: 0 0 6px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
   .story p { margin: 0; font-size: 15px; line-height: 1.55; max-width: 95ch; }
   .bad { color: var(--high); } .good { color: var(--ok); }
+  .restr { min-width: 0; border: 1px solid var(--high); border-left-width: 5px; background: var(--high-soft); border-radius: 8px; padding: 12px 14px; margin: 16px 0; }
+  .restr h2 { margin: 0 0 4px; font-size: 15px; color: var(--high); }
+  .restr p { margin: 0; font-size: 13px; }
+  .restr details { margin-top: 8px; }
+  .restr summary { cursor: pointer; font-size: 13px; font-weight: 500; }
+  td.rx { color: var(--high); font-weight: 700; text-align: center; }
 
   .mass { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); }
   .mass table { font-size: 13px; }
@@ -203,6 +209,7 @@
     <p class="hint">Every confirmation in the journal for that batch: receipts, moves, consumption, output, reversals and scrap, with the running stock and the order each one belongs to. Several batches can be separated with commas.</p>
   </section>
 
+  <section class="restr" id="restricted" role="alert" hidden></section>
   <main class="result" id="result" aria-live="polite"></main>
 </div>
 <div class="toast" id="toast" hidden></div>
@@ -223,6 +230,7 @@
   const kg = (v) => (v === null || v === undefined || isNaN(v) ? "n/a" : f(v, 1) + " kg");
 
   const TITLES = {
+    RESTRICTED_STOCK: "Restricted stock on this job's batches",
     OUTPUT_NOT_ON_ORDER: "Output in the journal doesn't match the order",
     OUTPUT_NOT_IN_JOURNAL: "Order shows output the journal doesn't",
     OUTPUT_POSTED_IN_BULK_OR_LATE: "Pallets posted in bulk or late",
@@ -327,12 +335,28 @@
     $("source").innerHTML = `<div class="what">${names}
       <div class="meta">${f(c.wb.journal.length)} journal rows (${esc(range)}) · ${f(c.orders.length)} orders${s.saved ? ` · saved ${esc(new Date(s.saved).toLocaleDateString("en-GB"))}` : ""}${esc(cheese)}</div></div>
       <span class="pill ${state.demo ? "" : "real"}">${state.demo ? "demo" : "your data"}</span>`;
+    renderRestricted();
     $("forget").hidden = state.demo;
     $("add").hidden = state.demo;
     $("report").hidden = typeof XLSX === "undefined";
     const ex = state.demo ? ["A1", "B2", "C3"] : pickExamples();
     $("examples").innerHTML = ex.length ? `Try: ${ex.map((o) => `<button type="button" data-o="${esc(o)}">${esc(o)}</button>`).join("")}` : "";
     $("examples").querySelectorAll("button").forEach((b) => (b.onclick = () => { $("oid").value = b.dataset.o; run(); }));
+  }
+
+  // restricted stock: shown as soon as a journal is loaded, every posting marked X in the Restricted column
+  function renderRestricted() {
+    const box = $("restricted"), rows = state.ctx.restricted || [];
+    box.hidden = !rows.length;
+    if (!rows.length) { box.innerHTML = ""; return; }
+    const batches = new Set(rows.map((r) => r.material + " " + r.batch)).size;
+    box.innerHTML = `<h2>Restricted stock: ${f(rows.length)} posting${rows.length === 1 ? "" : "s"} on ${f(batches)} batch${batches === 1 ? "" : "es"}</h2>
+      <p>These journal rows are marked X in the Restricted column. Orders that made or used these batches are flagged when you check them.</p>
+      <details${rows.length <= 10 ? " open" : ""}><summary>Show the restricted postings</summary>
+      <input type="search" class="tfilter" placeholder="Filter by product, stock ID, area…" aria-label="Filter restricted stock">
+      <div class="scroll"><table class="sortable"><thead><tr><th>Product</th><th>Identified Stock ID</th><th>Logistics Area ID</th><th>Created On</th><th>Conf.Document Type</th><th>Conf.ID</th><th>Reference Document ID</th><th>Effective Qty</th></tr></thead><tbody>`
+      + rows.map((r) => `<tr><td class="m">${esc(r.material)}</td><td class="m" data-v="${esc(r.batch ?? "")}"><button type="button" class="link hist" data-m="${esc(r.material)}" data-b="${esc(r.batch ?? "")}" title="Show every confirmation of this batch">${esc(r.batch ?? "")}</button></td><td class="m">${esc(r.area || "#")}</td><td class="m" data-v="${r.time}">${esc(dmy(r.time))}</td><td>${esc(r.doc)}</td><td class="m" data-v="${esc(r.conf)}">${esc(r.conf)}</td><td class="m">${esc(r.ref ?? "#")}</td><td class="n" data-v="${r.qty}">${f(r.qty, 2)}</td></tr>`).join("")
+      + `</tbody></table></div></details>`;
   }
 
   // the loaded files, each with a button to remove just that one
@@ -661,7 +685,7 @@
   $("report").onclick = () => downloadReport().catch((e) => toast("Couldn't build the report: " + e.message));
   // sortable tables: click a heading to sort by that column (again to reverse); history rows are closed first
   const cellKey = (td) => (td ? (td.dataset.v !== undefined ? td.dataset.v : td.textContent.trim()) : "");
-  $("result").addEventListener("click", (e) => {
+  document.addEventListener("click", (e) => {
     const th = e.target.closest("table.sortable thead th");
     if (!th) return;
     const table = th.closest("table"), body = table.tBodies[0], col = th.cellIndex;
@@ -679,7 +703,7 @@
     rows.forEach((r) => body.appendChild(r));
   });
   // filter box above a table: keep the rows that contain the text; the total covers the rows shown
-  $("result").addEventListener("input", (e) => {
+  document.addEventListener("input", (e) => {
     const box = e.target.closest("input.tfilter");
     if (!box) return;
     const table = box.parentElement.querySelector("table"), q = box.value.trim().toLowerCase();
@@ -697,7 +721,7 @@
     }
   });
   // click a pallet or batch number: its full confirmation history from the journal, under the row
-  $("result").addEventListener("click", (e) => {
+  document.addEventListener("click", (e) => {
     const btn = e.target.closest("button.hist");
     if (!btn || !state.ctx) return;
     const tr = btn.closest("tr"), next = tr.nextElementSibling;
@@ -712,8 +736,8 @@
     const sum = rows.length ? `<p class="sum"><strong>${esc(btn.dataset.m)} ${esc(btn.dataset.b)}</strong>: ${rows.length} confirmation row${rows.length === 1 ? "" : "s"}. `
       + `Production confirmations: ${made.length} posting (${f(made.reduce((a, r) => a + r.qty, 0))})${undone.length ? `, ${undone.length} reversed (${f(undone.reduce((a, r) => a + r.qty, 0))})` : ""}. `
       + `Stock after the last row: ${f(last.balance, 2)}${last.area ? ` (last at ${esc(last.area)})` : ""}.</p>` : `<p class="sum">No rows for this batch in the journal.</p>`;
-    const table = rows.length ? `<div class="scroll"><table><thead><tr><th>Created On</th><th>Conf.Document Type</th><th>Conf.ID</th><th>Logistics Area ID</th><th>Effective Qty</th><th>Stock after</th></tr></thead><tbody>`
-      + rows.map((r) => `<tr class="${r.is_prod ? "prod" : ""}${r.qty < 0 && r.is_prod ? " neg" : ""}"><td class="m">${esc(at(r.time))}</td><td>${esc(r.doc)}</td><td class="m">${esc(r.conf)}</td><td class="m">${esc(r.area)}</td><td class="n">${f(r.qty, 2)}</td><td class="n">${f(r.balance, 2)}</td></tr>`).join("")
+    const table = rows.length ? `<div class="scroll"><table><thead><tr><th>Created On</th><th>Conf.Document Type</th><th>Conf.ID</th><th>Logistics Area ID</th><th>Restricted</th><th>Effective Qty</th><th>Stock after</th></tr></thead><tbody>`
+      + rows.map((r) => `<tr class="${r.is_prod ? "prod" : ""}${r.qty < 0 && r.is_prod ? " neg" : ""}"><td class="m">${esc(at(r.time))}</td><td>${esc(r.doc)}</td><td class="m">${esc(r.conf)}</td><td class="m">${esc(r.area)}</td><td class="rx">${r.restricted ? "X" : ""}</td><td class="n">${f(r.qty, 2)}</td><td class="n">${f(r.balance, 2)}</td></tr>`).join("")
       + `</tbody></table></div>` : "";
     const row = document.createElement("tr");
     row.className = "histrow"; row.dataset.key = btn.dataset.m + "|" + btn.dataset.b;
@@ -732,7 +756,7 @@
       const areas = p.areas.length ? p.areas.map(([a, q]) => `${esc(a)} <b>${f(q, 2)}</b>`).join(" · ") : "none (all moved out or consumed)";
       const so = p.stock.length ? p.stock.map((s) => `${esc(s.area)} <b>${f(s.qty, 2)}</b>`).join(" · ") : "not in the stock overview";
       const ords = p.orders.length ? p.orders.map((x) => { const [how, o] = [x.slice(0, x.lastIndexOf(" ")), x.slice(x.lastIndexOf(" ") + 1)]; return `${esc(how)} <button type="button" class="link ord" data-o="${esc(o)}">${esc(o)}</button>`; }).join(" · ") : "none found";
-      const rows = p.rows.map((r) => `<tr class="${r.is_prod ? "prod" : ""} ${r.qty < 0 ? "neg" : ""}"><td class="m">${esc(sapTs(r.time))}</td><td>${esc(r.doc)}</td><td class="m">${esc(r.conf)}</td><td class="m">${esc(r.area)}</td><td class="n">${f(r.qty, 2)}</td><td class="n">${f(r.balance, 2)}</td><td>${r.order ? `${esc(r.link)} <button type="button" class="link ord" data-o="${esc(r.order)}">${esc(r.order)}</button>` : ""}</td></tr>`).join("");
+      const rows = p.rows.map((r) => `<tr class="${r.is_prod ? "prod" : ""} ${r.qty < 0 ? "neg" : ""}"><td class="m">${esc(sapTs(r.time))}</td><td>${esc(r.doc)}</td><td class="m">${esc(r.conf)}</td><td class="m">${esc(r.area)}</td><td class="rx">${r.restricted ? "X" : ""}</td><td class="n">${f(r.qty, 2)}</td><td class="n">${f(r.balance, 2)}</td><td>${r.order ? `${esc(r.link)} <button type="button" class="link ord" data-o="${esc(r.order)}">${esc(r.order)}</button>` : ""}</td></tr>`).join("");
       return `<article class="card" data-v="OK">
         <div class="verdict"><span class="badge">TRACE</span><div class="vt">Batch <span class="mono">${esc(t.batch)}</span> of <span class="mono">${esc(p.material)}</span></div>
           <div class="vs">${p.rows.length} journal posting${p.rows.length === 1 ? "" : "s"} from ${esc(sapTs(first.time))} to ${esc(sapTs(last.time))}</div></div>
@@ -742,9 +766,10 @@
             <span>Where it sits by the journal: ${areas}</span>
             <span>Stock overview: ${so}</span>
             <span>Orders: ${ords}</span>
+            ${p.rows.some((r) => r.restricted) ? `<span class="bad"><b>Restricted stock:</b> ${p.rows.filter((r) => r.restricted).length} posting(s) marked X</span>` : ""}
           </div>
           <div class="scroll"><table>
-            <thead><tr><th>Created On</th><th>Conf.Document Type</th><th>Conf.ID</th><th>Logistics Area ID</th><th>Effective Qty</th><th>Stock after</th><th>Order</th></tr></thead>
+            <thead><tr><th>Created On</th><th>Conf.Document Type</th><th>Conf.ID</th><th>Logistics Area ID</th><th>Restricted</th><th>Effective Qty</th><th>Stock after</th><th>Order</th></tr></thead>
             <tbody>${rows}</tbody></table></div>
           <p class="hint">As in the SAP journal: positive Effective Qty adds stock to that area, negative takes it away; a move between areas is a pair of rows. Production confirmations are in bold, consumption and removals in red. "Stock after" is the batch's total after each row.</p>
         </div></article>`;
