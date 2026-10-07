@@ -1497,7 +1497,8 @@ def check_order(oid: str, wb: Workbook, windows: pd.DataFrame, outputs: pd.DataF
         if d is not None and not d.empty and "batch" in d:
             job_batches |= {(m, b) for m, b in d[["material", "batch"]].itertuples(index=False) if b is not None and not pd.isna(b)}
     restricted_by_batch = (info or {}).get("restricted_by_batch") or {}
-    rrows = sorted((r for k in job_batches for r in restricted_by_batch.get(k, [])), key=lambda r: r["time"])
+    rrows = sorted((r for k in job_batches for r in restricted_by_batch.get(k, [])),
+                   key=lambda r: (r["time"], r["material"], str(r["batch"]), str(r["conf"]), r["qty"]))
     if rrows:
         flag("HIGH", "RESTRICTED_STOCK", f"Restricted stock on {len({(r['material'], r['batch']) for r in rrows})} batch(es) this job made or used: "
              + "; ".join(f"{r['material']} {r['batch']} {r['qty']:,.2f} at {r['area'] or '#'} {r['time']:%d.%m %H:%M} ({r['doc']} {r['conf']})"

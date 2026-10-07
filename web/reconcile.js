@@ -1048,7 +1048,9 @@
 
     // restricted stock: any restricted posting on a batch this job made, consumed, moved to its line or repacked
     const jobBatches = new Set([...out, ...cheese, ...cons, ...(idx.repacks.get(oid) || [])].filter((r) => r.batch !== null && r.batch !== undefined).map((r) => r.material + "\u0000" + r.batch));
-    const restrictedRows = [...jobBatches].flatMap((k) => ctx.restrictedByBatch.get(k) || []).sort((a, b) => a.time - b.time);
+    const cmp = (x, y) => (x < y ? -1 : x > y ? 1 : 0);
+    const restrictedRows = [...jobBatches].flatMap((k) => ctx.restrictedByBatch.get(k) || [])
+      .sort((a, b) => a.time - b.time || cmp(a.material, b.material) || cmp(String(a.batch), String(b.batch)) || cmp(String(a.conf), String(b.conf)) || a.qty - b.qty);
     if (restrictedRows.length) flag("HIGH", "RESTRICTED_STOCK", `Restricted stock on ${new Set(restrictedRows.map((r) => r.material + " " + r.batch)).size} batch(es) this job made or used: `
       + restrictedRows.map((r) => `${r.material} ${r.batch} ${f(r.qty, 2)} at ${r.area || "#"} ${dm(r.time)} (${r.doc} ${r.conf})`).join("; ") + ".");
 
