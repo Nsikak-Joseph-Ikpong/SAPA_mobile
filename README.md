@@ -240,6 +240,16 @@ keeps the other half and scrolls as usual, so more orders can be checked next to
 used the desk fills the screen, with *Back to the page* and a *Compare desk (n)* button to return. On narrow
 screens the desk stacks the cards full width. The cards on the desk are copies; the page keeps its own.
 
+**Scan a label (stock trace).** In the stock trace, the camera button next to the batch box opens the phone's
+camera (or a file picker on a computer). The photo's QR code gives the product and batch, as on the plant's labels:
+`(90)RCSL2061WF1856(10)50085` (GS1: 90 = product, 10 = batch, 97 = label ID); both boxes fill in and the trace runs.
+It works over the phone link (plain http) because it uses a photo, not live video. The QR reader is the browser's
+own where there is one, else jsQR (bundled in `web/vendor/`, Apache-2.0). The trace page shows the product name,
+totals (made, used, stock now, postings, restricted), where the batch sits by the journal and the stock overview,
+a table of the production orders that made or used it (booked to the line beforehand, used, what was left after
+and where; each order number opens that order's check), goods movements by document type, and every journal
+posting with its reference, restricted mark, quantity, running stock and order, sortable and filterable.
+
 **Restricted stock.** When the journal export has a *Restricted* column, rows marked `X` are restricted
 stock (`#` or blank is unrestricted). As soon as the journal is loaded, the page shows a red alert listing
 every restricted posting (product, Identified Stock ID, area, time, document, Conf.ID, quantity), sortable
