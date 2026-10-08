@@ -110,6 +110,41 @@
   .story h3 { margin: 0 0 6px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
   .story p { margin: 0; font-size: 15px; line-height: 1.55; max-width: 95ch; }
   .bad { color: var(--high); } .good { color: var(--ok); }
+  /* compare desk */
+  .verdict:has(.cmpbtn) { grid-template-columns: auto minmax(0, 1fr) auto; }
+  .verdict:has(.cmpbtn) > .badge { grid-column: 1; grid-row: 1 / span 2; }
+  .verdict:has(.cmpbtn) > .vt, .verdict:has(.cmpbtn) > .vs { grid-column: 2; }
+  .cmpbtn { grid-row: 1 / span 2; grid-column: 3; align-self: center; font: 500 12px var(--sans); color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 6px 10px; cursor: grab; touch-action: none; white-space: nowrap; }
+  .cmpbtn:hover { border-color: var(--accent); }
+  @media (pointer: fine) { .card > .verdict { cursor: grab; } }
+  body.dragging, body.dragging * { cursor: grabbing !important; user-select: none !important; }
+  .desk { position: fixed; inset: 0; z-index: 40; pointer-events: none; }
+  .deskbar { position: absolute; left: 0; right: 0; top: 0; height: 40px; display: flex; align-items: center; gap: 14px; padding: 0 14px; background: var(--ink); color: var(--ground); font-size: 13px; pointer-events: auto; }
+  .deskbar span { opacity: 0.75; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .deskbar .link { color: var(--ground); white-space: nowrap; }
+  .pane { position: absolute; pointer-events: auto; display: flex; flex-direction: column; background: var(--ground); border: 1px solid var(--line); box-shadow: 0 2px 12px rgba(0,0,0,0.15); overflow: hidden; transition: left .15s, top .15s, width .15s, height .15s; }
+  .panehead { display: flex; align-items: center; gap: 8px; padding: 4px 6px 4px 12px; background: var(--sunken); border-bottom: 1px solid var(--line); font: 600 12px var(--mono); }
+  .panehead span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .panehead button { font: inherit; background: none; border: 0; color: var(--ink); padding: 4px 8px; border-radius: 4px; cursor: pointer; }
+  .panehead button:hover { background: var(--line); }
+  .panebody { flex: 1; min-height: 0; overflow: auto; padding: 10px; }
+  .panebody > .card { margin: 0; }
+  body.desk-full { overflow: hidden; }
+  body.desk-left .wrap { margin-left: 50vw; max-width: none; }
+  body.desk-right .wrap { margin-right: 50vw; max-width: none; }
+  body.desk-left .deskbar { right: 50%; } body.desk-right .deskbar { left: 50%; }
+  body.desk-full .desk { background: var(--ground); pointer-events: auto; }
+  .deskshow { position: fixed; right: 16px; bottom: calc(env(safe-area-inset-bottom, 0px) + 16px); z-index: 41; font: 600 13px var(--sans); background: var(--accent); color: var(--accent-ink); border: 0; border-radius: 999px; padding: 10px 16px; box-shadow: 0 2px 10px rgba(0,0,0,0.2); cursor: pointer; }
+  .snap { position: fixed; inset: 0; z-index: 50; pointer-events: none; }
+  .snapprev { position: absolute; border: 2px solid var(--accent); background: color-mix(in srgb, var(--accent) 18%, transparent); border-radius: 8px; transition: all .08s; }
+  .snapghost { position: absolute; padding: 6px 10px; font: 600 12px var(--mono); background: var(--ink); color: var(--ground); border-radius: 6px; transform: translate(12px, 12px); white-space: nowrap; }
+  .slotmenu { position: fixed; z-index: 60; display: grid; grid-template-columns: repeat(2, auto); gap: 4px; padding: 8px; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 4px 16px rgba(0,0,0,0.2); }
+  .slotmenu p { grid-column: 1 / -1; margin: 0 0 4px; font-size: 12px; color: var(--muted); }
+  .slotmenu button { font: 13px var(--sans); text-align: left; background: var(--sunken); color: var(--ink); border: 1px solid var(--line); border-radius: 6px; padding: 6px 10px; cursor: pointer; }
+  .slotmenu button:hover { border-color: var(--accent); }
+  @media (max-width: 899px) {
+    body.desk-left .wrap, body.desk-right .wrap { margin: 0 auto; max-width: 1100px; }
+  }
   .cmpgrid { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)); margin-top: 12px; }
   .cmpcol { min-width: 0; border: 1px solid var(--line); border-top: 4px solid var(--jc); border-radius: 8px; padding: 12px 14px; background: var(--surface); }
   .ja { --jc: var(--accent); --jsoft: var(--accent-soft); } .jb { --jc: var(--low); --jsoft: var(--low-soft); }
@@ -224,6 +259,14 @@
   <section class="restr" id="restricted" role="alert" hidden></section>
   <main class="result" id="result" aria-live="polite"></main>
 </div>
+<!-- compare desk: cards pinned to a half or a quarter of the screen, each scrolling on its own -->
+<div class="desk" id="desk" hidden aria-label="Compare desk">
+  <div class="deskbar" id="deskBar"><strong>Compare</strong><span>Drag a card's header to a side or corner to move it.</span>
+    <button type="button" class="link" id="deskHide">Back to the page</button><button type="button" class="link" id="deskClear">Close all</button></div>
+</div>
+<button type="button" class="deskshow" id="deskShow" hidden></button>
+<div class="snap" id="snap" hidden aria-hidden="true"><div class="snapprev" id="snapPrev"></div><div class="snapghost" id="snapGhost"></div></div>
+<div class="slotmenu" id="slotMenu" hidden role="menu" aria-label="Put this card on the compare desk"></div>
 <div class="toast" id="toast" hidden></div>
 
 <!-- the spreadsheet reader (SheetJS 0.18.5): the copy next to the page when there is one (local server), else the CDN -->
@@ -476,6 +519,7 @@
     }
     for (const m of res.missing) parts.push(`<div class="empty">Order <span class="mono">${esc(m)}</span> isn't in the workbook's order sheets.</div>`);
     $("result").innerHTML = parts.join("");
+    addCompareButtons($("result"));
   }
 
   // Split screen: two jobs with offsetting variances, side by side, and the shared cheese both consumed, by time
@@ -852,12 +896,14 @@
     const batches = $("trBatch").value.split(/[\s,;]+/).filter(Boolean);
     if (!batches.length) { $("trBatch").focus(); return; }
     $("result").innerHTML = batches.map((b) => traceCard(R.traceStock(state.ctx, mat, b))).join("");
+    addCompareButtons($("result"));
   }
   $("traceForm").addEventListener("submit", (e) => { e.preventDefault(); runTrace(); });
   // an order number in a trace opens that order's check
-  $("result").addEventListener("click", (e) => {
+  document.addEventListener("click", (e) => {
     const b = e.target.closest("button.ord");
     if (!b) return;
+    if (document.body.classList.contains("desk-full")) hideDesk();
     $("oid").value = b.dataset.o; run(); window.scrollTo({ top: $("result").offsetTop - 10, behavior: "smooth" });
   });
   // a list pasted from Excel or a column of numbers (one per line) becomes "589, 719, 746"; a one-line box would
@@ -880,6 +926,150 @@
     if (x && confirm(`Remove ${x.name}? It's taken out of the check and out of this browser's saved files.`)) await removeFile(Number(b.dataset.i));
   });
   $("forget").onclick = async () => { await forgetFiles(); state.files = null; startDemo(); toast("Saved files removed from this browser."); };
+
+  // ---------------------------------------------------------------- compare desk
+  // Cards are copied onto the desk (the page keeps its own), into a half (L, R) or a quarter (TL, TR, BL, BR) of the
+  // screen like Windows snap. With one side used the page fills the other half and scrolls as usual; with both used
+  // the desk fills the screen. Each pane scrolls on its own. Cards move by dragging their header or the Compare button.
+  const SLOT_NAMES = { L: "Left half", R: "Right half", TL: "Top left", TR: "Top right", BL: "Bottom left", BR: "Bottom right" };
+  const desk = { L: null, R: null, TL: null, TR: null, BL: null, BR: null };
+  let deskHidden = false;
+  const wide = () => window.innerWidth >= 900;
+  const cardTitle = (card) => (card.querySelector(".vt")?.textContent || "Card").replace(/\s+/g, " ").trim();
+  function addCompareButtons(root) {
+    for (const v of root.querySelectorAll("article.card > .verdict")) if (!v.querySelector(".cmpbtn"))
+      v.insertAdjacentHTML("beforeend", `<button type="button" class="cmpbtn" title="Drag to a side or corner of the screen to compare, or click to choose where">Compare</button>`);
+  }
+  // where each pane goes: a side's quarters take the whole side when only one is used, and one used side takes the screen
+  function layoutDesk() {
+    const used = Object.keys(desk).filter((k) => desk[k]);
+    const left = ["L", "TL", "BL"].some((k) => desk[k]), right = ["R", "TR", "BR"].some((k) => desk[k]);
+    const area = $("desk"), top = 40;
+    const both = left && right, narrow = !wide();
+    document.body.classList.toggle("desk-full", !!used.length && !deskHidden && (both || narrow));
+    document.body.classList.toggle("desk-left", !deskHidden && !narrow && left && !right);
+    document.body.classList.toggle("desk-right", !deskHidden && !narrow && right && !left);
+    area.hidden = !used.length || deskHidden;
+    $("deskShow").hidden = !used.length || !deskHidden;
+    $("deskShow").textContent = `Compare desk (${used.length})`;
+    $("deskHide").hidden = !(both || narrow);
+    const H = `(100% - ${top}px)`;
+    const box = (x, y, w, h) => ({ left: x, top: `calc(${top}px + ${y} * ${H})`, width: w, height: `calc(${h} * ${H})` });
+    const order = ["TL", "L", "BL", "TR", "R", "BR"].filter((k) => desk[k]);
+    order.forEach((k, i) => {
+      let r;
+      if (narrow) r = box("0", `${i / order.length}`, "100%", `${1 / order.length}`);
+      else {
+        const left = k.endsWith("L"), x = left ? "0" : "50%", T = left ? "TL" : "TR", B = left ? "BL" : "BR";
+        if (k === "L" || k === "R" || !(desk[T] && desk[B])) r = box(x, "0", "50%", "1");
+        else r = box(x, k === T ? "0" : "0.5", "50%", "0.5");
+      }
+      Object.assign(desk[k].style, r);
+    });
+  }
+  function closePane(k) { if (desk[k]) { desk[k].remove(); desk[k] = null; } }
+  function makePane(card) {
+    const pane = document.createElement("section");
+    pane.className = "pane";
+    pane.innerHTML = `<div class="panehead"><span></span><button type="button" class="paneclose" title="Close" aria-label="Close this card">✕</button></div><div class="panebody"></div>`;
+    pane.querySelector("span").textContent = cardTitle(card);
+    pane.querySelector(".panebody").appendChild(card);
+    return pane;
+  }
+  // put a card (a copy from the page, or a pane already on the desk) into a slot
+  function placeOnDesk(slot, card, pane) {
+    if (!pane) { const c = card.cloneNode(true); c.querySelectorAll("tr.histrow").forEach((r) => r.remove()); pane = makePane(c); }
+    const from = Object.keys(desk).find((k) => desk[k] === pane);
+    if (from === slot) return;
+    if (from) desk[from] = null;
+    const side = slot.endsWith("L") ? "L" : "R", T = "T" + side, B = "B" + side;
+    if (slot === side) { [side, T, B].forEach(closePane); }
+    else {
+      if (desk[side]) { desk[slot === T ? B : T] = desk[side]; desk[side] = null; }   // a half split by a quarter: it takes the other quarter
+      closePane(slot);
+    }
+    desk[slot] = pane;
+    if (!pane.parentNode) $("desk").appendChild(pane);
+    deskHidden = false;
+    layoutDesk();
+  }
+  function hideDesk() { deskHidden = true; layoutDesk(); }
+  $("deskHide").onclick = hideDesk;
+  $("deskShow").onclick = () => { deskHidden = false; layoutDesk(); };
+  $("deskClear").onclick = () => { Object.keys(desk).forEach(closePane); layoutDesk(); };
+  $("desk").addEventListener("click", (e) => {
+    const b = e.target.closest(".paneclose");
+    if (!b) return;
+    const k = Object.keys(desk).find((x) => desk[x] === b.closest(".pane"));
+    if (k) { closePane(k); layoutDesk(); }
+  });
+  window.addEventListener("resize", () => layoutDesk());
+  // the slot under the pointer: left or right half, or a quarter near the top or bottom corners
+  function slotAt(x, y) {
+    if (!wide()) return "R";
+    const W = window.innerWidth, Hh = window.innerHeight, side = x < W / 2 ? "L" : "R";
+    return y < Hh * 0.28 ? "T" + side : y > Hh * 0.72 ? "B" + side : side;
+  }
+  function slotRect(slot) {
+    const W = window.innerWidth, Hh = window.innerHeight, top = 40, h = Hh - top;
+    if (!wide()) return [0, top, W, h];
+    const x = slot.endsWith("L") ? 0 : W / 2;
+    return slot.length === 1 ? [x, top, W / 2, h] : [x, slot[0] === "T" ? top : top + h / 2, W / 2, h / 2];
+  }
+  // dragging: from a card's header (mouse) or its Compare button (mouse or touch)
+  let drag = null;
+  document.addEventListener("pointerdown", (e) => {
+    if (e.button !== 0) return;
+    const btn = e.target.closest(".cmpbtn"), head = e.target.closest("article.card > .verdict, .panehead");
+    if (!btn && (!head || e.pointerType === "touch" || e.target.closest("button:not(.cmpbtn), a, input"))) return;
+    const pane = e.target.closest(".pane"), card = pane ? pane.querySelector("article.card") : e.target.closest("article.card");
+    if (!card) return;
+    drag = { x: e.clientX, y: e.clientY, card, pane, btn, started: false, id: e.pointerId };
+  });
+  document.addEventListener("pointermove", (e) => {
+    if (!drag || e.pointerId !== drag.id) return;
+    if (!drag.started) {
+      if (Math.hypot(e.clientX - drag.x, e.clientY - drag.y) < 8) return;
+      drag.started = true;
+      document.body.classList.add("dragging");
+      $("snap").hidden = false;
+      $("snapGhost").textContent = cardTitle(drag.card);
+    }
+    e.preventDefault();
+    const slot = slotAt(e.clientX, e.clientY), [x, y, w, h] = slotRect(slot);
+    drag.slot = slot;
+    Object.assign($("snapPrev").style, { left: x + 6 + "px", top: y + 6 + "px", width: w - 12 + "px", height: h - 12 + "px" });
+    Object.assign($("snapGhost").style, { left: e.clientX + "px", top: e.clientY + "px" });
+  });
+  function endDrag(e, cancel) {
+    if (!drag || (e && e.pointerId !== drag.id)) return;
+    const d = drag; drag = null;
+    document.body.classList.remove("dragging");
+    $("snap").hidden = true;
+    if (d.started && !cancel && d.slot) { placeOnDesk(d.slot, d.card, d.pane); e && e.preventDefault(); }
+    else if (!d.started && d.btn) openSlotMenu(d.btn, d.card, d.pane);
+  }
+  document.addEventListener("pointerup", (e) => endDrag(e, false));
+  document.addEventListener("pointercancel", (e) => endDrag(e, true));
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") { if (drag) endDrag(null, true); $("slotMenu").hidden = true; } });
+  // the Compare button clicked: choose a spot from a menu (also for touch screens and keyboards)
+  function openSlotMenu(btn, card, pane) {
+    const m = $("slotMenu"), slots = wide() ? ["L", "R", "TL", "TR", "BL", "BR"] : ["R"];
+    m.innerHTML = `<p>Put ${esc(cardTitle(card).split(":")[0])} on the compare desk:</p>` + slots.map((k) => `<button type="button" role="menuitem" data-slot="${k}">${wide() ? SLOT_NAMES[k] : "Compare desk"}</button>`).join("");
+    m.hidden = false;
+    const r = btn.getBoundingClientRect(), mw = m.offsetWidth, mh = m.offsetHeight;
+    m.style.left = Math.max(8, Math.min(r.right - mw, window.innerWidth - mw - 8)) + "px";
+    m.style.top = (r.bottom + 6 + mh > window.innerHeight ? Math.max(8, r.top - mh - 6) : r.bottom + 6) + "px";
+    m.onclick = (e) => { const b = e.target.closest("button[data-slot]"); if (!b) return; m.hidden = true; placeOnDesk(b.dataset.slot, card, pane); };
+    m.querySelector("button").focus();
+  }
+  document.addEventListener("click", (e) => { if (!e.target.closest("#slotMenu, .cmpbtn")) $("slotMenu").hidden = true; });
+  document.addEventListener("keydown", (e) => {
+    if ((e.key === "Enter" || e.key === " ") && e.target.classList?.contains("cmpbtn")) {
+      e.preventDefault(); const pane = e.target.closest(".pane");
+      openSlotMenu(e.target, pane ? pane.querySelector("article.card") : e.target.closest("article.card"), pane);
+    }
+  });
 
   function startDemo() {
     state.demo = true;

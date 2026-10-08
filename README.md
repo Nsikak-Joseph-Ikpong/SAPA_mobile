@@ -208,6 +208,15 @@ times, cases, cheese consumed, cheese per case, offcuts, mass in and out, each j
 cheese would leave, and every consumption posting of the shared cheese on either job by time, to spot postings
 booked to one job while the other was running (e.g. jobs 2484 and 2443: +567.3 and -502.7 kg, net +64.5 kg).
 
+**Compare desk (cards side by side).** Any card (an order, a comparison or a stock trace) can be dragged by its
+header, or its *Compare* button, to a side or corner of the screen, like Windows snap: the left or right edge
+takes half the screen, the top or bottom corners a quarter, and a preview shows where it will land. Clicking
+*Compare* offers the same places from a menu (touch screens, keyboard). Up to four cards, each scrolling on its own;
+a card dropped on a used place replaces it, and a quarter dropped on a half splits it. With one side used the page
+keeps the other half and scrolls as usual, so more orders can be checked next to the pinned one; with both sides
+used the desk fills the screen, with *Back to the page* and a *Compare desk (n)* button to return. On narrow
+screens the desk stacks the cards full width. The cards on the desk are copies; the page keeps its own.
+
 **Restricted stock.** When the journal export has a *Restricted* column, rows marked `X` are restricted
 stock (`#` or blank is unrestricted). As soon as the journal is loaded, the page shows a red alert listing
 every restricted posting (product, Identified Stock ID, area, time, document, Conf.ID, quantity), sortable
