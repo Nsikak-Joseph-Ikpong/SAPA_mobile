@@ -110,6 +110,8 @@
   .story h3 { margin: 0 0 6px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
   .story p { margin: 0; font-size: 15px; line-height: 1.55; max-width: 95ch; }
   .bad { color: var(--high); } .good { color: var(--ok); }
+  /* phone access: the phone doesn't load files, the office computer does */
+  body.remote #drop, body.remote #add, body.remote #forget, body.remote #report, body.remote button.rm, body.remote #source .pill:not(.real) { display: none !important; }
   /* compare desk */
   .verdict:has(.cmpbtn) { grid-template-columns: auto minmax(0, 1fr) auto; }
   .verdict:has(.cmpbtn) > .badge { grid-column: 1; grid-row: 1 / span 2; }
@@ -339,7 +341,7 @@
   }
   const VERDICT_TEXT = { PROBLEMS: "Problems found", CHECK: "Worth checking", OK: "Looks OK" };
 
-  const state = { ctx: null, source: null, demo: true, files: null };
+  const state = { ctx: null, source: null, demo: true, files: null, remote: false, share: false };
 
   function toast(msg) { const t = $("toast"); t.textContent = msg; t.hidden = false; clearTimeout(toast.t); toast.t = setTimeout(() => (t.hidden = true), 2600); }
 
@@ -389,7 +391,7 @@
     const cheese = state.demo ? "" : c.hasCons ? " · cheese consumption found in the journal"
       : " · no cheese consumption lines in the journal, so cheese is estimated from moves to the line";
     $("source").innerHTML = `<div class="what">${names}
-      <div class="meta">${f(c.wb.journal.length)} journal rows (${esc(range)}) · ${f(c.orders.length)} orders${s.saved ? ` · saved ${esc(new Date(s.saved).toLocaleDateString("en-GB"))}` : ""}${esc(cheese)}</div></div>
+      <div class="meta">${state.share && !state.demo ? "Shared with your phone · " : ""}${f(c.wb.journal.length)} journal rows (${esc(range)}) · ${f(c.orders.length)} orders${s.saved ? ` · saved ${esc(new Date(s.saved).toLocaleDateString("en-GB"))}` : ""}${esc(cheese)}</div></div>
       <span class="pill ${state.demo ? "" : "real"}">${state.demo ? "demo" : "your data"}</span>`;
     renderRestricted();
     $("forget").hidden = state.demo;
@@ -397,10 +399,11 @@
     $("report").hidden = typeof XLSX === "undefined";
     const ex = state.demo ? ["A1", "B2", "C3"] : pickExamples();
     $("examples").innerHTML = ex.length ? `Try: ${ex.map((o) => `<button type="button" data-o="${esc(o)}">${esc(o)}</button>`).join("")}` : "";
-    $("examples").querySelectorAll("button").forEach((b) => (b.onclick = () => { $("oid").value = b.dataset.o; run(); }));
+    bindExamples();
   }
 
   // restricted stock: shown as soon as a journal is loaded, every posting marked X in the Restricted column
+  function bindExamples() { $("examples").querySelectorAll("button").forEach((b) => (b.onclick = () => { $("oid").value = b.dataset.o; run(); })); }
   function renderRestricted() {
     const box = $("restricted"), rows = state.ctx.restricted || [];
     box.hidden = !rows.length;
@@ -506,9 +509,20 @@
   }
 
   // ---------------------------------------------------------------- results
-  function run() {
+  async function run() {
     const ids = $("oid").value.split(/[\s,;]+/).filter(Boolean);
-    if (!ids.length || !state.ctx) return;
+    if (!ids.length) return;
+    if (state.remote) {
+      $("result").innerHTML = `<div class="empty loading">Asking the office computer…</div>`;
+      const a = await ask("check", { ids });
+      if (a) { $("result").innerHTML = a.html; addCompareButtons($("result")); }
+      return;
+    }
+    if (!state.ctx) return;
+    $("result").innerHTML = checkHtml(ids);
+    addCompareButtons($("result"));
+  }
+  function checkHtml(ids) {
     const res = R.check(state.ctx, ids);
     // a job linked to another by an offsetting variance is followed by the two side by side (once per pair)
     const shown = new Set(), parts = [];
@@ -518,8 +532,7 @@
       if (pair && !shown.has(pair)) { shown.add(pair); parts.push(compareCard(r, r.partner)); }
     }
     for (const m of res.missing) parts.push(`<div class="empty">Order <span class="mono">${esc(m)}</span> isn't in the workbook's order sheets.</div>`);
-    $("result").innerHTML = parts.join("");
-    addCompareButtons($("result"));
+    return parts.join("");
   }
 
   // Split screen: two jobs with offsetting variances, side by side, and the shared cheese both consumed, by time
@@ -836,13 +849,22 @@
     }
   });
   // click a pallet or batch number: its full confirmation history from the journal, under the row
-  document.addEventListener("click", (e) => {
+  document.addEventListener("click", async (e) => {
     const btn = e.target.closest("button.hist");
-    if (!btn || !state.ctx) return;
+    if (!btn || (!state.ctx && !state.remote)) return;
     const tr = btn.closest("tr"), next = tr.nextElementSibling;
     if (next && next.classList.contains("histrow") && next.dataset.key === btn.dataset.m + "|" + btn.dataset.b) { next.remove(); return; }
     if (next && next.classList.contains("histrow")) next.remove();
-    const rows = R.batchHistory(state.ctx, btn.dataset.m, btn.dataset.b);
+    const inner = state.remote ? (await ask("history", { m: btn.dataset.m, b: btn.dataset.b }))?.html : historyHtml(btn.dataset.m, btn.dataset.b);
+    if (inner === undefined) return;
+    const row = document.createElement("tr");
+    row.className = "histrow"; row.dataset.key = btn.dataset.m + "|" + btn.dataset.b;
+    row.innerHTML = `<td colspan="${tr.children.length}">${inner}</td>`;
+    tr.after(row);
+  });
+  function historyHtml(m, b) {
+    const btn = { dataset: { m, b } };
+    const rows = R.batchHistory(state.ctx, m, b);
     const p2 = (n) => String(n).padStart(2, "0");
     const at = (t) => { const d = new Date(t); return `${p2(d.getUTCDate())}.${p2(d.getUTCMonth() + 1)}.${d.getUTCFullYear()} ${p2(d.getUTCHours())}:${p2(d.getUTCMinutes())}:${p2(d.getUTCSeconds())}`; };
     const prod = rows.filter((r) => r.is_prod);
@@ -854,11 +876,8 @@
     const table = rows.length ? `<div class="scroll"><table><thead><tr><th>Created On</th><th>Conf.Document Type</th><th>Conf.ID</th><th>Logistics Area ID</th><th>Restricted</th><th>Effective Qty</th><th>Stock after</th></tr></thead><tbody>`
       + rows.map((r) => `<tr class="${r.is_prod ? "prod" : ""}${r.qty < 0 && r.is_prod ? " neg" : ""}"><td class="m">${esc(at(r.time))}</td><td>${esc(r.doc)}</td><td class="m">${esc(r.conf)}</td><td class="m">${esc(r.area)}</td><td class="rx">${r.restricted ? "X" : ""}</td><td class="n">${f(r.qty, 2)}</td><td class="n">${f(r.balance, 2)}</td></tr>`).join("")
       + `</tbody></table></div>` : "";
-    const row = document.createElement("tr");
-    row.className = "histrow"; row.dataset.key = btn.dataset.m + "|" + btn.dataset.b;
-    row.innerHTML = `<td colspan="${tr.children.length}">${sum}${table}</td>`;
-    tr.after(row);
-  });
+    return sum + table;
+  }
   $("ask").addEventListener("submit", (e) => { e.preventDefault(); run(); });
 
   // ---------------------------------------------------------------- stock trace
@@ -890,14 +909,21 @@
         </div></article>`;
     }).join("");
   }
-  function runTrace() {
-    if (!state.ctx) return;
+  async function runTrace() {
     const mat = $("trProd").value.trim();
     const batches = $("trBatch").value.split(/[\s,;]+/).filter(Boolean);
     if (!batches.length) { $("trBatch").focus(); return; }
-    $("result").innerHTML = batches.map((b) => traceCard(R.traceStock(state.ctx, mat, b))).join("");
+    if (state.remote) {
+      $("result").innerHTML = `<div class="empty loading">Asking the office computer…</div>`;
+      const a = await ask("trace", { mat, batches });
+      if (a) { $("result").innerHTML = a.html; addCompareButtons($("result")); }
+      return;
+    }
+    if (!state.ctx) return;
+    $("result").innerHTML = traceHtml(mat, batches);
     addCompareButtons($("result"));
   }
+  const traceHtml = (mat, batches) => batches.map((b) => traceCard(R.traceStock(state.ctx, mat, b))).join("");
   $("traceForm").addEventListener("submit", (e) => { e.preventDefault(); runTrace(); });
   // an order number in a trace opens that order's check
   document.addEventListener("click", (e) => {
@@ -1078,7 +1104,64 @@
     run();
   }
 
+  // ---------------------------------------------------------------- phone access (python serve.py --share)
+  // On the phone the page sends each question to serve.py on the office computer; the checker page open there works
+  // it out from the SAP files loaded there and sends back only the finished result. The phone never gets the files.
+  async function ask(kind, args) {
+    try {
+      const r = await fetch("api/ask", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ kind, args }), cache: "no-store" });
+      if (r.status === 401) { location.href = "login"; return null; }
+      const a = await r.json().catch(() => ({}));
+      if (!r.ok || a.error) throw new Error(a.error || `The office computer answered ${r.status}.`);
+      return a;
+    } catch (e) {
+      $("result").innerHTML = `<div class="empty">${esc(e.message === "Failed to fetch" ? "Can't reach the office computer. Is this phone on the office Wi-Fi, and is serve.py --share running there?" : e.message)}</div>`;
+      return null;
+    }
+  }
+  // the office computer's side: what's loaded there, and each question worked out with the local engine
+  function answerJob(job) {
+    const a = job.args || {};
+    if (job.kind === "status") return { source: $("source").innerHTML, restricted: $("restricted").hidden ? "" : $("restricted").innerHTML, examples: $("examples").innerHTML, products: $("trProducts").innerHTML };
+    if (!state.ctx) return { error: "The office computer is still loading the SAP files. Try again in a moment." };
+    if (job.kind === "check") return { html: checkHtml((a.ids || []).map(String).slice(0, 200)) };
+    if (job.kind === "history") return { html: historyHtml(String(a.m), String(a.b)) };
+    if (job.kind === "trace") return { html: traceHtml(String(a.mat || ""), (a.batches || []).map(String).slice(0, 50)) };
+    return { error: "Unknown question." };
+  }
+  async function serveRemote() {
+    const nap = (ms) => new Promise((r) => setTimeout(r, ms));
+    for (;;) {
+      let job = null;
+      try {
+        const r = await fetch("api/next", { cache: "no-store" });
+        if (r.status === 204) continue;
+        if (!r.ok) { await nap(5000); continue; }
+        job = await r.json();
+      } catch { await nap(5000); continue; }
+      let result;
+      try { result = answerJob(job); } catch (e) { result = { error: "The office computer couldn't work that out: " + e.message }; }
+      await fetch("api/answer", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: job.id, result }) }).catch(() => {});
+    }
+  }
+  async function startRemote() {
+    state.remote = true;
+    document.body.classList.add("remote");
+    $("source").innerHTML = `<span class="loading">Connecting to the office computer…</span>`;
+    const st = await ask("status", {});
+    const logout = `<form method="post" action="logout"><button class="link" type="submit">Log out</button></form>`;
+    if (!st) { $("source").innerHTML = `<div class="what"><div class="name">Not connected</div><div class="meta">Open the checker on the office computer (python serve.py --share) and load the SAP files, then reload this page.</div></div>${logout}`; return; }
+    $("source").innerHTML = st.source + logout;
+    const rb = $("restricted"); rb.innerHTML = st.restricted || ""; rb.hidden = !st.restricted;
+    $("examples").innerHTML = st.examples || ""; bindExamples();
+    $("trProducts").innerHTML = st.products || "";
+    $("result").innerHTML = `<div class="empty">Connected. Type an order number above; the office computer does the checking.</div>`;
+  }
+
   (async function start() {
+    const mode = await fetch("api/mode", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+    if (mode && mode.remote) { await startRemote(); return; }
+    if (mode && mode.share) { state.share = true; serveRemote(); document.body.classList.add("sharing"); }
     const saved = typeof XLSX !== "undefined" ? await loadSaved() : null;
     const files = saved ? saved.files || (saved.buf ? [{ name: saved.name, buf: saved.buf }] : []) : [];
     if (files.length) {

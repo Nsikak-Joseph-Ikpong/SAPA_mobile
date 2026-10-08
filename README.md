@@ -44,6 +44,29 @@ The page itself needs nothing from `requirements.txt`, only Python 3.9 or later.
 3. Right-click `serve.py` > *Run 'serve'*. The browser opens on the checker; the red
    Stop button stops it. After that, the green Run button starts it again.
 
+## Use it from your phone (office Wi-Fi)
+
+```bash
+python serve.py --share
+```
+
+The first time, it asks for a password for the phone (at least 8 characters; kept hashed in
+`.checker_login.json`, never committed; change it with `python serve.py --set-password`). It prints the
+address to open on the phone, e.g. `http://192.168.1.25:8000`. On the phone, on the same Wi-Fi as this
+computer, open that address and log in; the phone can save the password and fill it in with Face ID or a
+fingerprint next time. Sessions last 12 hours; five wrong passwords lock that phone out for 10 minutes.
+
+The checker page open on this computer does the checking: the phone sends a job number, a batch for its
+history, or a stock trace, and the page here works it out from the SAP files loaded here and sends back only
+the finished result. The SAP files never go to the phone. So keep this computer on (plugged in, sleep off), with
+`serve.py --share` running and the checker page open with the files loaded; if the page is closed, the phone
+says so. Nothing extra is installed: it's plain Python.
+
+Limits: it works on the office network only (not from home or mobile data), the phone has to be on a network
+that can reach this computer (guest Wi-Fi usually can't), Windows Firewall asks once whether Python may accept
+connections (allow *Private networks*), and plain `http` isn't encrypted, so it's for the office network only.
+Ask IT before using it with a personal phone.
+
 ## Use
 
 ```bash

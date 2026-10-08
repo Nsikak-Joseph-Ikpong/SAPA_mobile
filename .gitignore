@@ -4,3 +4,4 @@ __pycache__/
 variance_report_*.xlsx
 sample_data/
 ~$*
+.checker_login.json
