@@ -110,6 +110,18 @@
   .story h3 { margin: 0 0 6px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
   .story p { margin: 0; font-size: 15px; line-height: 1.55; max-width: 95ch; }
   .bad { color: var(--high); } .good { color: var(--ok); }
+  .cmpgrid { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)); margin-top: 12px; }
+  .cmpcol { min-width: 0; border: 1px solid var(--line); border-top: 4px solid var(--jc); border-radius: 8px; padding: 12px 14px; background: var(--surface); }
+  .ja { --jc: var(--accent); --jsoft: var(--accent-soft); } .jb { --jc: var(--low); --jsoft: var(--low-soft); }
+  .cmph { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+  .jtag { display: inline-block; font: 600 12px var(--mono); padding: 1px 8px; border-radius: 999px; background: var(--jsoft); color: var(--jc); border: 1px solid var(--jc); }
+  .cmpl { display: grid; grid-template-columns: minmax(110px, auto) minmax(0, 1fr); gap: 4px 12px; margin: 0; font-size: 13px; }
+  .cmpl dt { color: var(--muted); } .cmpl dd { margin: 0; overflow-wrap: anywhere; }
+  .cmpl small { display: block; color: var(--muted); }
+  @media (max-width: 520px) { .cmpl { grid-template-columns: minmax(0, 1fr); gap: 0; } .cmpl dd { margin-bottom: 6px; } }
+  .cmpl .shared { background: var(--medium-soft); border-radius: 3px; padding: 0 3px; }
+  .cmpv { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; margin-top: 10px; padding: 8px 10px; border-radius: 6px; font-size: 13px; }
+  .cmpv strong { font-size: 18px; } .cmpv.over { background: var(--high-soft); color: var(--high); } .cmpv.under { background: var(--medium-soft); color: var(--medium); }
   .restr { min-width: 0; border: 1px solid var(--high); border-left-width: 5px; background: var(--high-soft); border-radius: 8px; padding: 12px 14px; margin: 16px 0; }
   .restr h2 { margin: 0 0 4px; font-size: 15px; color: var(--high); }
   .restr p { margin: 0; font-size: 13px; }
@@ -230,6 +242,7 @@
   const kg = (v) => (v === null || v === undefined || isNaN(v) ? "n/a" : f(v, 1) + " kg");
 
   const TITLES = {
+    OFFSETTING_VARIANCE: "Offsetting variance with another job on the line",
     RESTRICTED_STOCK: "Restricted stock on this job's batches",
     OUTPUT_NOT_ON_ORDER: "Output in the journal doesn't match the order",
     OUTPUT_NOT_IN_JOURNAL: "Order shows output the journal doesn't",
@@ -454,9 +467,67 @@
     const ids = $("oid").value.split(/[\s,;]+/).filter(Boolean);
     if (!ids.length || !state.ctx) return;
     const res = R.check(state.ctx, ids);
-    const parts = res.results.map(card);
+    // a job linked to another by an offsetting variance is followed by the two side by side (once per pair)
+    const shown = new Set(), parts = [];
+    for (const r of res.results) {
+      parts.push(card(r));
+      const pair = r.partner ? [r.summary.order_id, r.partner.summary.order_id].sort().join("+") : null;
+      if (pair && !shown.has(pair)) { shown.add(pair); parts.push(compareCard(r, r.partner)); }
+    }
     for (const m of res.missing) parts.push(`<div class="empty">Order <span class="mono">${esc(m)}</span> isn't in the workbook's order sheets.</div>`);
     $("result").innerHTML = parts.join("");
+  }
+
+  // Split screen: two jobs with offsetting variances, side by side, and the shared cheese both consumed, by time
+  function compareCard(ra, rb) {
+    const [a, b] = [ra.summary, rb.summary].sort((x, y) => x.start - y.start), L = a.linked;
+    const va = a.linked.this_kg, vb = a.linked.other_kg, net = va + vb;
+    const mass = L.kind === "mass";
+    const word = (v) => mass ? (v > 0 ? "in with no output" : "more out than in") : (v > 0 ? "more cheese than needed" : "less cheese than needed");
+    const moved = Math.min(Math.abs(va), Math.abs(vb));
+    const [from, to] = va > 0 ? [a, b] : [b, a];
+    const when = L.overlap ? "at the same time" : `${L.gap_hours.toFixed(1)} h apart`;
+    const shared = new Set(L.shared);
+    const t = (x) => (x === null || x === undefined || isNaN(x) ? "n/a" : dmy(x));
+    const col = (s, cls) => {
+      const m = s.mass, v = s.variance, o = s.open_status || [];
+      const os = (item) => o.find((x) => x.item === item);
+      const offM = os("Offcuts made"), cases = m ? m.cases : s.cheese_est_output;
+      const mats = Object.entries(s.cheese_consumed_by_material || {}).sort((x, y) => y[1] - x[1]);
+      const perCase = cases ? (s.cheese_consumed_kg + (s.repack_kg || 0)) / cases : null;
+      const rows = [
+        ["Product", `${esc(s.fg)}<small>${esc(s.fg_text || "")}</small>`],
+        ["Ran", `${esc(t(s.start))} to ${esc(t(s.last_regular_output))}`],
+        ["Cases", `${n0(s.planned_out)} planned · <b>${n0(s.order_out)}</b> made${v ? ` · ${f(v.case_weight, 3)} kg/case` : ""}`],
+        ["Cheese consumed", mats.length ? mats.map(([mt, q]) => `<span class="${shared.has(mt) ? "shared" : ""}">${esc(mt)} <b>${f(q, 1)} kg</b></span>`).join("<br>") : "none"],
+        ["Cheese needed for the output", kg(s.cheese_est_needed_kg)],
+        ["Cheese per case", perCase !== null ? `<b>${f(perCase, 3)} kg</b> actual vs ${s.cheese_kg_per_case ? f(s.cheese_kg_per_case, 3) : "n/a"} kg planned` : "n/a"],
+        ["Offcuts made", offM ? `${kg(offM.actual)} vs ${kg(offM.planned)} planned` : "none"],
+        ...(s.repack_kg ? [["Repacks in", kg(s.repack_kg)]] : []),
+        ...(m ? [["Mass in / out", `${kg(m.in)} / ${kg(m.out)}`]] : []),
+      ];
+      const vv = s.linked.this_kg;
+      return `<div class="cmpcol ${cls}">
+        <div class="cmph"><span class="jtag ${cls}">${esc(s.order_id)}</span><button type="button" class="link ord" data-o="${esc(s.order_id)}">Open job ${esc(s.order_id)}</button></div>
+        <dl class="cmpl">${rows.map(([k2, x]) => `<dt>${esc(k2)}</dt><dd>${x}</dd>`).join("")}</dl>
+        <div class="cmpv ${vv > 0 ? "over" : "under"}"><span>${esc(word(vv))}</span><strong class="mono">${fs(vv, 1)} kg</strong></div>
+      </div>`;
+    };
+    const posts = [[a, "ja"], [b, "jb"]].flatMap(([s, cls]) => (s.consumption || []).filter((c) => shared.has(c.material)).map((c) => ({ ...c, job: s.order_id, cls })))
+      .sort((x, y) => x.time - y.time);
+    const body = posts.map((c) => `<tr class="${c.consumed < 0 ? "neg" : ""}"><td class="m" data-v="${c.time}">${esc(t(c.time))}</td><td data-v="${esc(c.job)}"><span class="jtag ${c.cls}">${esc(c.job)}</span></td><td class="m">${esc(c.material)}</td><td class="m" data-v="${esc(c.batch ?? "")}">${c.batch === null || c.batch === undefined ? "" : `<button type="button" class="link hist" data-m="${esc(c.material)}" data-b="${esc(c.batch)}" title="Show every confirmation of this batch">${esc(c.batch)}</button>`}</td><td class="m" data-v="${esc(c.conf)}">${esc(c.conf)}</td><td class="n" data-v="${-c.consumed}">${f(-c.consumed, 2)}</td><td>${esc(VIA[c.via] || c.via || "")}</td></tr>`).join("");
+    return `<article class="card cmp" data-v="CHECK">
+      <div class="verdict"><span class="badge">COMPARE</span><div class="vt">Jobs ${esc(a.order_id)} and ${esc(b.order_id)}: offsetting variances</div>
+        <div class="vs">${esc(a.line)} · ${esc(when)} · same cheese ${esc(L.shared.join(", "))}</div></div>
+      <div class="body">
+        <p class="story">${esc(from.order_id)} has ${f(Math.abs(from.linked.this_kg), 1)} kg ${esc(word(from.linked.this_kg))} and ${esc(to.order_id)} has ${f(Math.abs(to.linked.this_kg), 1)} kg ${esc(word(to.linked.this_kg))}; together they're off by only <b>${fs(net, 1)} kg</b>. If ${f(moved, 1)} kg of the cheese booked to ${esc(from.order_id)} was really used by ${esc(to.order_id)}, ${Math.abs(va) >= Math.abs(vb) ? esc(a.order_id) : esc(b.order_id)} would be left at ${fs(net, 1)} kg and the other would balance.</p>
+        <div class="cmpgrid">${col(a, "ja")}${col(b, "jb")}</div>
+        <details class="ev" open><summary>${esc(L.shared.join(", "))} consumed by both jobs, by time (${posts.length})</summary>
+          <p class="hint">Every consumption posting of the shared cheese on either job, oldest first: look for postings booked to one job while the other was running. Click a heading to sort, or a stock ID for its history.</p>
+          ${posts.length ? `<input type="search" class="tfilter" placeholder="Filter by job, stock ID, Conf.ID…" aria-label="Filter shared cheese postings">` : ""}
+          <div class="scroll"><table class="sortable"><thead><tr><th>Created On</th><th>Job</th><th>Product</th><th>Identified Stock ID</th><th>Conf.ID</th><th>Effective Qty</th><th>Tied to the order by</th></tr></thead>
+          <tbody>${body || `<tr><td colspan="7">No consumption postings of the shared cheese.</td></tr>`}</tbody></table></div></details>
+      </div></article>`;
   }
 
   function card(r) {

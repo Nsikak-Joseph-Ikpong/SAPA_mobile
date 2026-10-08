@@ -441,3 +441,24 @@ def test_restricted_status_change_survives_a_journal_without_the_column():
     assert len(m) == 3 and m["qty"].sum() == pytest.approx(-10.0)
     r = restricted_stock(m)
     assert list(r["qty"]) == [789.82] and list(r["batch"]) == ["80000084869"]
+
+
+def test_offsetting_variances_on_the_same_line_are_paired():
+    # jobs 2484 and 2443: same line and cheese at the same time, one 567.3 kg in with no output, the other
+    # 502.7 kg more out than in; a third job on another line with the opposite variance is not paired
+    from sap_variance.reconcile import Finding, pair_offsetting
+    t = lambda hm: pd.Timestamp(f"2026-10-05 {hm}")
+    def s(oid, line, start, end, mat, unacc):
+        return {"order_id": oid, "fg": "FG" + oid, "line": line, "area": None, "start": t(start), "last_regular_output": t(end),
+                "cheese_consumed_by_material": {mat: 1000.0}, "components": [], "narrative": "N.",
+                "mass": {"unaccounted": unacc, "tolerance": 50.0}, "cheese_diff_kg": None, "cheese_tolerance_kg": None}
+    a = s("2484", "SLICING_L1", "07:56", "09:53", "RMRMED20FF", 567.27)
+    b = s("2443", "SLICING_L1", "09:07", "23:32", "RMRMED20FF", -502.74)
+    c = s("9001", "SLICING_L2", "09:00", "10:00", "RMRMED20FF", -560.0)
+    f = pair_offsetting([a, b, c], [Finding("2484", "INFO", "X", "")], Rules())
+    off = {x.order_id: x.message for x in f if x.code == "OFFSETTING_VARIANCE"}
+    assert set(off) == {"2484", "2443"}
+    assert off["2484"] == ("Job 2443 (FG2443) ran on SLICING_L1 at the same time with the same cheese (RMRMED20FF): on this "
+                           "job 567.3 kg went in with no output; on 2443 502.7 kg more came out than went in. Together they're "
+                           "off by only +64.5 kg, so cheese booked to one job was probably used by the other: compare the two.")
+    assert a["linked"]["order_id"] == "2443" and b["linked"]["order_id"] == "2484" and "linked" not in c

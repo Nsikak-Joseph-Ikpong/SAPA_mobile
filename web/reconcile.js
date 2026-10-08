@@ -1187,6 +1187,54 @@
     }
   }
 
+  // Two jobs on the same line, close in time and using the same cheese, off by about the same amount in opposite
+  // directions (one has cheese in with no output, the other more out than in): cheese booked to one of them was
+  // probably used by the other. Each job gets the best such partner; both are flagged and linked for comparison.
+  const OFFSET_HOURS = 12, OFFSET_RATIO = 0.35;
+  const runSpan = (s) => [s.start, !isNaN(s.last_regular_output) && s.last_regular_output > s.start ? s.last_regular_output : s.start];
+  function pairOffsetting(results, ctx) {
+    const blocks = (s) => new Set([...Object.entries(s.cheese_consumed_by_material || {}).filter(([, v]) => v > 0).map(([m]) => m),
+      ...(s.components || []).filter((c) => c.cheese).map((c) => c.material)].filter((m) => !RULES.offcut_pattern.test(m.toUpperCase())));
+    const measure = (s, kind) => kind === "mass" ? (s.mass ? [s.mass.unaccounted, s.mass.tolerance] : null)
+      : (s.cheese_diff_kg !== null && s.cheese_diff_kg !== undefined ? [s.cheese_diff_kg, s.cheese_tolerance_kg] : null);
+    const rs = results.filter((r) => !isNaN(r.summary.start));
+    const cands = [];
+    for (let i = 0; i < rs.length; i++) for (let j = i + 1; j < rs.length; j++) {
+      let a = rs[i].summary, b = rs[j].summary;
+      if (a.start > b.start || (a.start === b.start && a.order_id > b.order_id)) [a, b] = [b, a];
+      if (a.line !== b.line && !(a.area && a.area === b.area)) continue;
+      const [, endA] = runSpan(a);
+      if (b.start - endA > OFFSET_HOURS * H) continue;
+      const shared = [...blocks(a)].filter((m) => blocks(b).has(m)).sort();
+      if (!shared.length) continue;
+      const kind = a.mass && b.mass ? "mass" : "cheese", ma = measure(a, kind), mb = measure(b, kind);
+      if (!ma || !mb) continue;
+      const [va, ta] = ma, [vb, tb] = mb;
+      if (Math.abs(va) <= ta || Math.abs(vb) <= tb || Math.sign(va) === Math.sign(vb)) continue;
+      const ratio = Math.abs(va + vb) / Math.max(Math.abs(va), Math.abs(vb));
+      if (ratio > OFFSET_RATIO) continue;
+      if ([a, b].every((s) => results.find((r) => r.summary === s).findings.some((x) => x.code === "CHEESE_CARRIED_OVER"))) continue;
+      cands.push({ a, b, kind, va, vb, ratio, shared, overlap: b.start <= endA, gapH: Math.max(0, b.start - endA) / H });
+    }
+    cands.sort((x, y) => x.ratio - y.ratio || x.a.order_id.localeCompare(y.a.order_id) || x.b.order_id.localeCompare(y.b.order_id));
+    const paired = new Set();
+    const what = (kind, v) => kind === "mass" ? (v > 0 ? `${f(v, 1)} kg went in with no output` : `${f(-v, 1)} kg more came out than went in`)
+      : (v > 0 ? `${f(v, 1)} kg more cheese was used than its output needs` : `${f(-v, 1)} kg less cheese was used than its output needs`);
+    for (const c of cands) {
+      if (paired.has(c.a.order_id) || paired.has(c.b.order_id)) continue;
+      paired.add(c.a.order_id); paired.add(c.b.order_id);
+      const when = c.overlap ? "at the same time" : `${fixed(c.gapH, 1)} h apart`;
+      for (const [me, va, other, vb] of [[c.a, c.va, c.b, c.vb], [c.b, c.vb, c.a, c.va]]) {
+        const r = results.find((x) => x.summary === me);
+        r.findings.push({ order_id: me.order_id, severity: "MEDIUM", code: "OFFSETTING_VARIANCE",
+          message: `Job ${other.order_id} (${other.fg}) ran on ${me.line} ${when} with the same cheese (${c.shared.join(", ")}): on this job ${what(c.kind, va)}; on ${other.order_id} ${what(c.kind, vb)}. Together they're off by only ${fs(va + vb, 1)} kg, so cheese booked to one job was probably used by the other: compare the two.` });
+        r.findings.sort((x, y) => SEV[x.severity] - SEV[y.severity]);
+        me.linked = { order_id: other.order_id, kind: c.kind, this_kg: va, other_kg: vb, net_kg: va + vb, shared: c.shared, overlap: c.overlap, gap_hours: c.gapH };
+        me.narrative += ` Job ${other.order_id} ran on the same line ${when} with the same cheese and is off by about the same amount the other way (${fs(vb, 1)} kg; together ${fs(va + vb, 1)} kg), so cheese booked to one of them was probably used by the other.`;
+      }
+    }
+  }
+
   // ------------------------------------------------------------ entry points
   function prepare(wb) {
     const orders = wb.orders.filter((o) => !RULES.skip_resources.includes(o.resource));
@@ -1262,9 +1310,22 @@
       const ids = ids0.filter((o) => ctx.active.has(o) || toCheck.includes(o));
       ids.forEach((o, i) => { if (wanted.includes(o)) for (const n of ids.slice(Math.max(i - 1, 0), i + 2)) if (!toCheck.includes(n)) toCheck.push(n); });
     }
+    // and every job on the same line that ran within OFFSET_HOURS of a requested one, for offsetting variances
+    const span = (o) => { const w = ctx.idx.windows.get(o); return w && !isNaN(w.start) ? [w.start, !isNaN(w.last_regular) && w.last_regular > w.start ? w.last_regular : w.start, w.resource, w.area] : null; };
+    for (const o of known) {
+      const a = span(o);
+      if (!a) continue;
+      for (const n of ctx.orders) {
+        if (toCheck.includes(n.order_id)) continue;
+        const b = span(n.order_id);
+        if (b && (b[2] === a[2] || (a[3] && b[3] === a[3])) && b[0] - a[1] <= OFFSET_HOURS * H && a[0] - b[1] <= OFFSET_HOURS * H) toCheck.push(n.order_id);
+      }
+    }
     const results = toCheck.map((oid) => checkOrder(oid, ctx));
     pairCarryOver(results, ctx);
+    pairOffsetting(results, ctx);
     const keep = results.filter((r) => wanted.includes(r.summary.order_id));
+    for (const r of keep) if (r.summary.linked) r.partner = results.find((x) => x.summary.order_id === r.summary.linked.order_id);
     keep.forEach((r) => (r.verdict = verdict(r.findings)));
     return { results: keep, missing: wanted.filter((o) => !ctx.idx.orders.has(o)) };
   }

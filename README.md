@@ -198,6 +198,16 @@ to an older journal without the column, each posting keeps its reference whichev
 Postings with no reference (older exports) still go through the fulfilment report and line-and-time
 matching, and the summary says which source each order's cheese came from.
 
+**Offsetting variances (two jobs to compare).** When you check a job, every other job on the same line
+(resource, or a shared line area such as GRATINGLINES) that ran within 12 hours of it is checked too. Two jobs are
+linked when they share a block cheese, both are beyond tolerance in opposite directions (one has cheese in with no
+output, the other more out than in; or over and under on cheese when there is no mass balance) and together they
+nearly cancel (within 35% of the larger). Each job gets its best such partner. Both get a MEDIUM
+`OFFSETTING_VARIANCE` flag and a sentence in the summary, and the page shows the two side by side: product, run
+times, cases, cheese consumed, cheese per case, offcuts, mass in and out, each job's variance, what moving the
+cheese would leave, and every consumption posting of the shared cheese on either job by time, to spot postings
+booked to one job while the other was running (e.g. jobs 2484 and 2443: +567.3 and -502.7 kg, net +64.5 kg).
+
 **Restricted stock.** When the journal export has a *Restricted* column, rows marked `X` are restricted
 stock (`#` or blank is unrestricted). As soon as the journal is loaded, the page shows a red alert listing
 every restricted posting (product, Identified Stock ID, area, time, document, Conf.ID, quantity), sortable
