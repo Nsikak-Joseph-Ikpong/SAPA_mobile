@@ -44,6 +44,29 @@ The page itself needs nothing from `requirements.txt`, only Python 3.9 or later.
 3. Right-click `serve.py` > *Run 'serve'*. The browser opens on the checker; the red
    Stop button stops it. After that, the green Run button starts it again.
 
+## Use it from your phone (office Wi-Fi)
+
+```bash
+python serve.py --share
+```
+
+The first time, it asks for a password for the phone (at least 8 characters; kept hashed in
+`.checker_login.json`, never committed; change it with `python serve.py --set-password`). It prints the
+address to open on the phone, e.g. `http://192.168.1.25:8000`. On the phone, on the same Wi-Fi as this
+computer, open that address and log in; the phone can save the password and fill it in with Face ID or a
+fingerprint next time. Sessions last 12 hours; five wrong passwords lock that phone out for 10 minutes.
+
+The checker page open on this computer does the checking: the phone sends a job number, a batch for its
+history, or a stock trace, and the page here works it out from the SAP files loaded here and sends back only
+the finished result. The SAP files never go to the phone. So keep this computer on (plugged in, sleep off), with
+`serve.py --share` running and the checker page open with the files loaded; if the page is closed, the phone
+says so. Nothing extra is installed: it's plain Python.
+
+Limits: it works on the office network only (not from home or mobile data), the phone has to be on a network
+that can reach this computer (guest Wi-Fi usually can't), Windows Firewall asks once whether Python may accept
+connections (allow *Private networks*), and plain `http` isn't encrypted, so it's for the office network only.
+Ask IT before using it with a personal phone.
+
 ## Use
 
 ```bash
@@ -197,6 +220,34 @@ order sheets is left alone rather than given to another order. When the referenc
 to an older journal without the column, each posting keeps its reference whichever export it came from.
 Postings with no reference (older exports) still go through the fulfilment report and line-and-time
 matching, and the summary says which source each order's cheese came from.
+
+**Offsetting variances (two jobs to compare).** When you check a job, every other job on the same line
+(resource, or a shared line area such as GRATINGLINES) that ran within 12 hours of it is checked too. Two jobs are
+linked when they share a block cheese, both are beyond tolerance in opposite directions (one has cheese in with no
+output, the other more out than in; or over and under on cheese when there is no mass balance) and together they
+nearly cancel (within 35% of the larger). Each job gets its best such partner. Both get a MEDIUM
+`OFFSETTING_VARIANCE` flag and a sentence in the summary, and the page shows the two side by side: product, run
+times, cases, cheese consumed, cheese per case, offcuts, mass in and out, each job's variance, what moving the
+cheese would leave, and every consumption posting of the shared cheese on either job by time, to spot postings
+booked to one job while the other was running (e.g. jobs 2484 and 2443: +567.3 and -502.7 kg, net +64.5 kg).
+
+**Compare desk (cards side by side).** Any card (an order, a comparison or a stock trace) can be dragged by its
+header, or its *Compare* button, to a side or corner of the screen, like Windows snap: the left or right edge
+takes half the screen, the top or bottom corners a quarter, and a preview shows where it will land. Clicking
+*Compare* offers the same places from a menu (touch screens, keyboard). Up to four cards, each scrolling on its own;
+a card dropped on a used place replaces it, and a quarter dropped on a half splits it. With one side used the page
+keeps the other half and scrolls as usual, so more orders can be checked next to the pinned one; with both sides
+used the desk fills the screen, with *Back to the page* and a *Compare desk (n)* button to return. On narrow
+screens the desk stacks the cards full width. The cards on the desk are copies; the page keeps its own.
+
+**Restricted stock.** When the journal export has a *Restricted* column, rows marked `X` are restricted
+stock (`#` or blank is unrestricted). As soon as the journal is loaded, the page shows a red alert listing
+every restricted posting (product, Identified Stock ID, area, time, document, Conf.ID, quantity), sortable
+and filterable, with each batch's history a click away. Any order that made, consumed, moved to its line or
+repacked a batch with a restricted posting gets a HIGH `RESTRICTED_STOCK` flag naming those postings, and
+batch history and the stock trace mark restricted rows. Quantities aren't changed: a restricted posting
+still counts as the stock movement it is. Older exports without the column show no restricted stock, so add
+*Restricted* to the journal report's layout.
 
 Without a reference, postings are tied to orders:
 

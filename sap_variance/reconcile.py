@@ -148,6 +148,8 @@ def _journal(j: pd.DataFrame) -> pd.DataFrame:
         "conf": _id(j["confid"]), "qty": _num(j["effectiveqty"]),
         # the production order on production confirmations (Reference Document ID), when the export has it
         "ref": _id(j["referencedocumentid"]) if "referencedocumentid" in j else None,
+        # restricted stock: "X" in the journal's Restricted column ("#" or blank is unrestricted)
+        "restricted": (j["restricted"].astype(str).str.strip().str.upper() == "X") if "restricted" in j else False,
     }).dropna(subset=["time", "qty"])
     journal["is_prod"] = journal["doc"].str.contains("Production", case=False)
     return journal
@@ -175,6 +177,29 @@ def _merge_journals(journals: list) -> pd.DataFrame:
     if refs:
         mapped = key(out).map(refs)
         out["ref"] = mapped.where(mapped.notna(), out["ref"] if "ref" in out else None)
+    # restricted stock: putting stock on restricted is a status change, -qty unrestricted and +qty restricted on the
+    # same posting. An export without the Restricted column nets the two to one 0 row, so where an export marks a
+    # posting restricted, its rows for that posting replace the others'
+    if "restricted" not in out:
+        out["restricted"] = False
+    out["restricted"] = out["restricted"].fillna(False).astype(bool)
+    taken: set = set()
+    add = []
+    for d in journals:
+        if "restricted" not in d:
+            continue
+        r = d["restricted"].fillna(False).astype(bool)
+        ks = set(key(d[r])) - taken
+        if ks:
+            rows = d[key(d).isin(ks)].copy()
+            rows["restricted"] = rows["restricted"].fillna(False).astype(bool)
+            add.append(rows)
+            taken |= ks
+    if taken:
+        out = pd.concat([out[~key(out).isin(taken)], *add], ignore_index=True)
+        if refs:
+            mapped = key(out).map(refs)
+            out["ref"] = mapped.where(mapped.notna(), out["ref"])
     return out
 
 
@@ -420,6 +445,21 @@ def _line_context(wb: Workbook, windows: pd.DataFrame, outputs: pd.DataFrame, ru
     return wins, recipe_by_order, next_out, starts, resources
 
 
+def restricted_stock(journal: pd.DataFrame) -> pd.DataFrame:
+    """Journal rows marked X in the Restricted column, oldest first."""
+    if "restricted" not in journal:
+        return journal.iloc[0:0]
+    return journal[journal["restricted"].fillna(False).astype(bool)].sort_values("time", kind="stable")
+
+
+def restricted_by_batch(journal: pd.DataFrame) -> dict:
+    """Restricted postings per (material, batch), oldest first."""
+    out: dict = {}
+    for r in restricted_stock(journal).to_dict("records"):
+        out.setdefault((r["material"], r["batch"]), []).append(r)
+    return out
+
+
 def consumption_rows(journal: pd.DataFrame, rules: Rules) -> pd.DataFrame:
     """Cheese consumed on production confirmations: negative cheese rows (positive block-cheese rows
     are reversals). A positive offcut-bin row reverses an earlier consumption of the same bin batch on the
@@ -466,7 +506,8 @@ def assign_consumption(wb: Workbook, windows: pd.DataFrame, outputs: pd.DataFram
         # a confirmation that names its order (even one not on the order sheets) isn't anyone else's
         cons = cons[cons["ref"].isna() | (cons["ref"] == "#")]
     if exclude_pairs:
-        cons = cons[[(c, m) not in exclude_pairs for c, m in zip(cons["conf"], cons["material"])]]
+        cons = cons[pd.Series([(c, m) not in exclude_pairs for c, m in zip(cons["conf"], cons["material"])],
+                              index=cons.index, dtype=bool)]
     cons = cons.sort_values("time", kind="stable")
     last_out = dict(zip(windows["order_id"], windows["last_regular"]))
     areas = dict(zip(windows["order_id"], windows["area"]))
@@ -1449,6 +1490,21 @@ def check_order(oid: str, wb: Workbook, windows: pd.DataFrame, outputs: pd.DataF
                 f"{m} {b} consumed {u:,.2f} kg in total (this job {cons[(cons['material'] == m) & (cons['batch'] == b)]['consumed'].sum():,.2f}), "
                 f"largest quantity posted for it {sz:,.2f} kg" for m, b, u, sz in over) + ".")
 
+    # restricted stock: any restricted posting on a batch this job made, consumed, moved to its line or repacked
+    rp_job = (info or {}).get("repacks")
+    rp_job = rp_job[rp_job["order_id"] == oid] if rp_job is not None and not rp_job.empty else None
+    job_batches = set()
+    for d in (out, cheese, cons, rp_job):
+        if d is not None and not d.empty and "batch" in d:
+            job_batches |= {(m, b) for m, b in d[["material", "batch"]].itertuples(index=False) if b is not None and not pd.isna(b)}
+    restricted_by_batch = (info or {}).get("restricted_by_batch") or {}
+    rrows = sorted((r for k in job_batches for r in restricted_by_batch.get(k, [])),
+                   key=lambda r: (r["time"], r["material"], str(r["batch"]), str(r["conf"]), r["qty"]))
+    if rrows:
+        flag("HIGH", "RESTRICTED_STOCK", f"Restricted stock on {len({(r['material'], r['batch']) for r in rrows})} batch(es) this job made or used: "
+             + "; ".join(f"{r['material']} {r['batch']} {r['qty']:,.2f} at {r['area'] or '#'} {r['time']:%d.%m %H:%M} ({r['doc']} {r['conf']})"
+                         for r in rrows) + ".")
+
     offcuts = wb.byproducts[wb.byproducts["order_id"] == oid]
     variance = variance_view(o, comps, cheese_comps, offcuts, order_out, journal_out, cheese_source, consumed,
                              float((starch_used or {}).get(oid, 0.0)), issued, used, rules,
@@ -1577,7 +1633,8 @@ def run(wb: Workbook, order_ids: list[str] | None = None, rules: Rules | None = 
                              for m in sorted(needs_w)}, "ctype": lambda m: m.upper()[:4] if not re.match(rules.offcut_pattern, m.upper()) else m.upper(),
             "consumed_by_batch": ((-raw_cons.groupby(["material", "batch"])["qty"].sum()).to_dict() if journal_cons else {}),
             "moves_by_batch": {k: g.sort_values("time", kind="stable") for k, g in
-                               wb.journal[~wb.journal["is_prod"] & (wb.journal["qty"] > 0)].groupby(["material", "batch"])}}
+                               wb.journal[~wb.journal["is_prod"] & (wb.journal["qty"] > 0)].groupby(["material", "batch"])},
+            "restricted_by_batch": restricted_by_batch(wb.journal)}
     pos = outputs[outputs["qty"] > 0]
     typical = {}
     for fg, g in pos.groupby("material"):
@@ -1597,6 +1654,24 @@ def run(wb: Workbook, order_ids: list[str] | None = None, rules: Rules | None = 
         for i, o in enumerate(ids):
             if o in wanted:
                 to_check += [n for n in ids[max(i - 1, 0):i + 2] if n not in to_check]
+    # and every job on the same line that ran within OFFSET_HOURS of a requested one, for offsetting variances
+    spans = {}
+    for w in windows.itertuples(index=False):
+        if not pd.isna(w.start):
+            end = w.last_regular if not pd.isna(w.last_regular) and w.last_regular > w.start else w.start
+            spans[w.order_id] = (w.start, end, w.resource, w.area)
+    near = pd.Timedelta(hours=OFFSET_HOURS)
+    for o in [o for o in wanted if o in known]:
+        a = spans.get(o)
+        if a is None:
+            continue
+        for n in orders["order_id"]:
+            b = spans.get(n)
+            if n in to_check or b is None:
+                continue
+            same_line = b[2] == a[2] or (isinstance(a[3], str) and b[3] == a[3])
+            if same_line and b[0] - a[1] <= near and a[0] - b[1] <= near:
+                to_check.append(n)
     summaries, findings = [], []
     for oid in wanted:
         if oid not in known:
@@ -1607,6 +1682,7 @@ def run(wb: Workbook, order_ids: list[str] | None = None, rules: Rules | None = 
         summaries.append(s)
         findings.extend(f)
     findings = pair_carry_over(summaries, findings, orders, rules)
+    findings = pair_offsetting(summaries, findings, rules)
     summaries = [s for s in summaries if s["order_id"] in set(wanted)]
     findings = [f for f in findings if f.order_id in set(wanted)]
     unassigned = outputs[outputs["order_id"].isna()]
@@ -1617,6 +1693,84 @@ def verdict(findings: list) -> str:
     """One word per order: PROBLEMS (any HIGH), CHECK (any MEDIUM) or OK."""
     sev = {f.severity for f in findings}
     return "PROBLEMS" if "HIGH" in sev else "CHECK" if "MEDIUM" in sev else "OK"
+
+
+OFFSET_HOURS, OFFSET_RATIO = 12, 0.35
+
+
+def pair_offsetting(summaries: list, findings: list, rules: Rules) -> list:
+    """Two jobs on the same line, close in time and using the same cheese, off by about the same amount in
+    opposite directions (one has cheese in with no output, the other more out than in): cheese booked to one of
+    them was probably used by the other. Each job gets the best such partner; both are flagged and linked."""
+    def blocks(s):
+        ms = {m for m, v in (s.get("cheese_consumed_by_material") or {}).items() if v > 0}
+        ms |= {c["material"] for c in s.get("components") or [] if c.get("cheese")}
+        return {m for m in ms if not re.match(rules.offcut_pattern, m.upper())}
+
+    def measure(s, kind):
+        if kind == "mass":
+            return (s["mass"]["unaccounted"], s["mass"]["tolerance"]) if s.get("mass") else None
+        return (s["cheese_diff_kg"], s["cheese_tolerance_kg"]) if s.get("cheese_diff_kg") is not None else None
+
+    def end_of(s):
+        lr = s.get("last_regular_output")
+        return lr if lr is not None and not pd.isna(lr) and lr > s["start"] else s["start"]
+
+    carried = {f.order_id for f in findings if f.code == "CHEESE_CARRIED_OVER"}
+    rs = [s for s in summaries if s.get("start") is not None and not pd.isna(s["start"])]
+    cands = []
+    for i in range(len(rs)):
+        for j in range(i + 1, len(rs)):
+            a, b = rs[i], rs[j]
+            if a["start"] > b["start"] or (a["start"] == b["start"] and a["order_id"] > b["order_id"]):
+                a, b = b, a
+            if a["line"] != b["line"] and not (a.get("area") and a["area"] == b.get("area")):
+                continue
+            end_a = end_of(a)
+            if b["start"] - end_a > pd.Timedelta(hours=OFFSET_HOURS):
+                continue
+            shared = sorted(blocks(a) & blocks(b))
+            if not shared:
+                continue
+            kind = "mass" if a.get("mass") and b.get("mass") else "cheese"
+            ma, mb = measure(a, kind), measure(b, kind)
+            if not ma or not mb:
+                continue
+            (va, ta), (vb, tb) = ma, mb
+            if abs(va) <= ta or abs(vb) <= tb or (va > 0) == (vb > 0):
+                continue
+            ratio = abs(va + vb) / max(abs(va), abs(vb))
+            if ratio > OFFSET_RATIO or (a["order_id"] in carried and b["order_id"] in carried):
+                continue
+            gap = max(pd.Timedelta(0), b["start"] - end_a) / pd.Timedelta(hours=1)
+            cands.append(dict(a=a, b=b, kind=kind, va=va, vb=vb, ratio=ratio, shared=shared,
+                              overlap=b["start"] <= end_a, gap=gap))
+    cands.sort(key=lambda c: (c["ratio"], c["a"]["order_id"], c["b"]["order_id"]))
+
+    def what(kind, v):
+        if kind == "mass":
+            return f"{v:,.1f} kg went in with no output" if v > 0 else f"{-v:,.1f} kg more came out than went in"
+        return (f"{v:,.1f} kg more cheese was used than its output needs" if v > 0
+                else f"{-v:,.1f} kg less cheese was used than its output needs")
+
+    paired: set = set()
+    for c in cands:
+        if c["a"]["order_id"] in paired or c["b"]["order_id"] in paired:
+            continue
+        paired |= {c["a"]["order_id"], c["b"]["order_id"]}
+        when = "at the same time" if c["overlap"] else f"{c['gap']:.1f} h apart"
+        for me, va, other, vb in ((c["a"], c["va"], c["b"], c["vb"]), (c["b"], c["vb"], c["a"], c["va"])):
+            findings.append(Finding(me["order_id"], "MEDIUM", "OFFSETTING_VARIANCE",
+                                    f"Job {other['order_id']} ({other['fg']}) ran on {me['line']} {when} with the same cheese "
+                                    f"({', '.join(c['shared'])}): on this job {what(c['kind'], va)}; on {other['order_id']} "
+                                    f"{what(c['kind'], vb)}. Together they're off by only {va + vb:+,.1f} kg, so cheese booked "
+                                    f"to one job was probably used by the other: compare the two."))
+            me["linked"] = {"order_id": other["order_id"], "kind": c["kind"], "this_kg": va, "other_kg": vb,
+                            "net_kg": va + vb, "shared": c["shared"], "overlap": c["overlap"], "gap_hours": c["gap"]}
+            me["narrative"] += (f" Job {other['order_id']} ran on the same line {when} with the same cheese and is off by "
+                                f"about the same amount the other way ({vb:+,.1f} kg; together {va + vb:+,.1f} kg), so "
+                                f"cheese booked to one of them was probably used by the other.")
+    return findings
 
 
 def pair_carry_over(summaries: list, findings: list, orders: pd.DataFrame, rules: Rules) -> list:

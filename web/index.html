@@ -110,6 +110,61 @@
   .story h3 { margin: 0 0 6px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
   .story p { margin: 0; font-size: 15px; line-height: 1.55; max-width: 95ch; }
   .bad { color: var(--high); } .good { color: var(--ok); }
+  /* phone access: the phone doesn't load files, the office computer does */
+  body.remote #drop, body.remote #add, body.remote #forget, body.remote #report, body.remote button.rm, body.remote #source .pill:not(.real) { display: none !important; }
+  /* compare desk */
+  .verdict:has(.cmpbtn) { grid-template-columns: auto minmax(0, 1fr) auto; }
+  .verdict:has(.cmpbtn) > .badge { grid-column: 1; grid-row: 1 / span 2; }
+  .verdict:has(.cmpbtn) > .vt, .verdict:has(.cmpbtn) > .vs { grid-column: 2; }
+  .cmpbtn { grid-row: 1 / span 2; grid-column: 3; align-self: center; font: 500 12px var(--sans); color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 6px 10px; cursor: grab; touch-action: none; white-space: nowrap; }
+  .cmpbtn:hover { border-color: var(--accent); }
+  @media (pointer: fine) { .card > .verdict { cursor: grab; } }
+  body.dragging, body.dragging * { cursor: grabbing !important; user-select: none !important; }
+  .desk { position: fixed; inset: 0; z-index: 40; pointer-events: none; }
+  .deskbar { position: absolute; left: 0; right: 0; top: 0; height: 40px; display: flex; align-items: center; gap: 14px; padding: 0 14px; background: var(--ink); color: var(--ground); font-size: 13px; pointer-events: auto; }
+  .deskbar span { opacity: 0.75; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .deskbar .link { color: var(--ground); white-space: nowrap; }
+  .pane { position: absolute; pointer-events: auto; display: flex; flex-direction: column; background: var(--ground); border: 1px solid var(--line); box-shadow: 0 2px 12px rgba(0,0,0,0.15); overflow: hidden; transition: left .15s, top .15s, width .15s, height .15s; }
+  .panehead { display: flex; align-items: center; gap: 8px; padding: 4px 6px 4px 12px; background: var(--sunken); border-bottom: 1px solid var(--line); font: 600 12px var(--mono); }
+  .panehead span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .panehead button { font: inherit; background: none; border: 0; color: var(--ink); padding: 4px 8px; border-radius: 4px; cursor: pointer; }
+  .panehead button:hover { background: var(--line); }
+  .panebody { flex: 1; min-height: 0; overflow: auto; padding: 10px; }
+  .panebody > .card { margin: 0; }
+  body.desk-full { overflow: hidden; }
+  body.desk-left .wrap { margin-left: 50vw; max-width: none; }
+  body.desk-right .wrap { margin-right: 50vw; max-width: none; }
+  body.desk-left .deskbar { right: 50%; } body.desk-right .deskbar { left: 50%; }
+  body.desk-full .desk { background: var(--ground); pointer-events: auto; }
+  .deskshow { position: fixed; right: 16px; bottom: calc(env(safe-area-inset-bottom, 0px) + 16px); z-index: 41; font: 600 13px var(--sans); background: var(--accent); color: var(--accent-ink); border: 0; border-radius: 999px; padding: 10px 16px; box-shadow: 0 2px 10px rgba(0,0,0,0.2); cursor: pointer; }
+  .snap { position: fixed; inset: 0; z-index: 50; pointer-events: none; }
+  .snapprev { position: absolute; border: 2px solid var(--accent); background: color-mix(in srgb, var(--accent) 18%, transparent); border-radius: 8px; transition: all .08s; }
+  .snapghost { position: absolute; padding: 6px 10px; font: 600 12px var(--mono); background: var(--ink); color: var(--ground); border-radius: 6px; transform: translate(12px, 12px); white-space: nowrap; }
+  .slotmenu { position: fixed; z-index: 60; display: grid; grid-template-columns: repeat(2, auto); gap: 4px; padding: 8px; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 4px 16px rgba(0,0,0,0.2); }
+  .slotmenu p { grid-column: 1 / -1; margin: 0 0 4px; font-size: 12px; color: var(--muted); }
+  .slotmenu button { font: 13px var(--sans); text-align: left; background: var(--sunken); color: var(--ink); border: 1px solid var(--line); border-radius: 6px; padding: 6px 10px; cursor: pointer; }
+  .slotmenu button:hover { border-color: var(--accent); }
+  @media (max-width: 899px) {
+    body.desk-left .wrap, body.desk-right .wrap { margin: 0 auto; max-width: 1100px; }
+  }
+  .cmpgrid { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)); margin-top: 12px; }
+  .cmpcol { min-width: 0; border: 1px solid var(--line); border-top: 4px solid var(--jc); border-radius: 8px; padding: 12px 14px; background: var(--surface); }
+  .ja { --jc: var(--accent); --jsoft: var(--accent-soft); } .jb { --jc: var(--low); --jsoft: var(--low-soft); }
+  .cmph { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+  .jtag { display: inline-block; font: 600 12px var(--mono); padding: 1px 8px; border-radius: 999px; background: var(--jsoft); color: var(--jc); border: 1px solid var(--jc); }
+  .cmpl { display: grid; grid-template-columns: minmax(110px, auto) minmax(0, 1fr); gap: 4px 12px; margin: 0; font-size: 13px; }
+  .cmpl dt { color: var(--muted); } .cmpl dd { margin: 0; overflow-wrap: anywhere; }
+  .cmpl small { display: block; color: var(--muted); }
+  @media (max-width: 520px) { .cmpl { grid-template-columns: minmax(0, 1fr); gap: 0; } .cmpl dd { margin-bottom: 6px; } }
+  .cmpl .shared { background: var(--medium-soft); border-radius: 3px; padding: 0 3px; }
+  .cmpv { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; margin-top: 10px; padding: 8px 10px; border-radius: 6px; font-size: 13px; }
+  .cmpv strong { font-size: 18px; } .cmpv.over { background: var(--high-soft); color: var(--high); } .cmpv.under { background: var(--medium-soft); color: var(--medium); }
+  .restr { min-width: 0; border: 1px solid var(--high); border-left-width: 5px; background: var(--high-soft); border-radius: 8px; padding: 12px 14px; margin: 16px 0; }
+  .restr h2 { margin: 0 0 4px; font-size: 15px; color: var(--high); }
+  .restr p { margin: 0; font-size: 13px; }
+  .restr details { margin-top: 8px; }
+  .restr summary { cursor: pointer; font-size: 13px; font-weight: 500; }
+  td.rx { color: var(--high); font-weight: 700; text-align: center; }
 
   .mass { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); }
   .mass table { font-size: 13px; }
@@ -203,8 +258,17 @@
     <p class="hint">Every confirmation in the journal for that batch: receipts, moves, consumption, output, reversals and scrap, with the running stock and the order each one belongs to. Several batches can be separated with commas.</p>
   </section>
 
+  <section class="restr" id="restricted" role="alert" hidden></section>
   <main class="result" id="result" aria-live="polite"></main>
 </div>
+<!-- compare desk: cards pinned to a half or a quarter of the screen, each scrolling on its own -->
+<div class="desk" id="desk" hidden aria-label="Compare desk">
+  <div class="deskbar" id="deskBar"><strong>Compare</strong><span>Drag a card's header to a side or corner to move it.</span>
+    <button type="button" class="link" id="deskHide">Back to the page</button><button type="button" class="link" id="deskClear">Close all</button></div>
+</div>
+<button type="button" class="deskshow" id="deskShow" hidden></button>
+<div class="snap" id="snap" hidden aria-hidden="true"><div class="snapprev" id="snapPrev"></div><div class="snapghost" id="snapGhost"></div></div>
+<div class="slotmenu" id="slotMenu" hidden role="menu" aria-label="Put this card on the compare desk"></div>
 <div class="toast" id="toast" hidden></div>
 
 <!-- the spreadsheet reader (SheetJS 0.18.5): the copy next to the page when there is one (local server), else the CDN -->
@@ -223,6 +287,8 @@
   const kg = (v) => (v === null || v === undefined || isNaN(v) ? "n/a" : f(v, 1) + " kg");
 
   const TITLES = {
+    OFFSETTING_VARIANCE: "Offsetting variance with another job on the line",
+    RESTRICTED_STOCK: "Restricted stock on this job's batches",
     OUTPUT_NOT_ON_ORDER: "Output in the journal doesn't match the order",
     OUTPUT_NOT_IN_JOURNAL: "Order shows output the journal doesn't",
     OUTPUT_POSTED_IN_BULK_OR_LATE: "Pallets posted in bulk or late",
@@ -275,7 +341,7 @@
   }
   const VERDICT_TEXT = { PROBLEMS: "Problems found", CHECK: "Worth checking", OK: "Looks OK" };
 
-  const state = { ctx: null, source: null, demo: true, files: null };
+  const state = { ctx: null, source: null, demo: true, files: null, remote: false, share: false };
 
   function toast(msg) { const t = $("toast"); t.textContent = msg; t.hidden = false; clearTimeout(toast.t); toast.t = setTimeout(() => (t.hidden = true), 2600); }
 
@@ -325,14 +391,31 @@
     const cheese = state.demo ? "" : c.hasCons ? " · cheese consumption found in the journal"
       : " · no cheese consumption lines in the journal, so cheese is estimated from moves to the line";
     $("source").innerHTML = `<div class="what">${names}
-      <div class="meta">${f(c.wb.journal.length)} journal rows (${esc(range)}) · ${f(c.orders.length)} orders${s.saved ? ` · saved ${esc(new Date(s.saved).toLocaleDateString("en-GB"))}` : ""}${esc(cheese)}</div></div>
+      <div class="meta">${state.share && !state.demo ? "Shared with your phone · " : ""}${f(c.wb.journal.length)} journal rows (${esc(range)}) · ${f(c.orders.length)} orders${s.saved ? ` · saved ${esc(new Date(s.saved).toLocaleDateString("en-GB"))}` : ""}${esc(cheese)}</div></div>
       <span class="pill ${state.demo ? "" : "real"}">${state.demo ? "demo" : "your data"}</span>`;
+    renderRestricted();
     $("forget").hidden = state.demo;
     $("add").hidden = state.demo;
     $("report").hidden = typeof XLSX === "undefined";
     const ex = state.demo ? ["A1", "B2", "C3"] : pickExamples();
     $("examples").innerHTML = ex.length ? `Try: ${ex.map((o) => `<button type="button" data-o="${esc(o)}">${esc(o)}</button>`).join("")}` : "";
-    $("examples").querySelectorAll("button").forEach((b) => (b.onclick = () => { $("oid").value = b.dataset.o; run(); }));
+    bindExamples();
+  }
+
+  // restricted stock: shown as soon as a journal is loaded, every posting marked X in the Restricted column
+  function bindExamples() { $("examples").querySelectorAll("button").forEach((b) => (b.onclick = () => { $("oid").value = b.dataset.o; run(); })); }
+  function renderRestricted() {
+    const box = $("restricted"), rows = state.ctx.restricted || [];
+    box.hidden = !rows.length;
+    if (!rows.length) { box.innerHTML = ""; return; }
+    const batches = new Set(rows.map((r) => r.material + " " + r.batch)).size;
+    box.innerHTML = `<h2>Restricted stock: ${f(rows.length)} posting${rows.length === 1 ? "" : "s"} on ${f(batches)} batch${batches === 1 ? "" : "es"}</h2>
+      <p>These journal rows are marked X in the Restricted column. Orders that made or used these batches are flagged when you check them.</p>
+      <details${rows.length <= 10 ? " open" : ""}><summary>Show the restricted postings</summary>
+      <input type="search" class="tfilter" placeholder="Filter by product, stock ID, area…" aria-label="Filter restricted stock">
+      <div class="scroll"><table class="sortable"><thead><tr><th>Product</th><th>Identified Stock ID</th><th>Logistics Area ID</th><th>Created On</th><th>Conf.Document Type</th><th>Conf.ID</th><th>Reference Document ID</th><th>Effective Qty</th></tr></thead><tbody>`
+      + rows.map((r) => `<tr><td class="m">${esc(r.material)}</td><td class="m" data-v="${esc(r.batch ?? "")}"><button type="button" class="link hist" data-m="${esc(r.material)}" data-b="${esc(r.batch ?? "")}" title="Show every confirmation of this batch">${esc(r.batch ?? "")}</button></td><td class="m">${esc(r.area || "#")}</td><td class="m" data-v="${r.time}">${esc(dmy(r.time))}</td><td>${esc(r.doc)}</td><td class="m" data-v="${esc(r.conf)}">${esc(r.conf)}</td><td class="m">${esc(r.ref ?? "#")}</td><td class="n" data-v="${r.qty}">${f(r.qty, 2)}</td></tr>`).join("")
+      + `</tbody></table></div></details>`;
   }
 
   // the loaded files, each with a button to remove just that one
@@ -426,13 +509,82 @@
   }
 
   // ---------------------------------------------------------------- results
-  function run() {
+  async function run() {
     const ids = $("oid").value.split(/[\s,;]+/).filter(Boolean);
-    if (!ids.length || !state.ctx) return;
+    if (!ids.length) return;
+    if (state.remote) {
+      $("result").innerHTML = `<div class="empty loading">Asking the office computer…</div>`;
+      const a = await ask("check", { ids });
+      if (a) { $("result").innerHTML = a.html; addCompareButtons($("result")); }
+      return;
+    }
+    if (!state.ctx) return;
+    $("result").innerHTML = checkHtml(ids);
+    addCompareButtons($("result"));
+  }
+  function checkHtml(ids) {
     const res = R.check(state.ctx, ids);
-    const parts = res.results.map(card);
+    // a job linked to another by an offsetting variance is followed by the two side by side (once per pair)
+    const shown = new Set(), parts = [];
+    for (const r of res.results) {
+      parts.push(card(r));
+      const pair = r.partner ? [r.summary.order_id, r.partner.summary.order_id].sort().join("+") : null;
+      if (pair && !shown.has(pair)) { shown.add(pair); parts.push(compareCard(r, r.partner)); }
+    }
     for (const m of res.missing) parts.push(`<div class="empty">Order <span class="mono">${esc(m)}</span> isn't in the workbook's order sheets.</div>`);
-    $("result").innerHTML = parts.join("");
+    return parts.join("");
+  }
+
+  // Split screen: two jobs with offsetting variances, side by side, and the shared cheese both consumed, by time
+  function compareCard(ra, rb) {
+    const [a, b] = [ra.summary, rb.summary].sort((x, y) => x.start - y.start), L = a.linked;
+    const va = a.linked.this_kg, vb = a.linked.other_kg, net = va + vb;
+    const mass = L.kind === "mass";
+    const word = (v) => mass ? (v > 0 ? "in with no output" : "more out than in") : (v > 0 ? "more cheese than needed" : "less cheese than needed");
+    const moved = Math.min(Math.abs(va), Math.abs(vb));
+    const [from, to] = va > 0 ? [a, b] : [b, a];
+    const when = L.overlap ? "at the same time" : `${L.gap_hours.toFixed(1)} h apart`;
+    const shared = new Set(L.shared);
+    const t = (x) => (x === null || x === undefined || isNaN(x) ? "n/a" : dmy(x));
+    const col = (s, cls) => {
+      const m = s.mass, v = s.variance, o = s.open_status || [];
+      const os = (item) => o.find((x) => x.item === item);
+      const offM = os("Offcuts made"), cases = m ? m.cases : s.cheese_est_output;
+      const mats = Object.entries(s.cheese_consumed_by_material || {}).sort((x, y) => y[1] - x[1]);
+      const perCase = cases ? (s.cheese_consumed_kg + (s.repack_kg || 0)) / cases : null;
+      const rows = [
+        ["Product", `${esc(s.fg)}<small>${esc(s.fg_text || "")}</small>`],
+        ["Ran", `${esc(t(s.start))} to ${esc(t(s.last_regular_output))}`],
+        ["Cases", `${n0(s.planned_out)} planned · <b>${n0(s.order_out)}</b> made${v ? ` · ${f(v.case_weight, 3)} kg/case` : ""}`],
+        ["Cheese consumed", mats.length ? mats.map(([mt, q]) => `<span class="${shared.has(mt) ? "shared" : ""}">${esc(mt)} <b>${f(q, 1)} kg</b></span>`).join("<br>") : "none"],
+        ["Cheese needed for the output", kg(s.cheese_est_needed_kg)],
+        ["Cheese per case", perCase !== null ? `<b>${f(perCase, 3)} kg</b> actual vs ${s.cheese_kg_per_case ? f(s.cheese_kg_per_case, 3) : "n/a"} kg planned` : "n/a"],
+        ["Offcuts made", offM ? `${kg(offM.actual)} vs ${kg(offM.planned)} planned` : "none"],
+        ...(s.repack_kg ? [["Repacks in", kg(s.repack_kg)]] : []),
+        ...(m ? [["Mass in / out", `${kg(m.in)} / ${kg(m.out)}`]] : []),
+      ];
+      const vv = s.linked.this_kg;
+      return `<div class="cmpcol ${cls}">
+        <div class="cmph"><span class="jtag ${cls}">${esc(s.order_id)}</span><button type="button" class="link ord" data-o="${esc(s.order_id)}">Open job ${esc(s.order_id)}</button></div>
+        <dl class="cmpl">${rows.map(([k2, x]) => `<dt>${esc(k2)}</dt><dd>${x}</dd>`).join("")}</dl>
+        <div class="cmpv ${vv > 0 ? "over" : "under"}"><span>${esc(word(vv))}</span><strong class="mono">${fs(vv, 1)} kg</strong></div>
+      </div>`;
+    };
+    const posts = [[a, "ja"], [b, "jb"]].flatMap(([s, cls]) => (s.consumption || []).filter((c) => shared.has(c.material)).map((c) => ({ ...c, job: s.order_id, cls })))
+      .sort((x, y) => x.time - y.time);
+    const body = posts.map((c) => `<tr class="${c.consumed < 0 ? "neg" : ""}"><td class="m" data-v="${c.time}">${esc(t(c.time))}</td><td data-v="${esc(c.job)}"><span class="jtag ${c.cls}">${esc(c.job)}</span></td><td class="m">${esc(c.material)}</td><td class="m" data-v="${esc(c.batch ?? "")}">${c.batch === null || c.batch === undefined ? "" : `<button type="button" class="link hist" data-m="${esc(c.material)}" data-b="${esc(c.batch)}" title="Show every confirmation of this batch">${esc(c.batch)}</button>`}</td><td class="m" data-v="${esc(c.conf)}">${esc(c.conf)}</td><td class="n" data-v="${-c.consumed}">${f(-c.consumed, 2)}</td><td>${esc(VIA[c.via] || c.via || "")}</td></tr>`).join("");
+    return `<article class="card cmp" data-v="CHECK">
+      <div class="verdict"><span class="badge">COMPARE</span><div class="vt">Jobs ${esc(a.order_id)} and ${esc(b.order_id)}: offsetting variances</div>
+        <div class="vs">${esc(a.line)} · ${esc(when)} · same cheese ${esc(L.shared.join(", "))}</div></div>
+      <div class="body">
+        <p class="story">${esc(from.order_id)} has ${f(Math.abs(from.linked.this_kg), 1)} kg ${esc(word(from.linked.this_kg))} and ${esc(to.order_id)} has ${f(Math.abs(to.linked.this_kg), 1)} kg ${esc(word(to.linked.this_kg))}; together they're off by only <b>${fs(net, 1)} kg</b>. If ${f(moved, 1)} kg of the cheese booked to ${esc(from.order_id)} was really used by ${esc(to.order_id)}, ${Math.abs(va) >= Math.abs(vb) ? esc(a.order_id) : esc(b.order_id)} would be left at ${fs(net, 1)} kg and the other would balance.</p>
+        <div class="cmpgrid">${col(a, "ja")}${col(b, "jb")}</div>
+        <details class="ev" open><summary>${esc(L.shared.join(", "))} consumed by both jobs, by time (${posts.length})</summary>
+          <p class="hint">Every consumption posting of the shared cheese on either job, oldest first: look for postings booked to one job while the other was running. Click a heading to sort, or a stock ID for its history.</p>
+          ${posts.length ? `<input type="search" class="tfilter" placeholder="Filter by job, stock ID, Conf.ID…" aria-label="Filter shared cheese postings">` : ""}
+          <div class="scroll"><table class="sortable"><thead><tr><th>Created On</th><th>Job</th><th>Product</th><th>Identified Stock ID</th><th>Conf.ID</th><th>Effective Qty</th><th>Tied to the order by</th></tr></thead>
+          <tbody>${body || `<tr><td colspan="7">No consumption postings of the shared cheese.</td></tr>`}</tbody></table></div></details>
+      </div></article>`;
   }
 
   function card(r) {
@@ -661,7 +813,7 @@
   $("report").onclick = () => downloadReport().catch((e) => toast("Couldn't build the report: " + e.message));
   // sortable tables: click a heading to sort by that column (again to reverse); history rows are closed first
   const cellKey = (td) => (td ? (td.dataset.v !== undefined ? td.dataset.v : td.textContent.trim()) : "");
-  $("result").addEventListener("click", (e) => {
+  document.addEventListener("click", (e) => {
     const th = e.target.closest("table.sortable thead th");
     if (!th) return;
     const table = th.closest("table"), body = table.tBodies[0], col = th.cellIndex;
@@ -679,7 +831,7 @@
     rows.forEach((r) => body.appendChild(r));
   });
   // filter box above a table: keep the rows that contain the text; the total covers the rows shown
-  $("result").addEventListener("input", (e) => {
+  document.addEventListener("input", (e) => {
     const box = e.target.closest("input.tfilter");
     if (!box) return;
     const table = box.parentElement.querySelector("table"), q = box.value.trim().toLowerCase();
@@ -697,13 +849,22 @@
     }
   });
   // click a pallet or batch number: its full confirmation history from the journal, under the row
-  $("result").addEventListener("click", (e) => {
+  document.addEventListener("click", async (e) => {
     const btn = e.target.closest("button.hist");
-    if (!btn || !state.ctx) return;
+    if (!btn || (!state.ctx && !state.remote)) return;
     const tr = btn.closest("tr"), next = tr.nextElementSibling;
     if (next && next.classList.contains("histrow") && next.dataset.key === btn.dataset.m + "|" + btn.dataset.b) { next.remove(); return; }
     if (next && next.classList.contains("histrow")) next.remove();
-    const rows = R.batchHistory(state.ctx, btn.dataset.m, btn.dataset.b);
+    const inner = state.remote ? (await ask("history", { m: btn.dataset.m, b: btn.dataset.b }))?.html : historyHtml(btn.dataset.m, btn.dataset.b);
+    if (inner === undefined) return;
+    const row = document.createElement("tr");
+    row.className = "histrow"; row.dataset.key = btn.dataset.m + "|" + btn.dataset.b;
+    row.innerHTML = `<td colspan="${tr.children.length}">${inner}</td>`;
+    tr.after(row);
+  });
+  function historyHtml(m, b) {
+    const btn = { dataset: { m, b } };
+    const rows = R.batchHistory(state.ctx, m, b);
     const p2 = (n) => String(n).padStart(2, "0");
     const at = (t) => { const d = new Date(t); return `${p2(d.getUTCDate())}.${p2(d.getUTCMonth() + 1)}.${d.getUTCFullYear()} ${p2(d.getUTCHours())}:${p2(d.getUTCMinutes())}:${p2(d.getUTCSeconds())}`; };
     const prod = rows.filter((r) => r.is_prod);
@@ -712,14 +873,11 @@
     const sum = rows.length ? `<p class="sum"><strong>${esc(btn.dataset.m)} ${esc(btn.dataset.b)}</strong>: ${rows.length} confirmation row${rows.length === 1 ? "" : "s"}. `
       + `Production confirmations: ${made.length} posting (${f(made.reduce((a, r) => a + r.qty, 0))})${undone.length ? `, ${undone.length} reversed (${f(undone.reduce((a, r) => a + r.qty, 0))})` : ""}. `
       + `Stock after the last row: ${f(last.balance, 2)}${last.area ? ` (last at ${esc(last.area)})` : ""}.</p>` : `<p class="sum">No rows for this batch in the journal.</p>`;
-    const table = rows.length ? `<div class="scroll"><table><thead><tr><th>Created On</th><th>Conf.Document Type</th><th>Conf.ID</th><th>Logistics Area ID</th><th>Effective Qty</th><th>Stock after</th></tr></thead><tbody>`
-      + rows.map((r) => `<tr class="${r.is_prod ? "prod" : ""}${r.qty < 0 && r.is_prod ? " neg" : ""}"><td class="m">${esc(at(r.time))}</td><td>${esc(r.doc)}</td><td class="m">${esc(r.conf)}</td><td class="m">${esc(r.area)}</td><td class="n">${f(r.qty, 2)}</td><td class="n">${f(r.balance, 2)}</td></tr>`).join("")
+    const table = rows.length ? `<div class="scroll"><table><thead><tr><th>Created On</th><th>Conf.Document Type</th><th>Conf.ID</th><th>Logistics Area ID</th><th>Restricted</th><th>Effective Qty</th><th>Stock after</th></tr></thead><tbody>`
+      + rows.map((r) => `<tr class="${r.is_prod ? "prod" : ""}${r.qty < 0 && r.is_prod ? " neg" : ""}"><td class="m">${esc(at(r.time))}</td><td>${esc(r.doc)}</td><td class="m">${esc(r.conf)}</td><td class="m">${esc(r.area)}</td><td class="rx">${r.restricted ? "X" : ""}</td><td class="n">${f(r.qty, 2)}</td><td class="n">${f(r.balance, 2)}</td></tr>`).join("")
       + `</tbody></table></div>` : "";
-    const row = document.createElement("tr");
-    row.className = "histrow"; row.dataset.key = btn.dataset.m + "|" + btn.dataset.b;
-    row.innerHTML = `<td colspan="${tr.children.length}">${sum}${table}</td>`;
-    tr.after(row);
-  });
+    return sum + table;
+  }
   $("ask").addEventListener("submit", (e) => { e.preventDefault(); run(); });
 
   // ---------------------------------------------------------------- stock trace
@@ -732,7 +890,7 @@
       const areas = p.areas.length ? p.areas.map(([a, q]) => `${esc(a)} <b>${f(q, 2)}</b>`).join(" · ") : "none (all moved out or consumed)";
       const so = p.stock.length ? p.stock.map((s) => `${esc(s.area)} <b>${f(s.qty, 2)}</b>`).join(" · ") : "not in the stock overview";
       const ords = p.orders.length ? p.orders.map((x) => { const [how, o] = [x.slice(0, x.lastIndexOf(" ")), x.slice(x.lastIndexOf(" ") + 1)]; return `${esc(how)} <button type="button" class="link ord" data-o="${esc(o)}">${esc(o)}</button>`; }).join(" · ") : "none found";
-      const rows = p.rows.map((r) => `<tr class="${r.is_prod ? "prod" : ""} ${r.qty < 0 ? "neg" : ""}"><td class="m">${esc(sapTs(r.time))}</td><td>${esc(r.doc)}</td><td class="m">${esc(r.conf)}</td><td class="m">${esc(r.area)}</td><td class="n">${f(r.qty, 2)}</td><td class="n">${f(r.balance, 2)}</td><td>${r.order ? `${esc(r.link)} <button type="button" class="link ord" data-o="${esc(r.order)}">${esc(r.order)}</button>` : ""}</td></tr>`).join("");
+      const rows = p.rows.map((r) => `<tr class="${r.is_prod ? "prod" : ""} ${r.qty < 0 ? "neg" : ""}"><td class="m">${esc(sapTs(r.time))}</td><td>${esc(r.doc)}</td><td class="m">${esc(r.conf)}</td><td class="m">${esc(r.area)}</td><td class="rx">${r.restricted ? "X" : ""}</td><td class="n">${f(r.qty, 2)}</td><td class="n">${f(r.balance, 2)}</td><td>${r.order ? `${esc(r.link)} <button type="button" class="link ord" data-o="${esc(r.order)}">${esc(r.order)}</button>` : ""}</td></tr>`).join("");
       return `<article class="card" data-v="OK">
         <div class="verdict"><span class="badge">TRACE</span><div class="vt">Batch <span class="mono">${esc(t.batch)}</span> of <span class="mono">${esc(p.material)}</span></div>
           <div class="vs">${p.rows.length} journal posting${p.rows.length === 1 ? "" : "s"} from ${esc(sapTs(first.time))} to ${esc(sapTs(last.time))}</div></div>
@@ -742,26 +900,36 @@
             <span>Where it sits by the journal: ${areas}</span>
             <span>Stock overview: ${so}</span>
             <span>Orders: ${ords}</span>
+            ${p.rows.some((r) => r.restricted) ? `<span class="bad"><b>Restricted stock:</b> ${p.rows.filter((r) => r.restricted).length} posting(s) marked X</span>` : ""}
           </div>
           <div class="scroll"><table>
-            <thead><tr><th>Created On</th><th>Conf.Document Type</th><th>Conf.ID</th><th>Logistics Area ID</th><th>Effective Qty</th><th>Stock after</th><th>Order</th></tr></thead>
+            <thead><tr><th>Created On</th><th>Conf.Document Type</th><th>Conf.ID</th><th>Logistics Area ID</th><th>Restricted</th><th>Effective Qty</th><th>Stock after</th><th>Order</th></tr></thead>
             <tbody>${rows}</tbody></table></div>
           <p class="hint">As in the SAP journal: positive Effective Qty adds stock to that area, negative takes it away; a move between areas is a pair of rows. Production confirmations are in bold, consumption and removals in red. "Stock after" is the batch's total after each row.</p>
         </div></article>`;
     }).join("");
   }
-  function runTrace() {
-    if (!state.ctx) return;
+  async function runTrace() {
     const mat = $("trProd").value.trim();
     const batches = $("trBatch").value.split(/[\s,;]+/).filter(Boolean);
     if (!batches.length) { $("trBatch").focus(); return; }
-    $("result").innerHTML = batches.map((b) => traceCard(R.traceStock(state.ctx, mat, b))).join("");
+    if (state.remote) {
+      $("result").innerHTML = `<div class="empty loading">Asking the office computer…</div>`;
+      const a = await ask("trace", { mat, batches });
+      if (a) { $("result").innerHTML = a.html; addCompareButtons($("result")); }
+      return;
+    }
+    if (!state.ctx) return;
+    $("result").innerHTML = traceHtml(mat, batches);
+    addCompareButtons($("result"));
   }
+  const traceHtml = (mat, batches) => batches.map((b) => traceCard(R.traceStock(state.ctx, mat, b))).join("");
   $("traceForm").addEventListener("submit", (e) => { e.preventDefault(); runTrace(); });
   // an order number in a trace opens that order's check
-  $("result").addEventListener("click", (e) => {
+  document.addEventListener("click", (e) => {
     const b = e.target.closest("button.ord");
     if (!b) return;
+    if (document.body.classList.contains("desk-full")) hideDesk();
     $("oid").value = b.dataset.o; run(); window.scrollTo({ top: $("result").offsetTop - 10, behavior: "smooth" });
   });
   // a list pasted from Excel or a column of numbers (one per line) becomes "589, 719, 746"; a one-line box would
@@ -785,6 +953,150 @@
   });
   $("forget").onclick = async () => { await forgetFiles(); state.files = null; startDemo(); toast("Saved files removed from this browser."); };
 
+  // ---------------------------------------------------------------- compare desk
+  // Cards are copied onto the desk (the page keeps its own), into a half (L, R) or a quarter (TL, TR, BL, BR) of the
+  // screen like Windows snap. With one side used the page fills the other half and scrolls as usual; with both used
+  // the desk fills the screen. Each pane scrolls on its own. Cards move by dragging their header or the Compare button.
+  const SLOT_NAMES = { L: "Left half", R: "Right half", TL: "Top left", TR: "Top right", BL: "Bottom left", BR: "Bottom right" };
+  const desk = { L: null, R: null, TL: null, TR: null, BL: null, BR: null };
+  let deskHidden = false;
+  const wide = () => window.innerWidth >= 900;
+  const cardTitle = (card) => (card.querySelector(".vt")?.textContent || "Card").replace(/\s+/g, " ").trim();
+  function addCompareButtons(root) {
+    for (const v of root.querySelectorAll("article.card > .verdict")) if (!v.querySelector(".cmpbtn"))
+      v.insertAdjacentHTML("beforeend", `<button type="button" class="cmpbtn" title="Drag to a side or corner of the screen to compare, or click to choose where">Compare</button>`);
+  }
+  // where each pane goes: a side's quarters take the whole side when only one is used, and one used side takes the screen
+  function layoutDesk() {
+    const used = Object.keys(desk).filter((k) => desk[k]);
+    const left = ["L", "TL", "BL"].some((k) => desk[k]), right = ["R", "TR", "BR"].some((k) => desk[k]);
+    const area = $("desk"), top = 40;
+    const both = left && right, narrow = !wide();
+    document.body.classList.toggle("desk-full", !!used.length && !deskHidden && (both || narrow));
+    document.body.classList.toggle("desk-left", !deskHidden && !narrow && left && !right);
+    document.body.classList.toggle("desk-right", !deskHidden && !narrow && right && !left);
+    area.hidden = !used.length || deskHidden;
+    $("deskShow").hidden = !used.length || !deskHidden;
+    $("deskShow").textContent = `Compare desk (${used.length})`;
+    $("deskHide").hidden = !(both || narrow);
+    const H = `(100% - ${top}px)`;
+    const box = (x, y, w, h) => ({ left: x, top: `calc(${top}px + ${y} * ${H})`, width: w, height: `calc(${h} * ${H})` });
+    const order = ["TL", "L", "BL", "TR", "R", "BR"].filter((k) => desk[k]);
+    order.forEach((k, i) => {
+      let r;
+      if (narrow) r = box("0", `${i / order.length}`, "100%", `${1 / order.length}`);
+      else {
+        const left = k.endsWith("L"), x = left ? "0" : "50%", T = left ? "TL" : "TR", B = left ? "BL" : "BR";
+        if (k === "L" || k === "R" || !(desk[T] && desk[B])) r = box(x, "0", "50%", "1");
+        else r = box(x, k === T ? "0" : "0.5", "50%", "0.5");
+      }
+      Object.assign(desk[k].style, r);
+    });
+  }
+  function closePane(k) { if (desk[k]) { desk[k].remove(); desk[k] = null; } }
+  function makePane(card) {
+    const pane = document.createElement("section");
+    pane.className = "pane";
+    pane.innerHTML = `<div class="panehead"><span></span><button type="button" class="paneclose" title="Close" aria-label="Close this card">✕</button></div><div class="panebody"></div>`;
+    pane.querySelector("span").textContent = cardTitle(card);
+    pane.querySelector(".panebody").appendChild(card);
+    return pane;
+  }
+  // put a card (a copy from the page, or a pane already on the desk) into a slot
+  function placeOnDesk(slot, card, pane) {
+    if (!pane) { const c = card.cloneNode(true); c.querySelectorAll("tr.histrow").forEach((r) => r.remove()); pane = makePane(c); }
+    const from = Object.keys(desk).find((k) => desk[k] === pane);
+    if (from === slot) return;
+    if (from) desk[from] = null;
+    const side = slot.endsWith("L") ? "L" : "R", T = "T" + side, B = "B" + side;
+    if (slot === side) { [side, T, B].forEach(closePane); }
+    else {
+      if (desk[side]) { desk[slot === T ? B : T] = desk[side]; desk[side] = null; }   // a half split by a quarter: it takes the other quarter
+      closePane(slot);
+    }
+    desk[slot] = pane;
+    if (!pane.parentNode) $("desk").appendChild(pane);
+    deskHidden = false;
+    layoutDesk();
+  }
+  function hideDesk() { deskHidden = true; layoutDesk(); }
+  $("deskHide").onclick = hideDesk;
+  $("deskShow").onclick = () => { deskHidden = false; layoutDesk(); };
+  $("deskClear").onclick = () => { Object.keys(desk).forEach(closePane); layoutDesk(); };
+  $("desk").addEventListener("click", (e) => {
+    const b = e.target.closest(".paneclose");
+    if (!b) return;
+    const k = Object.keys(desk).find((x) => desk[x] === b.closest(".pane"));
+    if (k) { closePane(k); layoutDesk(); }
+  });
+  window.addEventListener("resize", () => layoutDesk());
+  // the slot under the pointer: left or right half, or a quarter near the top or bottom corners
+  function slotAt(x, y) {
+    if (!wide()) return "R";
+    const W = window.innerWidth, Hh = window.innerHeight, side = x < W / 2 ? "L" : "R";
+    return y < Hh * 0.28 ? "T" + side : y > Hh * 0.72 ? "B" + side : side;
+  }
+  function slotRect(slot) {
+    const W = window.innerWidth, Hh = window.innerHeight, top = 40, h = Hh - top;
+    if (!wide()) return [0, top, W, h];
+    const x = slot.endsWith("L") ? 0 : W / 2;
+    return slot.length === 1 ? [x, top, W / 2, h] : [x, slot[0] === "T" ? top : top + h / 2, W / 2, h / 2];
+  }
+  // dragging: from a card's header (mouse) or its Compare button (mouse or touch)
+  let drag = null;
+  document.addEventListener("pointerdown", (e) => {
+    if (e.button !== 0) return;
+    const btn = e.target.closest(".cmpbtn"), head = e.target.closest("article.card > .verdict, .panehead");
+    if (!btn && (!head || e.pointerType === "touch" || e.target.closest("button:not(.cmpbtn), a, input"))) return;
+    const pane = e.target.closest(".pane"), card = pane ? pane.querySelector("article.card") : e.target.closest("article.card");
+    if (!card) return;
+    drag = { x: e.clientX, y: e.clientY, card, pane, btn, started: false, id: e.pointerId };
+  });
+  document.addEventListener("pointermove", (e) => {
+    if (!drag || e.pointerId !== drag.id) return;
+    if (!drag.started) {
+      if (Math.hypot(e.clientX - drag.x, e.clientY - drag.y) < 8) return;
+      drag.started = true;
+      document.body.classList.add("dragging");
+      $("snap").hidden = false;
+      $("snapGhost").textContent = cardTitle(drag.card);
+    }
+    e.preventDefault();
+    const slot = slotAt(e.clientX, e.clientY), [x, y, w, h] = slotRect(slot);
+    drag.slot = slot;
+    Object.assign($("snapPrev").style, { left: x + 6 + "px", top: y + 6 + "px", width: w - 12 + "px", height: h - 12 + "px" });
+    Object.assign($("snapGhost").style, { left: e.clientX + "px", top: e.clientY + "px" });
+  });
+  function endDrag(e, cancel) {
+    if (!drag || (e && e.pointerId !== drag.id)) return;
+    const d = drag; drag = null;
+    document.body.classList.remove("dragging");
+    $("snap").hidden = true;
+    if (d.started && !cancel && d.slot) { placeOnDesk(d.slot, d.card, d.pane); e && e.preventDefault(); }
+    else if (!d.started && d.btn) openSlotMenu(d.btn, d.card, d.pane);
+  }
+  document.addEventListener("pointerup", (e) => endDrag(e, false));
+  document.addEventListener("pointercancel", (e) => endDrag(e, true));
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") { if (drag) endDrag(null, true); $("slotMenu").hidden = true; } });
+  // the Compare button clicked: choose a spot from a menu (also for touch screens and keyboards)
+  function openSlotMenu(btn, card, pane) {
+    const m = $("slotMenu"), slots = wide() ? ["L", "R", "TL", "TR", "BL", "BR"] : ["R"];
+    m.innerHTML = `<p>Put ${esc(cardTitle(card).split(":")[0])} on the compare desk:</p>` + slots.map((k) => `<button type="button" role="menuitem" data-slot="${k}">${wide() ? SLOT_NAMES[k] : "Compare desk"}</button>`).join("");
+    m.hidden = false;
+    const r = btn.getBoundingClientRect(), mw = m.offsetWidth, mh = m.offsetHeight;
+    m.style.left = Math.max(8, Math.min(r.right - mw, window.innerWidth - mw - 8)) + "px";
+    m.style.top = (r.bottom + 6 + mh > window.innerHeight ? Math.max(8, r.top - mh - 6) : r.bottom + 6) + "px";
+    m.onclick = (e) => { const b = e.target.closest("button[data-slot]"); if (!b) return; m.hidden = true; placeOnDesk(b.dataset.slot, card, pane); };
+    m.querySelector("button").focus();
+  }
+  document.addEventListener("click", (e) => { if (!e.target.closest("#slotMenu, .cmpbtn")) $("slotMenu").hidden = true; });
+  document.addEventListener("keydown", (e) => {
+    if ((e.key === "Enter" || e.key === " ") && e.target.classList?.contains("cmpbtn")) {
+      e.preventDefault(); const pane = e.target.closest(".pane");
+      openSlotMenu(e.target, pane ? pane.querySelector("article.card") : e.target.closest("article.card"), pane);
+    }
+  });
+
   function startDemo() {
     state.demo = true;
     useSheets(window.DEMO_WORKBOOK, { name: "Demo workbook (made-up data)" });
@@ -792,7 +1104,64 @@
     run();
   }
 
+  // ---------------------------------------------------------------- phone access (python serve.py --share)
+  // On the phone the page sends each question to serve.py on the office computer; the checker page open there works
+  // it out from the SAP files loaded there and sends back only the finished result. The phone never gets the files.
+  async function ask(kind, args) {
+    try {
+      const r = await fetch("api/ask", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ kind, args }), cache: "no-store" });
+      if (r.status === 401) { location.href = "login"; return null; }
+      const a = await r.json().catch(() => ({}));
+      if (!r.ok || a.error) throw new Error(a.error || `The office computer answered ${r.status}.`);
+      return a;
+    } catch (e) {
+      $("result").innerHTML = `<div class="empty">${esc(e.message === "Failed to fetch" ? "Can't reach the office computer. Is this phone on the office Wi-Fi, and is serve.py --share running there?" : e.message)}</div>`;
+      return null;
+    }
+  }
+  // the office computer's side: what's loaded there, and each question worked out with the local engine
+  function answerJob(job) {
+    const a = job.args || {};
+    if (job.kind === "status") return { source: $("source").innerHTML, restricted: $("restricted").hidden ? "" : $("restricted").innerHTML, examples: $("examples").innerHTML, products: $("trProducts").innerHTML };
+    if (!state.ctx) return { error: "The office computer is still loading the SAP files. Try again in a moment." };
+    if (job.kind === "check") return { html: checkHtml((a.ids || []).map(String).slice(0, 200)) };
+    if (job.kind === "history") return { html: historyHtml(String(a.m), String(a.b)) };
+    if (job.kind === "trace") return { html: traceHtml(String(a.mat || ""), (a.batches || []).map(String).slice(0, 50)) };
+    return { error: "Unknown question." };
+  }
+  async function serveRemote() {
+    const nap = (ms) => new Promise((r) => setTimeout(r, ms));
+    for (;;) {
+      let job = null;
+      try {
+        const r = await fetch("api/next", { cache: "no-store" });
+        if (r.status === 204) continue;
+        if (!r.ok) { await nap(5000); continue; }
+        job = await r.json();
+      } catch { await nap(5000); continue; }
+      let result;
+      try { result = answerJob(job); } catch (e) { result = { error: "The office computer couldn't work that out: " + e.message }; }
+      await fetch("api/answer", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: job.id, result }) }).catch(() => {});
+    }
+  }
+  async function startRemote() {
+    state.remote = true;
+    document.body.classList.add("remote");
+    $("source").innerHTML = `<span class="loading">Connecting to the office computer…</span>`;
+    const st = await ask("status", {});
+    const logout = `<form method="post" action="logout"><button class="link" type="submit">Log out</button></form>`;
+    if (!st) { $("source").innerHTML = `<div class="what"><div class="name">Not connected</div><div class="meta">Open the checker on the office computer (python serve.py --share) and load the SAP files, then reload this page.</div></div>${logout}`; return; }
+    $("source").innerHTML = st.source + logout;
+    const rb = $("restricted"); rb.innerHTML = st.restricted || ""; rb.hidden = !st.restricted;
+    $("examples").innerHTML = st.examples || ""; bindExamples();
+    $("trProducts").innerHTML = st.products || "";
+    $("result").innerHTML = `<div class="empty">Connected. Type an order number above; the office computer does the checking.</div>`;
+  }
+
   (async function start() {
+    const mode = await fetch("api/mode", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+    if (mode && mode.remote) { await startRemote(); return; }
+    if (mode && mode.share) { state.share = true; serveRemote(); document.body.classList.add("sharing"); }
     const saved = typeof XLSX !== "undefined" ? await loadSaved() : null;
     const files = saved ? saved.files || (saved.buf ? [{ name: saved.name, buf: saved.buf }] : []) : [];
     if (files.length) {

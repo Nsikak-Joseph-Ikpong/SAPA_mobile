@@ -3,7 +3,7 @@
 import pandas as pd
 import pytest
 
-from sap_variance.reconcile import Rules, consumption_rows, read_workbook, run
+from sap_variance.reconcile import Rules, consumption_rows, read_workbook, restricted_stock, run
 
 GA, PC = "Goods and Activity Confirmation", "Production Confirmation"
 
@@ -394,3 +394,71 @@ def test_offcut_bin_put_back_is_a_reversal_not_offcuts_made():
     # without an order reference a bin filled and emptied by different jobs can't be told from a reversal
     c2 = consumption_rows(j.assign(ref=None), Rules())
     assert (c2["qty"] > 0).sum() == 0
+
+
+@pytest.fixture(scope="module")
+def restricted(tmp_path_factory):
+    d = tmp_path_factory.mktemp("restricted")
+    write_workbook(d / "SAP_Info.xlsx")
+    write_full_journal(d / "Confirmation_Journal.xlsx")
+    head = ["Site", "Product", "Identified Stock (Identified Stock ID)", "Logistics Area (Logistics Area ID)",
+            "Created On", "Conf.Document Type", "Conf.ID", "Reference Document ID", "Restricted", "Effective Qty"]
+    rows = [["Confirmation Journal"] + [None] * 9, head,
+            ["EXTHQ1", "RMMOZZ", "M1", "GRATINGLINES", ts("07:00"), PC, "501", "A1", "#", -900],
+            # job A's cheese batch put on restricted (X) afterwards, and an unrelated restricted batch
+            ["EXTHQ1", "RMMOZZ", "M1", "EDH01-REGRADING", ts("23:59"), GA, "900", "#", "X", 50],
+            ["EXTHQ1", "RMBIR20EX", "80000075090", "EDH01-REGRADING", ts("23:58"), GA, "901", "#", "X", 20],
+            # unrestricted: a move with "#" in the Restricted column
+            ["EXTHQ1", "BUSL108RM", "46209", "EDH01-REGRADING", ts("15:10"), "Warehouse Confirmation", "902", "2141", "#", -60]]
+    pd.DataFrame(rows).to_excel(d / "journal2.xlsx", sheet_name="Confirmation Journal", header=False, index=False)
+    wb = read_workbook([str(d / "SAP_Info.xlsx"), str(d / "Confirmation_Journal.xlsx"), str(d / "journal2.xlsx")])
+    return wb, run(wb)
+
+
+def test_restricted_stock_is_flagged_on_the_orders_that_used_it(restricted):
+    wb, res = restricted
+    r = restricted_stock(wb.journal)
+    assert list(zip(r["material"], r["batch"])) == [("RMBIR20EX", "80000075090"), ("RMMOZZ", "M1")]
+    f = codes(res, "A1")["RESTRICTED_STOCK"]
+    assert f.severity == "HIGH"
+    assert f.message == ("Restricted stock on 1 batch(es) this job made or used: RMMOZZ M1 50.00 at EDH01-REGRADING "
+                         "19.08 23:59 (Goods and Activity Confirmation 900).")
+    assert "RESTRICTED_STOCK" not in codes(res, "C3")
+
+
+def test_restricted_status_change_survives_a_journal_without_the_column():
+    # put on restricted: -789.82 unrestricted and +789.82 restricted on one posting; an export without the
+    # Restricted column nets them to a single 0 row
+    from sap_variance.reconcile import _merge_journals
+    t = pd.Timestamp("2026-08-03 09:31")
+    cols = ["conf", "material", "batch", "area", "time", "doc", "qty", "is_prod"]
+    big = pd.DataFrame([["47", "RMRF20EX50", "80000084869", "5F05B3", t, GA, 0.0, False],
+                        ["48", "RMMOZZ", "M1", "GRATINGLINES", t, PC, -10.0, True]], columns=cols)
+    small = pd.DataFrame([["47", "RMRF20EX50", "80000084869", "5F05B3", t, GA, -789.82, False, False],
+                          ["47", "RMRF20EX50", "80000084869", "5F05B3", t, GA, 789.82, False, True]],
+                         columns=cols + ["restricted"])
+    m = _merge_journals([big, pd.concat([small] * 3, ignore_index=True).iloc[:2]])
+    assert len(m) == 3 and m["qty"].sum() == pytest.approx(-10.0)
+    r = restricted_stock(m)
+    assert list(r["qty"]) == [789.82] and list(r["batch"]) == ["80000084869"]
+
+
+def test_offsetting_variances_on_the_same_line_are_paired():
+    # jobs 2484 and 2443: same line and cheese at the same time, one 567.3 kg in with no output, the other
+    # 502.7 kg more out than in; a third job on another line with the opposite variance is not paired
+    from sap_variance.reconcile import Finding, pair_offsetting
+    t = lambda hm: pd.Timestamp(f"2026-10-05 {hm}")
+    def s(oid, line, start, end, mat, unacc):
+        return {"order_id": oid, "fg": "FG" + oid, "line": line, "area": None, "start": t(start), "last_regular_output": t(end),
+                "cheese_consumed_by_material": {mat: 1000.0}, "components": [], "narrative": "N.",
+                "mass": {"unaccounted": unacc, "tolerance": 50.0}, "cheese_diff_kg": None, "cheese_tolerance_kg": None}
+    a = s("2484", "SLICING_L1", "07:56", "09:53", "RMRMED20FF", 567.27)
+    b = s("2443", "SLICING_L1", "09:07", "23:32", "RMRMED20FF", -502.74)
+    c = s("9001", "SLICING_L2", "09:00", "10:00", "RMRMED20FF", -560.0)
+    f = pair_offsetting([a, b, c], [Finding("2484", "INFO", "X", "")], Rules())
+    off = {x.order_id: x.message for x in f if x.code == "OFFSETTING_VARIANCE"}
+    assert set(off) == {"2484", "2443"}
+    assert off["2484"] == ("Job 2443 (FG2443) ran on SLICING_L1 at the same time with the same cheese (RMRMED20FF): on this "
+                           "job 567.3 kg went in with no output; on 2443 502.7 kg more came out than went in. Together they're "
+                           "off by only +64.5 kg, so cheese booked to one job was probably used by the other: compare the two.")
+    assert a["linked"]["order_id"] == "2443" and b["linked"]["order_id"] == "2484" and "linked" not in c
