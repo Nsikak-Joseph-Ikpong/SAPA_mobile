@@ -25,6 +25,7 @@ import hmac
 import html
 import http.server
 import json
+import os
 import secrets
 import socket
 import sys
@@ -57,14 +58,26 @@ def check_password(pw: str, stored: dict) -> bool:
     return hmac.compare_digest(h.hex(), stored["hash"])
 
 
+def read_secret(prompt: str) -> str:
+    """Hidden typing in a real terminal. PyCharm's Run window isn't one (hidden typing never reaches the program
+    there and it seems to hang), so there the password is typed visibly."""
+    if os.environ.get("PYCHARM_HOSTED") or not sys.stdin.isatty():
+        return input(prompt)
+    return getpass.getpass(prompt)
+
+
 def ask_new_password() -> dict:
     print("Choose the password the phone will use to log in (at least 8 characters).")
+    if os.environ.get("PYCHARM_HOSTED") or not sys.stdin.isatty():
+        print("(In this window the password shows as you type; clear the window afterwards if anyone can see it.)")
+    else:
+        print("(Nothing shows while you type the password: that's normal. Press Enter when done.)")
     while True:
-        pw = getpass.getpass("New password: ")
+        pw = read_secret("New password: ").strip()
         if len(pw) < 8:
             print("Too short; at least 8 characters.")
             continue
-        if getpass.getpass("Type it again: ") != pw:
+        if read_secret("Type it again: ").strip() != pw:
             print("They don't match; try again.")
             continue
         stored = hash_password(pw)

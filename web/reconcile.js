@@ -1360,6 +1360,11 @@
       for (const c of ctx.consumption) if (c.order_id && c.batch !== null && !ord.has(key(c))) ord.set(key(c), [c.order_id, "consumed by"]);
       for (const c of ctx.repacks || []) if (c.order_id && c.batch !== null && !ord.has(key(c))) ord.set(key(c), [c.order_id, "repacked into"]);
       ctx._traceOrd = ord;
+      // product names from the order sheets (finished goods and by-products)
+      const names = new Map();
+      for (const o of ctx.wb.orders) if (o.fg && o.fg_text && !names.has(o.fg)) names.set(o.fg, String(o.fg_text));
+      for (const x of ctx.wb.byproducts || []) if (x.material && x.text && !names.has(x.material)) names.set(x.material, String(x.text));
+      ctx._traceNames = names;
     }
     const all = (ctx._traceIdx.get(b) || []).filter((r) => !m || r.material.toUpperCase() === m);
     const products = [];
@@ -1373,8 +1378,28 @@
       const areas = new Map();
       for (const r of rows) areas.set(r.area, (areas.get(r.area) || 0) + r.qty);
       const prod = rows.filter((r) => r.is_prod);
+      // per production order: made or used, what was booked to its line beforehand, and what was left (and where) after
+      const byOrder = [];
+      let prevEnd = -1;
+      for (const o of [...new Set(rows.filter((r) => r.order).map((r) => r.order))]) {
+        const idx = rows.map((r, i) => [r, i]).filter(([r]) => r.order === o);
+        const i0 = idx[0][1], i1 = idx[idx.length - 1][1], net = sum(idx.map(([r]) => r.qty));
+        const made = idx.some(([r]) => r.link === "made by");
+        const area = idx.find(([r]) => r.qty < 0)?.[0].area ?? idx[0][0].area;
+        const booked = made ? null : sum(rows.slice(prevEnd + 1, i1 + 1).filter((r) => !r.is_prod && r.qty > 0 && r.area === area).map((r) => r.qty));
+        const at = new Map();
+        for (const r of rows.slice(0, i1 + 1)) at.set(r.area, (at.get(r.area) || 0) + r.qty);
+        byOrder.push({ order: o, role: [...new Set(idx.map(([r]) => r.link))].join(", "), made: made ? net : 0, used: made ? 0 : -net,
+          area, booked, before: rows[i0].balance - rows[i0].qty, left: rows[i1].balance, first: rows[i0].time, last: rows[i1].time,
+          left_at: [...at].filter(([, q]) => q > 1e-6).sort((x, y) => y[1] - x[1]), postings: idx.length,
+          line_name: Object.keys(RULES.line_areas).find((k) => RULES.line_areas[k] === area) || null });
+        prevEnd = Math.max(prevEnd, i1);
+      }
+      // goods movements by document type
+      const moves = [...groupBy(rows, "doc")].map(([doc, g]) => ({ doc, count: g.length, in: sum(g.filter((r) => r.qty > 0).map((r) => r.qty)), out: -sum(g.filter((r) => r.qty < 0).map((r) => r.qty)) }))
+        .sort((x, y) => cmpStr(x.doc, y.doc));
       products.push({
-        material: mat, rows,
+        material: mat, name: ctx._traceNames.get(mat) || null, rows, byOrder, moves, balance: rows.length ? rows[rows.length - 1].balance : 0,
         made: sum(prod.filter((r) => r.qty > 0).map((r) => r.qty)), consumed: -sum(prod.filter((r) => r.qty < 0).map((r) => r.qty)),
         areas: [...areas].filter(([, q]) => Math.abs(q) > 1e-6).sort((x, y) => y[1] - x[1]),
         orders: [...new Set(rows.filter((r) => r.order).map((r) => `${r.link} ${r.order}`))],
