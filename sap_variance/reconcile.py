@@ -304,8 +304,10 @@ def read_workbook(paths: list[str]) -> Workbook:
     stock = pd.DataFrame(columns=["area", "material", "batch", "qty"])
     if "stock" in found:
         s = found["stock"]
-        s = s[s["material"].astype(str) != "Result"]
-        stock = pd.DataFrame({"area": s["logisticsarea"].astype(str), "material": s["material"].astype(str).str.strip(),
+        s = s[s["material"].notna() & (s["material"].astype(str).str.strip() != "Result")]
+        # the area ID matches the journal's areas (the plain "Logistics Area" column can be a name like "Storage CM01")
+        area = s["logisticsarealogisticsareaid"] if "logisticsarealogisticsareaid" in s else s["logisticsarea"]
+        stock = pd.DataFrame({"area": area.astype(str).str.strip(), "material": s["material"].astype(str).str.strip(),
                               "batch": _id(s[[c for c in s.columns if c.startswith("identifiedstockidentifiedstockid")][0]]),
                               "qty": _num(s["onhandstock"])})
     # --- production order fulfilment: every input confirmation with its production order (lot) ---

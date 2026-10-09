@@ -895,22 +895,32 @@
 
   // ---------------------------------------------------------------- stock trace
   const sapTs = (t) => { if (t === null || t === undefined || isNaN(t)) return ""; const d = new Date(t), p = (n) => String(n).padStart(2, "0"); return `${p(d.getUTCDate())}.${p(d.getUTCMonth() + 1)}.${d.getUTCFullYear()} ${p(d.getUTCHours())}:${p(d.getUTCMinutes())}:${p(d.getUTCSeconds())}`; };
+  const sum0 = (a) => a.reduce((x, y) => x + (isNaN(y) ? 0 : y), 0);
   function traceCard(t) {
-    if (!t.products.length) return `<div class="empty">No journal postings for batch <span class="mono">${esc(t.batch)}</span>${t.material ? ` of <span class="mono">${esc(t.material)}</span>` : ""}. Check the batch and product code, or whether the journal you loaded covers its dates.</div>`;
+    if (!t.products.length) return `<div class="empty">No journal postings${t.has_stock ? " and nothing in the stock overview" : ""} for batch <span class="mono">${esc(t.batch)}</span>${t.material ? ` of <span class="mono">${esc(t.material)}</span>` : ""}. Check the batch and product code, or whether the files you loaded cover its dates.${t.has_stock ? "" : " Load a stock overview export to see what's on hand."}</div>`;
     const ordBtn = (o) => `<button type="button" class="link ord" data-o="${esc(o)}" title="Open the check for order ${esc(o)}">${esc(o)}</button>`;
     const q = (v, d = 2) => (v === null || v === undefined || isNaN(v) ? "–" : f(v, d));
     return t.products.map((p) => {
       const first = p.rows[0], last = p.rows[p.rows.length - 1];
-      const unit = R.isCheese(p.material) || /^RMPS/i.test(p.material) ? "kg" : "cases";
+      const uom = p.stock.find((x) => x.uom)?.uom;
+      const unit = uom ? String(uom).toLowerCase() : R.isCheese(p.material) || /^RMPS/i.test(p.material) ? "kg" : "cases";
       const areas = p.areas.length ? p.areas.map(([a, x]) => `${esc(a)} <b>${f(x, 2)}</b>`).join(" · ") : "none (all moved out or consumed)";
       const so = p.stock.length ? p.stock.map((s) => `${esc(s.area)} <b>${f(s.qty, 2)}</b>`).join(" · ") : "not in the stock overview";
       const restr = p.rows.filter((r) => r.restricted).length;
+      const restrNow = p.stock.filter((x) => x.restricted);
+      const day = (t2) => (t2 === null || t2 === undefined || isNaN(t2) ? "" : sapTs(t2).slice(0, 10));
+      const stockHtml = !t.has_stock ? `<h3 class="tsec">On hand now (stock overview)</h3><p class="hint">No stock overview loaded. Add a Stock Overview export to see what SAP has on hand for this batch, where, and its dates.</p>`
+        : `<h3 class="tsec">On hand now (stock overview)</h3>` + (p.stock.length ? `<div class="scroll"><table class="sortable"><thead><tr><th>Logistics Area ID</th><th>Logistics Area</th><th>Site</th><th>On-Hand Stock</th><th>UoM</th><th>Restricted</th><th>External ID</th><th>Production Date</th><th>Expiration Date</th><th>Days to Expire</th></tr></thead><tbody>`
+          + p.stock.map((x) => `<tr class="${x.restricted ? "neg" : ""}"><td class="m">${esc(x.area)}</td><td>${esc(x.area_name && x.area_name !== x.area ? x.area_name : "")}</td><td class="m">${esc([x.site, x.area_site].filter(Boolean).join(" / "))}</td><td class="n" data-v="${x.qty}"><b>${q(x.qty)}</b></td><td>${esc(x.uom || "")}</td><td class="rx">${x.restricted ? "X" : ""}</td><td class="m">${esc(x.external_id || "")}</td><td class="m" data-v="${x.production_date}">${esc(day(x.production_date))}</td><td class="m" data-v="${x.expiry_date}">${esc(day(x.expiry_date))}</td><td class="n" data-v="${x.days_to_expire}">${isNaN(x.days_to_expire) ? "" : f(x.days_to_expire)}</td></tr>`).join("")
+          + `</tbody></table></div>` + (p.rows.length && Math.abs(p.balance - p.stock_total) > 0.005 ? `<p class="hint bad">The journal's running total (${f(p.balance, 2)}) and the stock overview (${f(p.stock_total, 2)}) differ by ${fs(p.stock_total - p.balance, 2)}: postings before the journal's first date, or after the stock overview was exported, or stock used without being booked.</p>` : "")
+          : `<p class="hint">Not in the stock overview: nothing on hand for this batch when it was exported${p.rows.length && Math.abs(p.balance) > 0.005 ? `, though the journal's running total is ${f(p.balance, 2)}` : ""}.</p>`);
       const stats = [
         ["Made (production)", `+${f(p.made, 2)}`, unit],
         ["Used on orders", p.consumed > 0.005 ? `−${f(p.consumed, 2)}` : f(0, 2), unit],
-        ["Stock now (journal)", f(p.balance, 2), p.areas.length ? p.areas.map(([a]) => a).join(", ") : "none left"],
+        ...(t.has_stock ? [["On hand (stock overview)", f(p.stock_total, 2), p.stock.length ? [...new Set(p.stock.map((x) => x.area))].join(", ") : "none on hand"]] : []),
+        ["Stock now (journal)", f(p.balance, 2), p.areas.some(([, x]) => x > 1e-6) ? p.areas.filter(([, x]) => x > 1e-6).map(([a]) => a).join(", ") : "none left"],
         ["Postings", f(p.rows.length), `${p.moves.length} document type${p.moves.length === 1 ? "" : "s"}`],
-        ...(restr ? [["Restricted", f(restr), "posting(s) marked X"]] : []),
+        ...(restr || restrNow.length ? [["Restricted", restrNow.length ? f(sum0(restrNow.map((x) => x.qty)), 2) : f(restr), restrNow.length ? "on hand, restricted" : "posting(s) marked X"]] : []),
       ];
       const orders = p.byOrder.length ? `<h3 class="tsec">Production orders</h3><div class="scroll"><table class="sortable">
           <thead><tr><th>Order</th><th>Role</th><th>Line / area</th><th>First</th><th>Last</th><th>Booked to the line</th><th>Made</th><th>Used</th><th>Left after</th><th>Left where</th></tr></thead><tbody>`
@@ -921,21 +931,21 @@
       const rows = p.rows.map((r) => `<tr class="${r.is_prod ? "prod" : ""} ${r.qty < 0 ? "neg" : ""}"><td class="m" data-v="${r.time}">${esc(sapTs(r.time))}</td><td>${esc(r.doc)}</td><td class="m" data-v="${esc(r.conf)}">${esc(r.conf)}</td><td class="m">${esc(r.area)}</td><td class="m">${esc(r.ref ?? "")}</td><td class="rx">${r.restricted ? "X" : ""}</td><td class="n" data-v="${r.qty}">${f(r.qty, 2)}</td><td class="n" data-v="${r.balance}">${f(r.balance, 2)}</td><td data-v="${esc(r.order || "")}">${r.order ? `${esc(r.link)} ${ordBtn(r.order)}` : ""}</td></tr>`).join("");
       return `<article class="card" data-v="${restr ? "CHECK" : "OK"}">
         <div class="verdict"><span class="badge">TRACE</span><div class="vt">${esc(p.name || p.material)}</div>
-          <div class="vs"><span class="mono">${esc(p.material)}</span> · batch <span class="mono">${esc(t.batch)}</span> · ${p.rows.length} journal posting${p.rows.length === 1 ? "" : "s"} from ${esc(sapTs(first.time))} to ${esc(sapTs(last.time))}</div></div>
+          <div class="vs"><span class="mono">${esc(p.material)}</span> · batch <span class="mono">${esc(t.batch)}</span> · ${p.rows.length ? `${p.rows.length} journal posting${p.rows.length === 1 ? "" : "s"} from ${esc(sapTs(first.time))} to ${esc(sapTs(last.time))}` : "no journal postings in the loaded dates"}</div></div>
         <div class="body">
           <dl class="tstats">${stats.map(([k, v, s2]) => `<div><dt>${esc(k)}</dt><dd>${esc(v)}<small>${esc(s2)}</small></dd></div>`).join("")}</dl>
           <div class="tchips">
             <span>Where it sits by the journal: ${areas}</span>
-            <span>Stock overview: ${so}</span>
+            ${t.has_stock ? `<span>Stock overview: ${so}</span>` : ""}
             ${restr ? `<span class="bad"><b>Restricted stock:</b> ${restr} posting(s) marked X</span>` : ""}
           </div>
-          ${orders}${moves}
-          <h3 class="tsec">Every posting in the confirmation journal</h3>
+          ${stockHtml}${orders}${p.rows.length ? moves : ""}
+          ${p.rows.length ? "" : "<!--"}<h3 class="tsec">Every posting in the confirmation journal</h3>
           <input type="search" class="tfilter" placeholder="Filter by document, Conf.ID, area, order…" aria-label="Filter postings">
           <div class="scroll"><table class="sortable">
             <thead><tr><th>Created On</th><th>Conf.Document Type</th><th>Conf.ID</th><th>Logistics Area ID</th><th>Reference Document ID</th><th>Restricted</th><th>Effective Qty</th><th>Stock after</th><th>Order</th></tr></thead>
             <tbody>${rows}</tbody></table></div>
-          <p class="hint">As in the SAP journal: positive Effective Qty adds stock to that area, negative takes it away; a move between areas is a pair of rows. Production confirmations are in bold, consumption and removals in red. "Stock after" is the batch's total after each row. Click an order number to open that order's check.</p>
+          <p class="hint">As in the SAP journal: positive Effective Qty adds stock to that area, negative takes it away; a move between areas is a pair of rows. Production confirmations are in bold, consumption and removals in red. "Stock after" is the batch's total after each row. Click an order number to open that order's check.</p>${p.rows.length ? "" : "-->"}
         </div></article>`;
     }).join("");
   }
