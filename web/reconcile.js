@@ -227,9 +227,17 @@
     // stock overview
     let stock = [];
     if (found.stock) {
-      const sf = found.stock, sb = col(sf, "identifiedstockidentifiedstockid");
-      stock = sf.rows.filter((r) => String(r.material) !== "Result").map((r) => ({
-        area: String(r.logisticsarea), material: str(r.material), batch: id(r[sb]), qty: num(r.onhandstock) }));
+      // the area ID matches the journal's areas (the plain "Logistics Area" column can be a name like "Storage CM01");
+      // "Result" rows are the report's subtotals
+      const sf = found.stock, sb = col(sf, "identifiedstockidentifiedstockid"), ext = col(sf, "identifiedstockexternalidentifiedstockid");
+      const v = (r, k) => (k && !isNil(r[k]) && String(r[k]).trim() !== "" && String(r[k]).trim() !== "#" ? r[k] : null);
+      stock = sf.rows.filter((r) => !isNil(r.material) && String(r.material).trim() !== "Result" && !isNil(r[sb])).map((r) => ({
+        area: str(v(r, "logisticsarealogisticsareaid") ?? r.logisticsarea), area_name: v(r, "logisticsarea") === null ? null : String(r.logisticsarea),
+        site: v(r, "site"), storage_location: v(r, "sitestoragelocation") ?? v(r, "storagelocation"), area_site: v(r, "logisticsareasiteid"),
+        material: str(r.material), material_text: v(r, "materialtext"), batch: id(r[sb]), external_id: v(r, ext),
+        production_date: time(v(r, "identifiedstockproductiondate")), expiry_date: time(v(r, "identifiedstockexpirationdate") ?? v(r, "expirydate")),
+        days_to_expire: num(v(r, "numberofdaystoexpire")), uom: v(r, "onhandstockuom"),
+        restricted: /^x$/i.test(String(r.restricted ?? "").trim()), qty: num(r.onhandstock) }));
     }
     // production order fulfilment: every input confirmation with its production order (lot)
     let fulfilment = null;
@@ -1364,6 +1372,7 @@
       const names = new Map();
       for (const o of ctx.wb.orders) if (o.fg && o.fg_text && !names.has(o.fg)) names.set(o.fg, String(o.fg_text));
       for (const x of ctx.wb.byproducts || []) if (x.material && x.text && !names.has(x.material)) names.set(x.material, String(x.text));
+      for (const x of ctx.wb.stock || []) if (x.material && x.material_text && !names.has(x.material)) names.set(x.material, String(x.material_text));
       ctx._traceNames = names;
     }
     const all = (ctx._traceIdx.get(b) || []).filter((r) => !m || r.material.toUpperCase() === m);
@@ -1398,15 +1407,22 @@
       // goods movements by document type
       const moves = [...groupBy(rows, "doc")].map(([doc, g]) => ({ doc, count: g.length, in: sum(g.filter((r) => r.qty > 0).map((r) => r.qty)), out: -sum(g.filter((r) => r.qty < 0).map((r) => r.qty)) }))
         .sort((x, y) => cmpStr(x.doc, y.doc));
+      const stockRows = (ctx.wb.stock || []).filter((x) => x.material === mat && String(x.batch) === b);
       products.push({
-        material: mat, name: ctx._traceNames.get(mat) || null, rows, byOrder, moves, balance: rows.length ? rows[rows.length - 1].balance : 0,
+        material: mat, name: ctx._traceNames.get(mat) || stockRows.find((x) => x.material_text)?.material_text || null, rows, byOrder, moves, balance: rows.length ? rows[rows.length - 1].balance : 0,
         made: sum(prod.filter((r) => r.qty > 0).map((r) => r.qty)), consumed: -sum(prod.filter((r) => r.qty < 0).map((r) => r.qty)),
         areas: [...areas].filter(([, q]) => Math.abs(q) > 1e-6).sort((x, y) => y[1] - x[1]),
         orders: [...new Set(rows.filter((r) => r.order).map((r) => `${r.link} ${r.order}`))],
-        stock: (ctx.wb.stock || []).filter((s) => s.material === mat && String(s.batch) === b),
+        stock: stockRows, stock_total: sum(stockRows.map((x) => (isNaN(x.qty) ? 0 : x.qty))),
       });
     }
-    return { batch: b, material: m, products: products.sort((x, y) => cmpStr(x.material, y.material)) };
+    // on hand in the stock overview but no postings in the journal's dates
+    const seen = new Set(products.map((p) => p.material));
+    for (const [mat, g] of groupBy((ctx.wb.stock || []).filter((x) => String(x.batch) === b && (!m || x.material.toUpperCase() === m) && !seen.has(x.material)), "material")) {
+      products.push({ material: mat, name: ctx._traceNames.get(mat) || g.find((x) => x.material_text)?.material_text || null, rows: [], byOrder: [], moves: [], balance: 0,
+        made: 0, consumed: 0, areas: [], orders: [], stock: g, stock_total: sum(g.map((x) => (isNaN(x.qty) ? 0 : x.qty))) });
+    }
+    return { batch: b, material: m, products: products.sort((x, y) => cmpStr(x.material, y.material)), has_stock: (ctx.wb.stock || []).length > 0, has_journal: ctx.wb.journal.length > 0 };
   }
 
   const sheetKinds = (sheets) => [...new Set(sheets.map((sh) => findHeader(sh.rows)[0]).filter(Boolean))].sort();

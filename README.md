@@ -240,6 +240,13 @@ keeps the other half and scrolls as usual, so more orders can be checked next to
 used the desk fills the screen, with *Back to the page* and a *Compare desk (n)* button to return. On narrow
 screens the desk stacks the cards full width. The cards on the desk are copies; the page keeps its own.
 
+**Stock overview in the trace.** Load a Stock Overview export with the other files (it's recognised by its
+*On-Hand Stock* and *Logistics Area* columns; the report's "Result" subtotal rows are skipped). The trace then shows
+what SAP has on hand for the batch right now: logistics area (ID and name), site, on-hand quantity and unit,
+restricted, external ID (e.g. PO569-01), production and expiry dates and days to expire, next to the journal's own
+running total, with a note when the two differ. A batch that is on hand but has no postings in the journal's dates
+is still found.
+
 **Scan a label (stock trace).** In the stock trace, the camera button next to the batch box opens the phone's
 camera (or a file picker on a computer). The photo's QR code gives the product and batch, as on the plant's labels:
 `(90)RCSL2061WF1856(10)50085` (GS1: 90 = product, 10 = batch, 97 = label ID); both boxes fill in and the trace runs.
