@@ -54,6 +54,17 @@ or is read wrong, can be typed in; click a photo to see it full size with the cl
 The summary totals bags and kg per job and product; **Export CSV** saves the list, and **Add a sample bag** tries
 it without a phone.
 
+**SAP history of each bag.** The inputs page uses the same SAP files as the checker: whatever was loaded on the
+checker page in this browser is picked up automatically (or load them with **Load SAP files** on the inputs page,
+which loads them for the checker too). Each bag then gets an **In SAP** status for the job it was scanned into:
+consumed by that job (with SAP's quantity, and the difference when it doesn't match the bag's weight), not
+consumed (and which job consumed it instead, or where SAP still has it), not in the SAP files at all, or not in the
+loaded journal yet when the scan is later than the journal's last posting. The summary counts bags consumed and
+not consumed in SAP per job. Clicking a bag shows its SAP history (production orders that made or used it, every
+confirmation journal posting with the running stock) and links to the full stock trace in the checker
+(`index.html?trace=<batch>&product=<code>`; `?order=<id>` opens an order's check). Export a fresh journal after
+the job and load it to see which scanned bags SAP took.
+
 Nothing is stored anywhere: the phone sends to the laptop's browser directly (WebRTC, through PeerJS). PeerJS's
 free cloud server (0.peerjs.com) only introduces the two browsers to each other, and its relay servers carry the
 data when a network blocks direct connections. Reloading the laptop page clears the scans (the pairing code

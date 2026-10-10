@@ -1263,10 +1263,17 @@
     const files = saved ? saved.files || (saved.buf ? [{ name: saved.name, buf: saved.buf }] : []) : [];
     if (files.length) {
       const ok = await useFiles(files, saved.saved);
-      if (ok === "ready") { $("result").innerHTML = `<div class="empty">Using your saved files. Type an order number above.</div>`; return; }
+      if (ok === "ready") { $("result").innerHTML = `<div class="empty">Using your saved files. Type an order number above.</div>`; fromLink(); return; }
       if (ok === "pending") { state.files = files; $("add").hidden = false; return; }
     }
     startDemo();
+    fromLink();
   })();
+  // opened from the bag scanner's inputs page: ?trace=<batch>&product=<code> or ?order=<id>
+  function fromLink() {
+    const q = new URLSearchParams(location.search);
+    if (q.get("trace")) { $("trProd").value = q.get("product") || ""; $("trBatch").value = q.get("trace"); runTrace(); }
+    else if (q.get("order")) { $("oid").value = q.get("order"); run(); }
+  }
 })();
 </script>

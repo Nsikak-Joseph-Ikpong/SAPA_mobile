@@ -90,6 +90,19 @@
   .jobbar .now b { color: var(--ink); font-family: var(--mono); font-size: 15px; }
   .jobbar.unset { border-left-color: var(--warn); }
   .dlg .crop { max-height: 220px; width: auto; max-width: 100%; }
+  .sapbar { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 10px 16px; font-size: 13px; }
+  .sapbar .grow { flex: 1 1 320px; min-width: 0; }
+  .sapbar a { color: var(--accent); }
+  .sap { display: inline-block; font-size: 12px; padding: 2px 8px; border-radius: 6px; background: var(--sunken); color: var(--muted); white-space: normal; max-width: 300px; line-height: 1.35; }
+  .sap.ok { background: var(--ok-soft); color: var(--ok); } .sap.warn { background: var(--warn-soft); color: var(--warn); } .sap.bad { background: var(--bad-soft); color: var(--bad); }
+  td.n.bad { color: var(--bad); font-weight: 600; }
+  td.sapcell { white-space: normal; min-width: 180px; }
+  .dlg .sapsec { grid-column: 1 / -1; display: grid; gap: 10px; border-top: 1px solid var(--line); padding-top: 12px; min-width: 0; }
+  .sapsec h3 { margin: 6px 0 0; font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
+  .sapsec .figs { display: flex; flex-wrap: wrap; gap: 8px 22px; font-size: 13px; }
+  .sapsec .figs b { font-family: var(--mono); }
+  .sapsec a { color: var(--accent); }
+  .sapsec tr.prod td { font-weight: 600; } .sapsec tr.neg td { color: var(--bad); } .sapsec tr.mine td { background: var(--accent-soft); }
   .toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); background: var(--ink); color: var(--ground); padding: 8px 14px; border-radius: 6px; font-size: 13px; z-index: 20; }
   [hidden] { display: none !important; }
 </style>
@@ -108,6 +121,13 @@
     <span class="now" id="jobNow">No job set: phones can't scan until one is.</span>
   </form>
 
+  <section class="sapbar" aria-label="SAP data">
+    <div class="grow"><b>SAP data:</b> <span id="sapText">looking for the SAP files…</span></div>
+    <button type="button" class="quiet" id="sapLoad">Load SAP files</button>
+    <input type="file" id="sapFile" accept=".xlsx,.xlsm,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,application/vnd.ms-excel.sheet.macroEnabled.12" multiple hidden>
+    <a href="./" target="_blank" rel="noopener">Open the checker</a>
+  </section>
+
   <div class="top">
     <section class="panel" aria-labelledby="pair-h">
       <h2 id="pair-h">Pair a phone</h2>
@@ -124,7 +144,7 @@
       </div>
       <dl class="stats" id="stats"></dl>
       <div class="scroll"><table>
-        <thead><tr><th>Job</th><th>Product ID</th><th class="n">Bags</th><th class="n">Weight on bags (kg)</th><th class="n">No weight read</th><th class="n">No QR</th></tr></thead>
+        <thead><tr><th>Job</th><th>Product ID</th><th class="n">Bags</th><th class="n">Weight on bags (kg)</th><th class="n">No weight read</th><th class="n">No QR</th><th class="n">Consumed in SAP</th><th class="n">Not consumed in SAP</th></tr></thead>
         <tbody id="sumBody"></tbody></table></div>
       <div class="bar">
         <button type="button" class="quiet" id="sampleBtn" title="Adds a made-up bag photo, as if scanned on a phone">Add a sample bag</button>
@@ -138,7 +158,7 @@
   <section class="panel" aria-labelledby="in-h">
     <h2 id="in-h">Input products</h2>
     <div class="scroll"><table>
-      <thead><tr><th>Photo</th><th>Scanned</th><th>Job</th><th>Product ID</th><th>Identified Stock ID</th><th>Label ID</th><th class="n">Quantity (kg)</th><th>Weight from</th><th>Phone</th></tr></thead>
+      <thead><tr><th>Photo</th><th>Scanned</th><th>Job</th><th>Product ID</th><th>Identified Stock ID</th><th>Label ID</th><th class="n">Quantity (kg)</th><th>Weight from</th><th>In SAP</th><th>Phone</th></tr></thead>
       <tbody id="rows"></tbody></table></div>
     <div class="empty" id="empty">No bags yet. Pair a phone and scan a bag label, or try <b>Add a sample bag</b>.</div>
   </section>
@@ -150,13 +170,17 @@
     <div style="display:grid;gap:12px;align-content:start">
       <div class="dlghead"><h2>Bag</h2><button type="button" class="quiet" id="dlgClose">Close</button></div>
       <dl id="dlgInfo"></dl>
-      <div><h2 style="margin-bottom:6px">Label close-up (read for the weight)</h2><img id="dlgCrop" class="crop" alt="Label close-up"></div>
+      <div id="dlgCropBox"><h2 style="margin-bottom:6px">Label close-up (read for the weight)</h2><img id="dlgCrop" class="crop" alt="Label close-up"></div>
       <div><h2 style="margin-bottom:6px">Text read from the photo</h2><pre id="dlgText"></pre></div>
     </div>
+    <section class="sapsec" id="dlgSap" aria-label="SAP history of this bag"></section>
   </div>
 </dialog>
 <div class="toast" id="toast" hidden></div>
 
+<script src="vendor/xlsx.full.min.js"></script>
+<script>window.XLSX || document.write('<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"><\/script>');</script>
+<script src="reconcile.js"></script>
 <script src="vendor/peerjs.min.js"></script>
 <script src="vendor/qrcode.js"></script>
 <script src="vendor/tesseract/tesseract.min.js"></script>
@@ -254,6 +278,130 @@
     });
   }
 
+  // ------------------------------------------------------------ SAP data: the files loaded on the checker page
+  // The checker keeps the SAP files it was given in this browser (IndexedDB); this page is on the same site, so it
+  // reads the same files and runs the same matching (reconcile.js). Files loaded here are saved there too.
+  const R = window.OrderCheck, F = R ? R.fmt : null;
+  const DB = "cheese-variance", STORE = "files";
+  function idb(mode, fn) {
+    return new Promise((resolve) => {
+      try {
+        const req = indexedDB.open(DB, 1);
+        req.onupgradeneeded = () => req.result.createObjectStore(STORE);
+        req.onerror = () => resolve(null);
+        req.onsuccess = () => {
+          try {
+            const tx = req.result.transaction(STORE, mode), r = fn(tx.objectStore(STORE));
+            tx.oncomplete = () => resolve(r && "result" in r ? r.result : true);
+            tx.onerror = () => resolve(null);
+          } catch { resolve(null); }
+        };
+      } catch { resolve(null); }
+    });
+  }
+  const loadSaved = () => idb("readonly", (st) => st.get("workbook"));
+  const saveFiles = (files) => idb("readwrite", (st) => st.put({ files: files.map(({ name, buf }) => ({ name, buf })), saved: Date.now() }, "workbook"));
+  const pause = () => new Promise((r) => setTimeout(r, 30));
+  const sheetsOf = (name, buf) => { const wb = XLSX.read(buf, { type: "array", dense: true }); return wb.SheetNames.map((sn) => ({ file: name, sheet: sn, rows: XLSX.utils.sheet_to_json(wb.Sheets[sn], { header: 1, raw: true, defval: null, blankrows: true }) })); };
+  let sap = null, sapSaved;                      // { ctx, files } or { error, files }
+  async function useFiles(files, saved) {
+    sapSaved = saved;
+    if (!files.length) { sap = null; showSap(); render(); return; }
+    $("sapText").textContent = "reading the SAP files…";
+    await pause();
+    const parsed = [];
+    try {
+      for (const x of files) { const sheets = sheetsOf(x.name, x.buf); parsed.push({ name: x.name, buf: x.buf, sheets, kinds: R.sheetKinds(sheets) }); }
+      sap = { ctx: R.prepare(R.readWorkbook(parsed.flatMap((x) => x.sheets))), files: parsed, saved };
+    } catch (e) { sap = { error: e.message, files: parsed.length ? parsed : files, saved }; }
+    showSap(); render();
+  }
+  // on load, and whenever this tab comes back into view (files may have been loaded on the checker meanwhile)
+  async function refreshSap() {
+    if (!R || typeof XLSX === "undefined") { $("sapText").textContent = "the spreadsheet reader didn't load."; return; }
+    const rec = await loadSaved();
+    const saved = rec ? rec.saved : null;
+    if (saved === sapSaved && (sap || !rec)) { if (!rec) showSap(); return; }
+    await useFiles(rec ? rec.files || (rec.buf ? [{ name: rec.name, buf: rec.buf }] : []) : [], saved);
+  }
+  function showSap() {
+    const t = $("sapText");
+    if (!sap) { t.innerHTML = "no SAP files yet. Load the SAP workbook and confirmation journal here or on the checker page to see each bag's history in SAP."; return; }
+    const names = sap.files.map((x) => esc(x.name)).join(", ");
+    if (sap.error) { t.innerHTML = `${names}: <span class="sap bad">${esc(sap.error)}</span>`; return; }
+    const r = sap.ctx.journalRange;
+    t.innerHTML = `${names} · journal ${r ? esc(F.dmy(r[0]).slice(0, 10) + " to " + F.dmy(r[1])) : "empty"}${sap.saved ? ` · loaded ${esc(new Date(sap.saved).toLocaleString("en-GB"))}` : ""}`;
+  }
+  $("sapLoad").onclick = () => $("sapFile").click();
+  $("sapFile").onchange = async () => {
+    const list = [...$("sapFile").files]; $("sapFile").value = "";
+    if (!list.length) return;
+    try {
+      const fresh = [];
+      for (const f of list) {
+        const buf = await f.arrayBuffer(), kinds = R.sheetKinds(sheetsOf(f.name, buf));
+        if (!kinds.length) { toast(`${f.name} has no sheet the check recognises`); continue; }
+        fresh.push({ name: f.name, buf, kinds });
+      }
+      if (!fresh.length) return;
+      // as on the checker: a new file replaces one with the same name or the same kind of sheets
+      const same = (a, b) => a.name === b.name || (a.kinds && a.kinds.join() === b.kinds.join());
+      const files = [...((sap && sap.files) || []).filter((old) => !fresh.some((x) => same(old, x))), ...fresh];
+      await saveFiles(files);
+      const rec = await loadSaved();
+      await useFiles(files, rec ? rec.saved : Date.now());
+      toast(sap && sap.ctx ? "SAP files loaded (the checker page has them too)" : "Loaded, but not complete yet: see the SAP data line");
+    } catch (e) { toast("Couldn't load that file: " + e.message); }
+  };
+  window.addEventListener("focus", () => { refreshSap(); });
+
+  // What SAP says about a scanned bag, for the job it was scanned into. The journal's times are the plant's clock
+  // read as UTC, so the scan time is turned into the same.
+  const wall = (t) => { const d = new Date(t); return Date.UTC(d.getFullYear(), d.getMonth(), d.getDate(), d.getHours(), d.getMinutes(), d.getSeconds()); };
+  function traceOf(r) {
+    let t = R.traceStock(sap.ctx, r.product, r.batch);
+    if (!t.products.length && r.product) t = R.traceStock(sap.ctx, "", r.batch);
+    const want = String(r.product || "").toUpperCase();
+    return { t, p: t.products.find((x) => x.material.toUpperCase() === want) || t.products[0] || null };
+  }
+  function sapStatus(r) {
+    if (!sap || !sap.ctx) return null;
+    if (!r.batch) return { state: "nobatch", cls: "", text: "No batch to look up" };
+    const { p } = traceOf(r), end = sap.ctx.journalRange ? sap.ctx.journalRange[1] : null;
+    const late = end !== null && wall(r.at) > end;
+    if (!p) return late ? { state: "pending", cls: "", text: `Not in the loaded journal yet (it ends ${F.dmy(end)})` } : { state: "unknown", cls: "bad", text: "Batch not found in the SAP files" };
+    const mine = p.byOrder.find((o) => o.order === r.job), used = mine ? mine.used : 0;
+    if (used > 0.005) {
+      const diff = r.kg === null ? null : used - r.kg, off = diff !== null && Math.abs(diff) > Math.max(0.2, 0.02 * r.kg);
+      return { state: "consumed", cls: off ? "warn" : "ok", text: `Consumed by ${r.job} in SAP: ${F.f(used, 2)} kg` + (off ? ` (${F.fs(diff, 2)} kg against the bag)` : "") };
+    }
+    const others = p.byOrder.filter((o) => o.used > 0.005 && o.order !== r.job);
+    if (late && !others.length) return { state: "pending", cls: "", text: `Not consumed by ${r.job} in the loaded journal, which ends ${F.dmy(end)}: load a newer journal` };
+    const where = p.areas.filter(([, q]) => q > 1e-6).map(([a, q]) => `${F.f(q, 2)} at ${a}`).join(", ");
+    return { state: "missing", cls: "bad", text: `Not consumed by ${r.job} in SAP` + (others.length ? `; consumed by ${others.map((o) => `${o.order} (${F.f(o.used, 2)} kg)`).join(", ")}` : where ? `; SAP still has ${where}` : "") };
+  }
+
+  // the bag's history in SAP, in the bag window
+  function sapHtml(r) {
+    if (!R) return "";
+    if (!sap || !sap.ctx) return `<h2>SAP history</h2><p class="hint">${sap && sap.error ? "The SAP files couldn't be used: " + esc(sap.error) : "Load the SAP files (above, or on the checker page) to see this bag's history in SAP."}</p>`;
+    if (!r.batch) return `<h2>SAP history</h2><p class="hint">No QR code was read, so there's no batch to look up.</p>`;
+    const { p } = traceOf(r), st = r.sap || sapStatus(r);
+    const link = `<a href="./?trace=${encodeURIComponent(r.batch)}&product=${encodeURIComponent(r.product || "")}" target="_blank" rel="noopener">Open the full stock trace in the checker</a>`;
+    const head = `<h2>SAP history: ${esc(r.product)} batch ${esc(r.batch)}</h2><div><span class="sap ${st.cls}">${esc(st.text)}</span></div>`;
+    if (!p) return head + `<p class="hint">No journal postings for this batch in the loaded files. ${link}</p>`;
+    const ord = (o) => `<a href="./?order=${encodeURIComponent(o)}" target="_blank" rel="noopener">${esc(o)}</a>`;
+    const figs = `<div class="figs"><span>Made <b>${F.f(p.made, 2)}</b></span><span>Used on orders <b>${F.f(p.consumed, 2)}</b></span><span>Stock now (journal) <b>${F.f(p.balance, 2)}</b></span>`
+      + (sap.ctx.wb.stock && sap.ctx.wb.stock.length ? `<span>On hand (stock overview) <b>${F.f(p.stock_total, 2)}</b></span>` : "") + `<span>${p.rows.length} postings</span></div>`;
+    const orders = p.byOrder.length ? `<h3>Production orders</h3><div class="scroll"><table><thead><tr><th>Order</th><th>Role</th><th>Line / area</th><th>First</th><th>Last</th><th class="n">Used</th><th class="n">Made</th><th class="n">Left after</th></tr></thead><tbody>`
+      + p.byOrder.map((o) => `<tr class="${o.order === r.job ? "mine" : ""}"><td class="m">${ord(o.order)}</td><td>${esc(o.role)}</td><td class="m">${esc(o.area || "")}</td><td class="m">${esc(F.dmy(o.first))}</td><td class="m">${esc(F.dmy(o.last))}</td><td class="n">${o.used ? F.f(o.used, 2) : ""}</td><td class="n">${o.made ? F.f(o.made, 2) : ""}</td><td class="n">${F.f(o.left, 2)}</td></tr>`).join("")
+      + `</tbody></table></div>` : `<p class="hint">No production order made or used this batch in the loaded journal.</p>`;
+    const posts = `<h3>Confirmation journal</h3><div class="scroll"><table><thead><tr><th>Created On</th><th>Conf.Document Type</th><th>Conf.ID</th><th>Logistics Area ID</th><th>Reference Document ID</th><th>Restricted</th><th class="n">Effective Qty</th><th class="n">Stock after</th><th>Order</th></tr></thead><tbody>`
+      + p.rows.map((x) => `<tr class="${x.is_prod ? "prod" : ""}${x.qty < 0 ? " neg" : ""}"><td class="m">${esc(F.dmy(x.time))}</td><td>${esc(x.doc)}</td><td class="m">${esc(x.conf)}</td><td class="m">${esc(x.area)}</td><td class="m">${esc(x.ref ?? "")}</td><td>${x.restricted ? "X" : ""}</td><td class="n">${F.f(x.qty, 2)}</td><td class="n">${F.f(x.balance, 2)}</td><td>${x.order ? esc(x.link) + " " + ord(x.order) : ""}</td></tr>`).join("")
+      + `</tbody></table></div>`;
+    return head + figs + orders + (p.rows.length ? posts : "") + `<p class="hint">${link}</p>`;
+  }
+
   // ------------------------------------------------------------ table and summary
   const FROM = { reading: "Reading…", ocr: "Read off the bag", none: "Not found: type it", error: "Couldn't read", edited: "Typed in" };
   const fmt = (v, d = 2) => (v === null || v === undefined ? "" : v.toLocaleString("en-GB", { minimumFractionDigits: d, maximumFractionDigits: d }));
@@ -264,29 +412,33 @@
     const cur = $("jobSel").value;
     $("jobSel").innerHTML = `<option value="">All jobs</option>` + jobs.map((j) => `<option value="${esc(j)}"${j === cur ? " selected" : ""}>${esc(j)}</option>`).join("");
     const list = shown();
+    for (const r of rows) r.sap = sapStatus(r);
     $("rows").innerHTML = list.map((r) => `<tr data-id="${esc(r.id)}" class="${r.id === fresh ? "new" : ""}${!r.raw || r.from === "none" ? " warnrow" : ""}">
       <td><img class="thumb" src="${r.url}" alt="Bag photo" data-open="${esc(r.id)}"></td>
       <td class="m">${B.hms(r.at)}</td><td class="m">${esc(r.job)}</td>
       <td class="m">${r.raw ? esc(r.product) : "<i>No QR read</i>"}</td><td class="m">${esc(r.batch)}</td><td class="m">${esc(r.label)}</td>
       <td class="n"><input class="kg" type="text" inputmode="decimal" value="${r.kg === null ? "" : r.kg.toFixed(2)}" placeholder="${r.from === "reading" ? "…" : "kg"}" aria-label="Weight in kg" data-kg="${esc(r.id)}"></td>
-      <td><span class="src ${r.from}">${FROM[r.from]}</span></td><td>${esc(r.device)}</td></tr>`).join("");
+      <td><span class="src ${r.from}">${FROM[r.from]}</span></td>
+      <td class="sapcell">${r.sap ? `<span class="sap ${r.sap.cls}">${esc(r.sap.text)}</span>` : `<span class="hint">no SAP files</span>`}</td><td>${esc(r.device)}</td></tr>`).join("");
     fresh = null;
     $("empty").hidden = rows.length > 0;
     // summary per job and product
     const groups = new Map();
     for (const r of list) {
       const k = r.job + "\u0000" + (r.raw ? r.product : "");
-      if (!groups.has(k)) groups.set(k, { job: r.job, product: r.raw ? r.product : "", bags: 0, kg: 0, unread: 0, noqr: 0 });
+      if (!groups.has(k)) groups.set(k, { job: r.job, product: r.raw ? r.product : "", bags: 0, kg: 0, unread: 0, noqr: 0, inSap: 0, notSap: 0 });
       const g = groups.get(k); g.bags++; if (r.kg !== null) g.kg += r.kg; else g.unread++; if (!r.raw) g.noqr++;
+      if (r.sap && r.sap.state === "consumed") g.inSap++; if (r.sap && (r.sap.state === "missing" || r.sap.state === "unknown")) g.notSap++;
     }
     const gs = [...groups.values()].sort((a, b) => a.job.localeCompare(b.job, undefined, { numeric: true }) || a.product.localeCompare(b.product));
-    $("sumBody").innerHTML = gs.length ? gs.map((g) => `<tr><td class="m">${esc(g.job)}</td><td class="m">${g.product ? esc(g.product) : "<i>No QR read</i>"}</td><td class="n">${g.bags}</td><td class="n">${fmt(g.kg)}</td><td class="n">${g.unread || ""}</td><td class="n">${g.noqr || ""}</td></tr>`).join("")
-      : `<tr><td colspan="6" class="hint">Nothing scanned yet.</td></tr>`;
+    $("sumBody").innerHTML = gs.length ? gs.map((g) => `<tr><td class="m">${esc(g.job)}</td><td class="m">${g.product ? esc(g.product) : "<i>No QR read</i>"}</td><td class="n">${g.bags}</td><td class="n">${fmt(g.kg)}</td><td class="n">${g.unread || ""}</td><td class="n">${g.noqr || ""}</td><td class="n">${sap && sap.ctx ? g.inSap : ""}</td><td class="n${g.notSap ? " bad" : ""}">${sap && sap.ctx ? g.notSap || "" : ""}</td></tr>`).join("")
+      : `<tr><td colspan="8" class="hint">Nothing scanned yet.</td></tr>`;
     const kg = list.reduce((a, r) => a + (r.kg || 0), 0);
     $("stats").innerHTML = [["Bags", list.length, $("jobSel").value ? "job " + $("jobSel").value : `${jobs.length} job${jobs.length === 1 ? "" : "s"}`],
       ["Weight on bags", fmt(kg), "kg read or typed"],
       ["No weight read", list.filter((r) => r.kg === null && r.from !== "reading").length, "type it from the photo"],
-      ["No QR read", list.filter((r) => !r.raw).length, "photo only"]]
+      ["No QR read", list.filter((r) => !r.raw).length, "photo only"],
+      ["Not consumed in SAP", sap && sap.ctx ? list.filter((r) => r.sap && (r.sap.state === "missing" || r.sap.state === "unknown")).length : "–", sap && sap.ctx ? "scanned, but SAP didn't take it" : "load the SAP files"]]
       .map(([k, v, s]) => `<div><dt>${esc(k)}</dt><dd>${esc(v)}<small>${esc(s)}</small></dd></div>`).join("");
   }
 
@@ -307,8 +459,9 @@
       ["Weight", r.kg === null ? "not read" : fmt(r.kg) + " kg (" + FROM[r.from].toLowerCase() + (r.from === "ocr" && r.how ? ", " + r.how : "") + ")"], ["Scanned", new Date(r.at).toLocaleString("en-GB")],
       ["Phone", r.device], ["QR text", r.raw || "none"]];
     $("dlgInfo").innerHTML = info.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join("");
-    $("dlgCrop").hidden = !r.labelUrl; if (r.labelUrl) $("dlgCrop").src = r.labelUrl;
+    $("dlgCropBox").hidden = !r.labelUrl; if (r.labelUrl) $("dlgCrop").src = r.labelUrl;
     $("dlgText").textContent = r.from === "reading" ? "Still reading…" : r.text.trim() || "No text found.";
+    $("dlgSap").innerHTML = sapHtml(r);
     $("dlg").showModal();
   }
   $("dlgClose").onclick = () => $("dlg").close();
@@ -319,8 +472,8 @@
   $("csvBtn").onclick = () => {
     if (!rows.length) { toast("Nothing to export yet."); return; }
     const cell = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
-    const head = ["Scanned", "Job", "Product ID", "Identified Stock ID", "Label ID", "Quantity (kg)", "Weight from", "QR text", "Phone", "Text read from photo"];
-    const lines = rows.slice().reverse().map((r) => [new Date(r.at).toISOString(), r.job, r.product, r.batch, r.label, r.kg === null ? "" : r.kg, FROM[r.from], r.raw, r.device, r.text.replace(/\s+/g, " ").trim()].map(cell).join(","));
+    const head = ["Scanned", "Job", "Product ID", "Identified Stock ID", "Label ID", "Quantity (kg)", "Weight from", "In SAP", "QR text", "Phone", "Text read from photo"];
+    const lines = rows.slice().reverse().map((r) => [new Date(r.at).toISOString(), r.job, r.product, r.batch, r.label, r.kg === null ? "" : r.kg, FROM[r.from], r.sap ? r.sap.text : "", r.raw, r.device, r.text.replace(/\s+/g, " ").trim()].map(cell).join(","));
     const blob = new Blob([[head.map(cell).join(","), ...lines].join("\r\n")], { type: "text/csv" });
     const a = document.createElement("a"); a.href = URL.createObjectURL(blob);
     a.download = `bag-scans-${new Date().toISOString().slice(0, 16).replace(/[:T]/g, "-")}.csv`;
@@ -375,6 +528,7 @@
 
   showJob();
   render();
+  refreshSap();
   start(B.store.get("sapa-inputs-id") || newCode());
 })();
 </script>
