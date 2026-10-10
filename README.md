@@ -29,6 +29,32 @@ The phone can't open files straight off the laptop's disk; they have to go throu
 (step 1), email, or a USB cable. If you'd rather the files never leave the laptop, use
 `python serve.py --share` on the office Wi-Fi instead (see *Use it from your phone (office Wi-Fi)*).
 
+## Bag scanner demo (phone → laptop)
+
+A demo of scanning offcut bags with a phone instead of the QR gun, so there's a record of every bag that went
+in (with a photo and the weight printed on the bag) to set against what SAP took.
+
+* **Laptop:** open https://nsikak-joseph-ikpong.github.io/SAPA_mobile/inputs.html. It shows a pairing QR code.
+* **Phone:** scan that code with the phone's camera app. The bag scanner opens, already paired. Enter the job
+  number, tap **Start scanning** and point the camera at each bag's label.
+
+Each label's QR code (`(90)` product, `(10)` batch, `(97)` label ID) is read on the phone, which takes a photo
+and sends both straight to the laptop. A bag is sent once per session; **Bag without readable QR** sends a photo
+of a bag whose code won't scan. On the laptop each bag appears as a row (photo, job, product, Identified Stock
+ID, label ID), and the weight is read off the photo (OCR, in the browser: "Net weight 12.46 kg", "12.46KG"…).
+A weight that isn't read, or is read wrong, can be typed in; click a photo to see it full size with the text
+that was read. The summary totals bags and kg per job and product; **Export CSV** saves the list, and
+**Add a sample bag** tries it without a phone.
+
+Nothing is stored anywhere: the phone sends to the laptop's browser directly (WebRTC, through PeerJS). PeerJS's
+free cloud server (0.peerjs.com) only introduces the two browsers to each other, and its relay servers carry the
+data when a network blocks direct connections. Reloading the laptop page clears the scans (the pairing code
+stays the same). If the phone can't connect on the office Wi-Fi, try it on mobile data. The camera needs `https`,
+so use the GitHub Pages address, not `serve.py`. Libraries are bundled in `web/vendor/`: PeerJS (MIT),
+qrcode-generator (MIT), Tesseract.js with its English data (Apache-2.0), jsQR (Apache-2.0).
+
+## Variance checker
+
 You can give it several spreadsheets at once. They are read together and
 cross-referenced:
 

@@ -1,0 +1,344 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#23615a">
+<link rel="icon" href="data:,">
+<title>Bag Scanner</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
+<style>
+  :root {
+    --ground: #f2f4f1; --surface: #ffffff; --sunken: #e9ece8; --ink: #17201d; --muted: #5b6661; --line: #d8ddd9;
+    --accent: #23615a; --accent-ink: #ffffff; --accent-soft: #dcebe8;
+    --bad: #b3261e; --bad-soft: #f8e1df; --warn: #9a6200; --warn-soft: #f6ead3; --ok: #2b7a4b; --ok-soft: #dff0e5;
+    --sans: "IBM Plex Sans", "Segoe UI", system-ui, -apple-system, sans-serif;
+    --mono: "IBM Plex Mono", ui-monospace, Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --ground: #111513; --surface: #192019; --sunken: #141a17; --ink: #e5eae7; --muted: #9aa59f; --line: #2c3531;
+      --accent: #62b5aa; --accent-ink: #0d1412; --accent-soft: #1c3531;
+      --bad: #f27b70; --bad-soft: #3a1f1c; --warn: #e2a846; --warn-soft: #372b16; --ok: #6dc690; --ok-soft: #183023;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --ground: #111513; --surface: #192019; --sunken: #141a17; --ink: #e5eae7; --muted: #9aa59f; --line: #2c3531;
+    --accent: #62b5aa; --accent-ink: #0d1412; --accent-soft: #1c3531;
+    --bad: #f27b70; --bad-soft: #3a1f1c; --warn: #e2a846; --warn-soft: #372b16; --ok: #6dc690; --ok-soft: #183023;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body { background: var(--ground); color: var(--ink); font: 15px/1.45 var(--sans); padding-bottom: env(safe-area-inset-bottom, 0px); }
+  .wrap { max-width: 560px; margin: 0 auto; padding: 14px 16px 40px; display: grid; gap: 14px; }
+  header { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+  h1 { font-size: 19px; margin: 0; letter-spacing: -0.01em; }
+  h2 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin: 0; font-weight: 600; }
+  .pill { font: 600 12px var(--sans); padding: 4px 10px; border-radius: 999px; background: var(--sunken); color: var(--muted); white-space: nowrap; display: inline-flex; align-items: center; gap: 6px; }
+  .pill::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+  .pill.ok { background: var(--ok-soft); color: var(--ok); } .pill.warn { background: var(--warn-soft); color: var(--warn); } .pill.bad { background: var(--bad-soft); color: var(--bad); }
+  .panel { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 14px; display: grid; gap: 10px; }
+  .note { margin: 0; font-size: 13px; color: var(--muted); }
+  .note.bad { color: var(--bad); }
+  label { font-weight: 600; font-size: 13px; }
+  input[type=text] { width: 100%; font: 600 22px var(--mono); padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--ink); }
+  button { font: 600 15px var(--sans); border-radius: 8px; padding: 12px 16px; cursor: pointer; border: 1px solid var(--accent); background: var(--accent); color: var(--accent-ink); }
+  button.quiet { background: var(--surface); color: var(--ink); border-color: var(--line); font-weight: 500; }
+  button:disabled { opacity: 0.5; cursor: default; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; }
+  .row > * { flex: 1 1 auto; }
+  .cam { position: relative; background: #000; border-radius: 10px; overflow: hidden; aspect-ratio: 3 / 4; max-height: 62vh; width: 100%; }
+  .cam video { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .cam .frame { position: absolute; inset: 18% 14%; border: 3px solid rgba(255,255,255,0.85); border-radius: 14px; box-shadow: 0 0 0 999px rgba(0,0,0,0.25); pointer-events: none; transition: border-color .15s; }
+  .cam.hit .frame { border-color: #6dc690; }
+  .cam .msg { position: absolute; left: 10px; right: 10px; bottom: 10px; text-align: center; font: 600 14px var(--sans); color: #fff; background: rgba(0,0,0,0.55); border-radius: 8px; padding: 8px 10px; }
+  .cam .torch { position: absolute; right: 10px; top: 10px; padding: 8px 12px; font-size: 13px; background: rgba(0,0,0,0.5); border-color: transparent; color: #fff; }
+  .cam .idle { position: absolute; inset: 0; display: grid; place-items: center; color: #cfd6d2; text-align: center; padding: 20px; font-size: 14px; }
+  .count { display: flex; justify-content: space-between; align-items: baseline; }
+  .count strong { font: 600 18px var(--mono); }
+  ul.items { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+  ul.items li { display: grid; grid-template-columns: 56px minmax(0, 1fr) auto; gap: 10px; align-items: center; background: var(--sunken); border-radius: 8px; padding: 6px; }
+  ul.items img { width: 56px; height: 56px; object-fit: cover; border-radius: 6px; display: block; background: #000; }
+  .it-main { min-width: 0; font-size: 13px; }
+  .it-main b { font-family: var(--mono); font-weight: 600; }
+  .it-main span { display: block; color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .state { font: 600 11px var(--sans); padding: 3px 8px; border-radius: 999px; white-space: nowrap; }
+  .state.sent { background: var(--ok-soft); color: var(--ok); } .state.queued, .state.sending { background: var(--warn-soft); color: var(--warn); }
+  .toast { position: fixed; left: 50%; bottom: calc(env(safe-area-inset-bottom, 0px) + 18px); transform: translateX(-50%); background: var(--ink); color: var(--ground); padding: 10px 16px; border-radius: 8px; font-size: 14px; max-width: calc(100vw - 32px); z-index: 10; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Bag scanner</h1>
+    <span class="pill" id="status">Not paired</span>
+  </header>
+
+  <section class="panel" id="pairPanel">
+    <h2>Pair with the laptop</h2>
+    <p class="note">On the laptop, open the <b>Inputs</b> page. It shows a pairing code: scan it with this phone's camera app, or start the camera below and point it at the code. You can also type the code.</p>
+    <form class="row" id="pairForm">
+      <input type="text" id="pairCode" placeholder="sapa-…" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="Pairing code">
+      <button type="submit">Pair</button>
+    </form>
+  </section>
+
+  <section class="panel" id="jobPanel">
+    <label for="job">Job (production order) number</label>
+    <input type="text" id="job" inputmode="numeric" autocomplete="off" placeholder="e.g. 2626">
+  </section>
+
+  <div class="cam" id="cam">
+    <video id="video" playsinline muted></video>
+    <div class="frame" hidden id="frame"></div>
+    <div class="idle" id="idle">Tap <b>&nbsp;Start scanning&nbsp;</b> and allow the camera.</div>
+    <button type="button" class="torch" id="torch" hidden>Light</button>
+    <div class="msg" id="camMsg" hidden></div>
+  </div>
+  <div class="row">
+    <button type="button" id="startBtn">Start scanning</button>
+    <button type="button" class="quiet" id="noQrBtn" disabled title="Send a photo of a bag whose QR code won't scan">Bag without readable QR</button>
+  </div>
+  <div class="row" id="photoRow" hidden>
+    <button type="button" class="quiet" id="photoBtn">Take a photo instead</button>
+    <input type="file" id="photoIn" accept="image/*" capture="environment" hidden>
+  </div>
+
+  <section class="panel">
+    <div class="count"><h2>This session</h2><span><strong id="nSent">0</strong> of <strong id="nAll">0</strong> on the laptop</span></div>
+    <ul class="items" id="items"></ul>
+    <p class="note" id="empty">Scanned bags show here. Nothing is kept on this phone: reload and the list is gone.</p>
+  </section>
+</div>
+<div class="toast" id="toast" hidden></div>
+
+<script src="vendor/peerjs.min.js"></script>
+<script src="vendor/jsQR.js"></script>
+<script src="bagscan.js"></script>
+<script>
+(function () {
+  "use strict";
+  const B = window.BagScan, $ = (id) => document.getElementById(id);
+  let laptop = new URLSearchParams(location.search).get("pair");
+  let peer = null, conn = null, retryT = null, openT = null;
+  const items = [];                 // newest last; each { id, job, raw, product, batch, label, at, buf, url, state }
+  const seen = new Map();           // label key -> time sent (a bag is sent once per session)
+  let stream = null, scanning = false, busy = false, detector = null, audio = null, lastMsgAt = 0;
+
+  function toast(msg) { const t = $("toast"); t.textContent = msg; t.hidden = false; clearTimeout(toast.t); toast.t = setTimeout(() => (t.hidden = true), 2600); }
+  function status(kind, text) { const s = $("status"); s.className = "pill " + kind; s.textContent = text; }
+  function camMsg(text, ms) {
+    const m = $("camMsg"); m.textContent = text; m.hidden = !text;
+    clearTimeout(camMsg.t); if (ms) camMsg.t = setTimeout(() => (m.hidden = true), ms);
+  }
+
+  // ------------------------------------------------------------ job number (remembered on this phone)
+  $("job").value = B.store.get("sapa-job") || "";
+  $("job").addEventListener("input", () => B.store.set("sapa-job", $("job").value.trim()));
+
+  // ------------------------------------------------------------ link to the laptop
+  function setLaptop(id) {
+    laptop = id.trim().toLowerCase();
+    history.replaceState(null, "", location.pathname + "?pair=" + encodeURIComponent(laptop) + B.signalQuery());
+    if (conn) { try { conn.close(); } catch { /* already closed */ } conn = null; }
+    connect();
+  }
+  function retry(ms) { clearTimeout(retryT); retryT = setTimeout(connect, ms); }
+  function connect() {
+    $("pairPanel").hidden = !!laptop;
+    if (!laptop) { status("", "Not paired"); return; }
+    if (typeof Peer === "undefined") { status("bad", "Link didn't load"); return; }
+    if (!peer || peer.destroyed) {
+      status("warn", "Connecting…");
+      peer = new Peer(B.peerOptions());
+      peer.on("open", openConn);
+      peer.on("disconnected", () => { if (!peer.destroyed) setTimeout(() => peer.reconnect(), 2000); });
+      peer.on("error", (e) => {
+        if (e.type === "peer-unavailable") {
+          status("bad", "Laptop not found");
+          camMsg("Can't find the laptop. Is the Inputs page open there? If it was closed, scan its pairing code again.", 6000);
+          conn = null; retry(5000);
+        } else if (["network", "server-error", "socket-error", "socket-closed"].includes(e.type)) {
+          status("bad", "No connection"); conn = null; retry(5000);
+        }
+      });
+      return;
+    }
+    if (peer.open) openConn();
+  }
+  function openConn() {
+    if (!laptop || (conn && conn.open)) return;
+    status("warn", "Connecting…");
+    const c = conn = peer.connect(laptop, { reliable: true, metadata: { device: deviceName() } });
+    clearTimeout(openT);
+    // no answer within 15 s: the network is probably blocking direct connections
+    openT = setTimeout(() => {
+      if (c === conn && !c.open) { status("bad", "Couldn't connect"); camMsg("Couldn't reach the laptop. This network may block it: try mobile data on the phone.", 7000); conn = null; try { c.close(); } catch { /* */ } retry(5000); }
+    }, 15000);
+    c.on("open", () => { if (c !== conn) return; clearTimeout(openT); status("ok", "Connected"); flush(); });
+    c.on("data", (d) => {
+      if (d && d.t === "ack") { const it = items.find((x) => x.id === d.id); if (it) { it.state = "sent"; render(); } }
+    });
+    c.on("close", () => { if (c !== conn) return; conn = null; status("warn", "Reconnecting…"); retry(3000); });
+  }
+  function deviceName() {
+    const ua = navigator.userAgent;
+    return /iPhone/.test(ua) ? "iPhone" : /Android/.test(ua) ? (ua.match(/Android[^;]*;\s*([^;)]+)/) || [, "Android"])[1].trim() : "Phone";
+  }
+  function send(it) {
+    if (!conn || !conn.open) { it.state = "queued"; return; }
+    it.state = it.state === "sent" ? "sent" : "sending";
+    conn.send({ t: "scan", id: it.id, job: it.job, raw: it.raw, product: it.product, batch: it.batch, label: it.label, at: it.at, photo: it.buf, w: it.w, h: it.h });
+  }
+  function flush() { for (const it of items) if (it.state !== "sent") send(it); render(); }
+
+  $("pairForm").addEventListener("submit", (e) => {
+    e.preventDefault();
+    const v = $("pairCode").value.trim();
+    if (v) setLaptop(v.includes("pair=") ? new URL(v).searchParams.get("pair") : v);
+  });
+
+  // ------------------------------------------------------------ camera and QR reading
+  async function startCamera() {
+    if (!audio) try { audio = new (window.AudioContext || window.webkitAudioContext)(); } catch { /* no sound */ }
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { noLiveCamera("This browser can't show the camera here."); return; }
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: { facingMode: { ideal: "environment" }, width: { ideal: 1920 }, height: { ideal: 1080 } } });
+    } catch (e) {
+      noLiveCamera(e.name === "NotAllowedError" ? "Camera blocked. Allow the camera for this page in the browser's settings, then try again." : "Couldn't start the camera: " + e.message);
+      return;
+    }
+    const v = $("video"); v.srcObject = stream; await v.play().catch(() => {});
+    $("idle").hidden = true; $("frame").hidden = false; $("noQrBtn").disabled = false;
+    $("startBtn").textContent = "Stop camera";
+    const track = stream.getVideoTracks()[0], caps = track.getCapabilities ? track.getCapabilities() : {};
+    $("torch").hidden = !caps.torch;
+    if ("BarcodeDetector" in window) {
+      try { if ((await BarcodeDetector.getSupportedFormats()).includes("qr_code")) detector = new BarcodeDetector({ formats: ["qr_code"] }); } catch { detector = null; }
+    }
+    scanning = true;
+    camMsg(laptop ? "Point at a bag label" : "Point at the laptop's pairing code");
+    loop();
+  }
+  function stopCamera() {
+    scanning = false;
+    if (stream) stream.getTracks().forEach((t) => t.stop());
+    stream = null; $("video").srcObject = null;
+    $("idle").hidden = false; $("frame").hidden = true; $("torch").hidden = true; $("noQrBtn").disabled = true;
+    $("startBtn").textContent = "Start scanning"; camMsg("");
+  }
+  function noLiveCamera(msg) { $("idle").textContent = msg; $("photoRow").hidden = false; toast(msg); }
+
+  const small = document.createElement("canvas"), sctx = small.getContext("2d", { willReadFrequently: true });
+  async function decode(src, w, h) {
+    if (detector) { try { const r = await detector.detect(src); if (r.length) return r[0].rawValue; } catch { /* fall back to jsQR */ } }
+    const sc = Math.min(1, 900 / Math.max(w, h));
+    small.width = Math.round(w * sc); small.height = Math.round(h * sc);
+    sctx.drawImage(src, 0, 0, small.width, small.height);
+    const r = window.jsQR(sctx.getImageData(0, 0, small.width, small.height).data, small.width, small.height, { inversionAttempts: "dontInvert" });
+    return r ? r.data : null;
+  }
+  async function loop() {
+    if (!scanning) return;
+    const v = $("video");
+    if (!busy && v.readyState >= 2 && v.videoWidth) {
+      const text = await decode(v, v.videoWidth, v.videoHeight).catch(() => null);
+      if (text) await onCode(text, v, v.videoWidth, v.videoHeight);
+    }
+    setTimeout(loop, 180);
+  }
+
+  async function onCode(text, src, w, h) {
+    // the laptop's pairing code: a link to this page with ?pair=, or the bare code
+    const pairing = text.includes("pair=") ? (() => { try { return new URL(text).searchParams.get("pair"); } catch { return null; } })() : text.startsWith(B.PREFIX) ? text : null;
+    if (pairing) {
+      if (pairing !== laptop) { setLaptop(pairing); toast("Paired with the laptop"); hit(); camMsg("Paired. Now point at a bag label", 3000); }
+      return;
+    }
+    const lab = B.parseLabel(text);
+    const now = Date.now();
+    if (!lab) { if (now - lastMsgAt > 2500) { lastMsgAt = now; camMsg("That code isn't a bag label", 2000); } return; }
+    if (!laptop) { if (now - lastMsgAt > 2500) { lastMsgAt = now; camMsg("Pair with the laptop first", 2500); } return; }
+    const key = lab.label || text;
+    if (seen.has(key)) {
+      if (now - lastMsgAt > 2500) { lastMsgAt = now; camMsg(`Already scanned at ${B.hms(seen.get(key))}: not sent again`, 2500); }
+      return;
+    }
+    if (!$("job").value.trim()) { if (now - lastMsgAt > 2500) { lastMsgAt = now; camMsg("Enter the job number first", 2500); $("job").focus(); } return; }
+    seen.set(key, now);
+    await capture(text, lab, src, w, h);
+  }
+
+  // the photo: the camera frame at up to 1600 px, as JPEG
+  async function capture(raw, lab, src, w, h) {
+    busy = true;
+    try {
+      const sc = Math.min(1, 1600 / Math.max(w, h)), c = document.createElement("canvas");
+      c.width = Math.round(w * sc); c.height = Math.round(h * sc);
+      c.getContext("2d").drawImage(src, 0, 0, c.width, c.height);
+      const blob = await new Promise((ok) => c.toBlob(ok, "image/jpeg", 0.85));
+      const it = { id: B.uid(), job: $("job").value.trim(), raw: raw || "", product: lab ? lab.product : "", batch: lab ? lab.batch : "", label: lab ? lab.label : "",
+        at: Date.now(), buf: await blob.arrayBuffer(), url: URL.createObjectURL(blob), w: c.width, h: c.height, state: "queued" };
+      items.push(it);
+      hit();
+      camMsg(lab ? `Sent ${lab.product || ""} batch ${lab.batch}` : "Photo sent (no QR)", 1800);
+      send(it); render();
+    } finally { setTimeout(() => (busy = false), 1200); }
+  }
+  function hit() {
+    $("cam").classList.add("hit"); setTimeout(() => $("cam").classList.remove("hit"), 400);
+    if (navigator.vibrate) navigator.vibrate(70);
+    if (audio) try { const o = audio.createOscillator(), g = audio.createGain(); o.frequency.value = 1320; g.gain.value = 0.08; o.connect(g).connect(audio.destination); o.start(); o.stop(audio.currentTime + 0.09); } catch { /* no sound */ }
+  }
+
+  $("startBtn").onclick = () => (scanning ? stopCamera() : startCamera());
+  $("noQrBtn").onclick = () => {
+    const v = $("video");
+    if (!$("job").value.trim()) { toast("Enter the job number first"); $("job").focus(); return; }
+    if (!laptop) { toast("Pair with the laptop first"); return; }
+    if (v.videoWidth) capture(null, null, v, v.videoWidth, v.videoHeight);
+  };
+  $("torch").onclick = async () => {
+    const track = stream && stream.getVideoTracks()[0];
+    if (!track) return;
+    const on = !$("torch").classList.contains("on");
+    try { await track.applyConstraints({ advanced: [{ torch: on }] }); $("torch").classList.toggle("on", on); } catch { toast("The light can't be switched from here"); }
+  };
+  // no live camera: a photo per bag, read the same way
+  $("photoBtn").onclick = () => $("photoIn").click();
+  $("photoIn").onchange = async () => {
+    const f = $("photoIn").files[0]; $("photoIn").value = "";
+    if (!f) return;
+    const url = URL.createObjectURL(f), img = new Image(); img.src = url;
+    try { await img.decode(); } catch { toast("Couldn't open that photo"); return; }
+    const text = await decode(img, img.naturalWidth, img.naturalHeight).catch(() => null);
+    if (text) await onCode(text, img, img.naturalWidth, img.naturalHeight);
+    else if (laptop && $("job").value.trim()) await capture(null, null, img, img.naturalWidth, img.naturalHeight);
+    else toast("No QR code found in the photo");
+    URL.revokeObjectURL(url);
+  };
+
+  // ------------------------------------------------------------ list
+  function render() {
+    const label = { sent: "On laptop", sending: "Sending", queued: "Waiting" };
+    $("items").innerHTML = items.slice().reverse().map((it) => `<li><img src="${it.url}" alt="">
+      <div class="it-main">${it.raw ? `<b>${B.esc(it.product || "?")}</b> batch <b>${B.esc(it.batch)}</b>` : "<b>No QR read</b>"}
+        <span>Job ${B.esc(it.job)} · ${B.hms(it.at)}${it.label ? " · label " + B.esc(it.label) : ""}</span></div>
+      <span class="state ${it.state}">${label[it.state]}</span></li>`).join("");
+    $("empty").hidden = items.length > 0;
+    $("nAll").textContent = items.length;
+    $("nSent").textContent = items.filter((x) => x.state === "sent").length;
+  }
+
+  render();
+  connect();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,351 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:,">
+<title>Bag Inputs</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
+<style>
+  :root {
+    --ground: #f2f4f1; --surface: #ffffff; --sunken: #e9ece8; --ink: #17201d; --muted: #5b6661; --line: #d8ddd9;
+    --accent: #23615a; --accent-ink: #ffffff; --accent-soft: #dcebe8;
+    --bad: #b3261e; --bad-soft: #f8e1df; --warn: #9a6200; --warn-soft: #f6ead3; --ok: #2b7a4b; --ok-soft: #dff0e5;
+    --sans: "IBM Plex Sans", "Segoe UI", system-ui, -apple-system, sans-serif;
+    --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --ground: #111513; --surface: #192019; --sunken: #141a17; --ink: #e5eae7; --muted: #9aa59f; --line: #2c3531;
+      --accent: #62b5aa; --accent-ink: #0d1412; --accent-soft: #1c3531;
+      --bad: #f27b70; --bad-soft: #3a1f1c; --warn: #e2a846; --warn-soft: #372b16; --ok: #6dc690; --ok-soft: #183023;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --ground: #111513; --surface: #192019; --sunken: #141a17; --ink: #e5eae7; --muted: #9aa59f; --line: #2c3531;
+    --accent: #62b5aa; --accent-ink: #0d1412; --accent-soft: #1c3531;
+    --bad: #f27b70; --bad-soft: #3a1f1c; --warn: #e2a846; --warn-soft: #372b16; --ok: #6dc690; --ok-soft: #183023;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body { background: var(--ground); color: var(--ink); font: 14px/1.5 var(--sans); }
+  .wrap { max-width: 1240px; margin: 0 auto; padding: 20px 16px 48px; display: grid; gap: 16px; }
+  h1 { font-size: 21px; line-height: 1.2; margin: 0; letter-spacing: -0.01em; }
+  h2 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin: 0; font-weight: 600; }
+  .sub { color: var(--muted); margin: 4px 0 0; font-size: 13px; max-width: 90ch; }
+  .top { display: grid; gap: 16px; }
+  @media (min-width: 900px) { .top { grid-template-columns: 340px minmax(0, 1fr); align-items: start; } }
+  .panel { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; display: grid; gap: 10px; align-content: start; min-width: 0; }
+  .pill { font: 600 12px var(--sans); padding: 3px 10px; border-radius: 999px; background: var(--sunken); color: var(--muted); white-space: nowrap; display: inline-flex; align-items: center; gap: 6px; justify-self: start; }
+  .pill::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+  .pill.ok { background: var(--ok-soft); color: var(--ok); } .pill.warn { background: var(--warn-soft); color: var(--warn); } .pill.bad { background: var(--bad-soft); color: var(--bad); }
+  .qr { background: #fff; border-radius: 8px; padding: 10px; width: 220px; max-width: 100%; justify-self: center; }
+  .qr svg { display: block; width: 100%; height: auto; }
+  .code { font: 600 16px var(--mono); text-align: center; letter-spacing: 0.04em; }
+  .hint { font-size: 12.5px; color: var(--muted); margin: 0; }
+  .hint a { color: var(--accent); overflow-wrap: anywhere; }
+  button { font: 600 13.5px var(--sans); border-radius: 6px; padding: 8px 14px; cursor: pointer; border: 1px solid var(--accent); background: var(--accent); color: var(--accent-ink); }
+  button.quiet { background: var(--surface); color: var(--ink); border-color: var(--line); font-weight: 500; }
+  button.link { border: 0; background: none; padding: 0; color: var(--accent); text-decoration: underline; font-weight: 500; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  select { font: inherit; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--ink); }
+  .bar { display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: center; }
+  .bar .grow { flex: 1 1 auto; }
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px 16px; margin: 0; }
+  .stats div { background: var(--sunken); border-radius: 6px; padding: 8px 10px; }
+  .stats dt { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); }
+  .stats dd { margin: 2px 0 0; font: 600 20px var(--mono); font-variant-numeric: tabular-nums; }
+  .stats dd small { display: block; font: 12px var(--sans); color: var(--muted); }
+  .scroll { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; }
+  th, td { text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; vertical-align: middle; }
+  th { font-size: 12px; font-weight: 600; color: var(--ink); background: var(--sunken); }
+  td.n, th.n { text-align: right; font-variant-numeric: tabular-nums; }
+  td.m { font-family: var(--mono); }
+  tbody tr.new { animation: flash 1.6s ease-out; }
+  @keyframes flash { from { background: var(--accent-soft); } to { background: transparent; } }
+  tr.warnrow td { background: var(--warn-soft); }
+  img.thumb { width: 64px; height: 48px; object-fit: cover; border-radius: 4px; cursor: zoom-in; display: block; background: #000; }
+  input.kg { width: 90px; font: 600 13px var(--mono); text-align: right; padding: 4px 6px; border: 1px solid var(--line); border-radius: 4px; background: var(--surface); color: var(--ink); }
+  .src { font-size: 11.5px; padding: 2px 7px; border-radius: 999px; background: var(--sunken); color: var(--muted); }
+  .src.ocr { background: var(--ok-soft); color: var(--ok); } .src.none, .src.error { background: var(--warn-soft); color: var(--warn); } .src.edited { background: var(--accent-soft); color: var(--accent); }
+  .empty { border: 1px dashed var(--line); border-radius: 8px; padding: 26px; text-align: center; color: var(--muted); background: var(--surface); }
+  dialog { border: 1px solid var(--line); border-radius: 10px; padding: 0; background: var(--surface); color: var(--ink); width: min(980px, calc(100vw - 32px)); max-height: calc(100vh - 32px); }
+  dialog::backdrop { background: rgba(0,0,0,0.55); }
+  .dlg { display: grid; gap: 14px; padding: 16px; grid-template-columns: minmax(0, 1fr); }
+  @media (min-width: 760px) { .dlg { grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); } }
+  .dlg img { width: 100%; height: auto; border-radius: 6px; background: #000; display: block; }
+  .dlg dl { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 12px; margin: 0; font-size: 13px; }
+  .dlg dt { color: var(--muted); } .dlg dd { margin: 0; overflow-wrap: anywhere; }
+  .dlg pre { white-space: pre-wrap; font: 12px var(--mono); background: var(--sunken); padding: 8px; border-radius: 6px; margin: 0; max-height: 220px; overflow: auto; }
+  .dlghead { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+  .toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); background: var(--ink); color: var(--ground); padding: 8px 14px; border-radius: 6px; font-size: 13px; z-index: 20; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div>
+    <h1>Input products: bag scans</h1>
+    <p class="sub">Bags scanned on the phone appear here as they're scanned, with the photo and the weight read off the bag. Nothing is saved: the scans live in this browser tab only, and reloading the page clears them. Export to keep a copy.</p>
+  </div>
+
+  <div class="top">
+    <section class="panel" aria-labelledby="pair-h">
+      <h2 id="pair-h">Pair a phone</h2>
+      <span class="pill warn" id="status">Starting…</span>
+      <div class="qr" id="qr" aria-label="Pairing code"></div>
+      <div class="code" id="code"></div>
+      <p class="hint">Scan this code with the phone's camera to open the bag scanner, already paired. Or open <a id="scanLink" href="scanner.html" target="_blank" rel="noopener">the scanner page</a> on the phone and enter the code.</p>
+    </section>
+
+    <section class="panel" aria-labelledby="sum-h">
+      <div class="bar"><h2 id="sum-h" class="grow">Summary</h2>
+        <label for="jobSel" class="hint">Job</label>
+        <select id="jobSel"><option value="">All jobs</option></select>
+      </div>
+      <dl class="stats" id="stats"></dl>
+      <div class="scroll"><table>
+        <thead><tr><th>Job</th><th>Product ID</th><th class="n">Bags</th><th class="n">Weight on bags (kg)</th><th class="n">No weight read</th><th class="n">No QR</th></tr></thead>
+        <tbody id="sumBody"></tbody></table></div>
+      <div class="bar">
+        <button type="button" class="quiet" id="sampleBtn" title="Adds a made-up bag photo, as if scanned on a phone">Add a sample bag</button>
+        <button type="button" class="quiet" id="csvBtn">Export CSV</button>
+        <span class="grow"></span>
+        <button type="button" class="link" id="clearBtn">Clear all</button>
+      </div>
+    </section>
+  </div>
+
+  <section class="panel" aria-labelledby="in-h">
+    <h2 id="in-h">Input products</h2>
+    <div class="scroll"><table>
+      <thead><tr><th>Photo</th><th>Scanned</th><th>Job</th><th>Product ID</th><th>Identified Stock ID</th><th>Label ID</th><th class="n">Quantity (kg)</th><th>Weight from</th><th>Phone</th></tr></thead>
+      <tbody id="rows"></tbody></table></div>
+    <div class="empty" id="empty">No bags yet. Pair a phone and scan a bag label, or try <b>Add a sample bag</b>.</div>
+  </section>
+</div>
+
+<dialog id="dlg">
+  <div class="dlg">
+    <img id="dlgImg" alt="Bag photo">
+    <div style="display:grid;gap:12px;align-content:start">
+      <div class="dlghead"><h2>Bag</h2><button type="button" class="quiet" id="dlgClose">Close</button></div>
+      <dl id="dlgInfo"></dl>
+      <div><h2 style="margin-bottom:6px">Text read from the photo</h2><pre id="dlgText"></pre></div>
+    </div>
+  </div>
+</dialog>
+<div class="toast" id="toast" hidden></div>
+
+<script src="vendor/peerjs.min.js"></script>
+<script src="vendor/qrcode.js"></script>
+<script src="vendor/tesseract/tesseract.min.js"></script>
+<script src="bagscan.js"></script>
+<script>
+(function () {
+  "use strict";
+  const B = window.BagScan, $ = (id) => document.getElementById(id), esc = B.esc;
+  const rows = [];                         // newest first
+  const phones = new Set();
+  let peer = null, fresh = null;
+
+  function toast(msg) { const t = $("toast"); t.textContent = msg; t.hidden = false; clearTimeout(toast.t); toast.t = setTimeout(() => (t.hidden = true), 2600); }
+  function status(kind, text) { const s = $("status"); s.className = "pill " + kind; s.textContent = text; }
+  const phoneStatus = () => (phones.size ? status("ok", `${phones.size} phone${phones.size > 1 ? "s" : ""} connected`) : status("warn", "Waiting for a phone"));
+
+  // ------------------------------------------------------------ link: this page waits, phones connect to it
+  // The code is kept in this browser so a reload keeps the same pairing code (the scans themselves are not kept)
+  const newCode = () => B.PREFIX + Math.random().toString(36).slice(2, 8);
+  function start(id) {
+    if (typeof Peer === "undefined") { status("bad", "Link didn't load"); return; }
+    peer = new Peer(id, B.peerOptions());
+    peer.on("open", (myId) => { B.store.set("sapa-inputs-id", myId); showPairing(myId); phoneStatus(); });
+    peer.on("connection", (c) => {
+      c.on("open", () => { phones.add(c); phoneStatus(); c.send({ t: "hello" }); toast(`${(c.metadata && c.metadata.device) || "A phone"} connected`); });
+      c.on("data", (d) => onScan(d, c));
+      c.on("close", () => { phones.delete(c); phoneStatus(); });
+      c.on("error", () => {});
+    });
+    peer.on("disconnected", () => { if (!peer.destroyed) { status("warn", "Reconnecting…"); setTimeout(() => peer.reconnect(), 2000); } });
+    peer.on("error", (e) => {
+      if (e.type === "unavailable-id") { peer.destroy(); start(newCode()); }
+      else if (["network", "server-error", "socket-error", "socket-closed"].includes(e.type)) {
+        status("bad", "Can't reach the pairing service");
+        toast("Can't reach the pairing service (0.peerjs.com). The network may block it.");
+        setTimeout(() => { if (peer.destroyed) start(id); else if (peer.disconnected) peer.reconnect(); }, 5000);
+      }
+    });
+  }
+  function showPairing(id) {
+    const url = new URL("scanner.html", location.href);
+    url.search = "?pair=" + encodeURIComponent(id) + B.signalQuery();
+    const q = qrcode(0, "M"); q.addData(url.href); q.make();
+    $("qr").innerHTML = q.createSvgTag({ cellSize: 4, margin: 2, scalable: true });
+    $("code").textContent = id;
+    $("scanLink").href = url.href;
+  }
+
+  // ------------------------------------------------------------ a scan arrives
+  function onScan(d, c) {
+    if (!d || d.t !== "scan") return;
+    if (!rows.some((r) => r.id === d.id)) {
+      const blob = new Blob([d.photo], { type: "image/jpeg" });
+      add({ id: d.id, job: String(d.job || ""), raw: d.raw || "", product: d.product || "", batch: d.batch || "", label: d.label || "",
+        at: d.at || Date.now(), received: Date.now(), blob, url: URL.createObjectURL(blob), device: (c && c.metadata && c.metadata.device) || "Phone" });
+    }
+    if (c && c.open) c.send({ t: "ack", id: d.id });   // a resend after a dropped link is acknowledged again, not added twice
+  }
+  function add(r) {
+    r.kg = null; r.from = "reading"; r.text = "";
+    rows.unshift(r); fresh = r.id;
+    if ($("jobSel").value && $("jobSel").value !== r.job) $("jobSel").value = "";
+    render();
+    readWeight(r);
+  }
+
+  // ------------------------------------------------------------ the weight on the bag (OCR, in this browser)
+  let worker = null, queue = Promise.resolve();
+  const abs = (p) => new URL(p, location.href).href;
+  function getWorker() {
+    if (!worker) worker = Tesseract.createWorker("eng", 1, {
+      workerPath: abs("vendor/tesseract/worker.min.js"), corePath: abs("vendor/tesseract/"), langPath: abs("vendor/tesseract"),
+      gzip: true, cacheMethod: "none",
+    });
+    return worker;
+  }
+  async function prep(blob) {
+    const bmp = await createImageBitmap(blob);
+    const sc = Math.min(1, 2000 / Math.max(bmp.width, bmp.height)), c = document.createElement("canvas");
+    c.width = Math.round(bmp.width * sc); c.height = Math.round(bmp.height * sc);
+    const x = c.getContext("2d"); x.filter = "grayscale(1) contrast(1.4)"; x.drawImage(bmp, 0, 0, c.width, c.height);
+    return c;
+  }
+  function readWeight(r) {
+    queue = queue.then(async () => {
+      if (!rows.includes(r)) return;
+      try {
+        const w = await getWorker();
+        const { data } = await w.recognize(await prep(r.blob));
+        r.text = data.text || "";
+        const got = B.parseWeight(r.text);
+        if (r.from !== "edited") { r.kg = got ? got.kg : null; r.from = got ? "ocr" : "none"; }
+      } catch (e) {
+        if (r.from !== "edited") r.from = "error";
+        r.text = "Couldn't read the photo: " + e.message;
+      }
+      render();
+    });
+  }
+
+  // ------------------------------------------------------------ table and summary
+  const FROM = { reading: "Reading…", ocr: "Read off the bag", none: "Not found: type it", error: "Couldn't read", edited: "Typed in" };
+  const fmt = (v, d = 2) => (v === null || v === undefined ? "" : v.toLocaleString("en-GB", { minimumFractionDigits: d, maximumFractionDigits: d }));
+  function shown() { const j = $("jobSel").value; return j ? rows.filter((r) => r.job === j) : rows; }
+  function render() {
+    // job filter
+    const jobs = [...new Set(rows.map((r) => r.job))].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+    const cur = $("jobSel").value;
+    $("jobSel").innerHTML = `<option value="">All jobs</option>` + jobs.map((j) => `<option value="${esc(j)}"${j === cur ? " selected" : ""}>${esc(j)}</option>`).join("");
+    const list = shown();
+    $("rows").innerHTML = list.map((r) => `<tr data-id="${esc(r.id)}" class="${r.id === fresh ? "new" : ""}${!r.raw || r.from === "none" ? " warnrow" : ""}">
+      <td><img class="thumb" src="${r.url}" alt="Bag photo" data-open="${esc(r.id)}"></td>
+      <td class="m">${B.hms(r.at)}</td><td class="m">${esc(r.job)}</td>
+      <td class="m">${r.raw ? esc(r.product) : "<i>No QR read</i>"}</td><td class="m">${esc(r.batch)}</td><td class="m">${esc(r.label)}</td>
+      <td class="n"><input class="kg" type="text" inputmode="decimal" value="${r.kg === null ? "" : r.kg.toFixed(2)}" placeholder="${r.from === "reading" ? "…" : "kg"}" aria-label="Weight in kg" data-kg="${esc(r.id)}"></td>
+      <td><span class="src ${r.from}">${FROM[r.from]}</span></td><td>${esc(r.device)}</td></tr>`).join("");
+    fresh = null;
+    $("empty").hidden = rows.length > 0;
+    // summary per job and product
+    const groups = new Map();
+    for (const r of list) {
+      const k = r.job + "\u0000" + (r.raw ? r.product : "");
+      if (!groups.has(k)) groups.set(k, { job: r.job, product: r.raw ? r.product : "", bags: 0, kg: 0, unread: 0, noqr: 0 });
+      const g = groups.get(k); g.bags++; if (r.kg !== null) g.kg += r.kg; else g.unread++; if (!r.raw) g.noqr++;
+    }
+    const gs = [...groups.values()].sort((a, b) => a.job.localeCompare(b.job, undefined, { numeric: true }) || a.product.localeCompare(b.product));
+    $("sumBody").innerHTML = gs.length ? gs.map((g) => `<tr><td class="m">${esc(g.job)}</td><td class="m">${g.product ? esc(g.product) : "<i>No QR read</i>"}</td><td class="n">${g.bags}</td><td class="n">${fmt(g.kg)}</td><td class="n">${g.unread || ""}</td><td class="n">${g.noqr || ""}</td></tr>`).join("")
+      : `<tr><td colspan="6" class="hint">Nothing scanned yet.</td></tr>`;
+    const kg = list.reduce((a, r) => a + (r.kg || 0), 0);
+    $("stats").innerHTML = [["Bags", list.length, $("jobSel").value ? "job " + $("jobSel").value : `${jobs.length} job${jobs.length === 1 ? "" : "s"}`],
+      ["Weight on bags", fmt(kg), "kg read or typed"],
+      ["No weight read", list.filter((r) => r.kg === null && r.from !== "reading").length, "type it from the photo"],
+      ["No QR read", list.filter((r) => !r.raw).length, "photo only"]]
+      .map(([k, v, s]) => `<div><dt>${esc(k)}</dt><dd>${esc(v)}<small>${esc(s)}</small></dd></div>`).join("");
+  }
+
+  // weight typed in: kept as typed, OCR won't overwrite it
+  $("rows").addEventListener("change", (e) => {
+    const id = e.target.dataset.kg; if (!id) return;
+    const r = rows.find((x) => x.id === id), v = parseFloat(String(e.target.value).replace(",", "."));
+    if (!r) return;
+    if (e.target.value.trim() === "") { r.kg = null; r.from = "none"; }
+    else if (isFinite(v) && v >= 0) { r.kg = v; r.from = "edited"; }
+    render();
+  });
+  $("rows").addEventListener("click", (e) => { const id = e.target.dataset.open; if (id) openRow(rows.find((x) => x.id === id)); });
+  function openRow(r) {
+    if (!r) return;
+    $("dlgImg").src = r.url;
+    const info = [["Job", r.job], ["Product ID", r.product || "No QR read"], ["Identified Stock ID", r.batch], ["Label ID", r.label],
+      ["Weight", r.kg === null ? "not read" : fmt(r.kg) + " kg (" + FROM[r.from].toLowerCase() + ")"], ["Scanned", new Date(r.at).toLocaleString("en-GB")],
+      ["Phone", r.device], ["QR text", r.raw || "none"]];
+    $("dlgInfo").innerHTML = info.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join("");
+    $("dlgText").textContent = r.from === "reading" ? "Still reading…" : r.text.trim() || "No text found.";
+    $("dlg").showModal();
+  }
+  $("dlgClose").onclick = () => $("dlg").close();
+  $("dlg").addEventListener("click", (e) => { if (e.target === $("dlg")) $("dlg").close(); });
+  $("jobSel").onchange = render;
+
+  // ------------------------------------------------------------ export and clear
+  $("csvBtn").onclick = () => {
+    if (!rows.length) { toast("Nothing to export yet."); return; }
+    const cell = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+    const head = ["Scanned", "Job", "Product ID", "Identified Stock ID", "Label ID", "Quantity (kg)", "Weight from", "QR text", "Phone", "Text read from photo"];
+    const lines = rows.slice().reverse().map((r) => [new Date(r.at).toISOString(), r.job, r.product, r.batch, r.label, r.kg === null ? "" : r.kg, FROM[r.from], r.raw, r.device, r.text.replace(/\s+/g, " ").trim()].map(cell).join(","));
+    const blob = new Blob([[head.map(cell).join(","), ...lines].join("\r\n")], { type: "text/csv" });
+    const a = document.createElement("a"); a.href = URL.createObjectURL(blob);
+    a.download = `bag-scans-${new Date().toISOString().slice(0, 16).replace(/[:T]/g, "-")}.csv`;
+    document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  };
+  $("clearBtn").onclick = () => {
+    if (!rows.length || !confirm(`Clear all ${rows.length} scans from this page?`)) return;
+    rows.splice(0).forEach((r) => URL.revokeObjectURL(r.url));
+    render();
+  };
+
+  // ------------------------------------------------------------ a made-up bag, as if scanned on a phone
+  function sampleBag() {
+    const job = $("jobSel").value || "2626";
+    const batch = String(62200 + Math.floor(Math.random() * 99)), kg = (8 + Math.random() * 16).toFixed(2);
+    const label = "L" + String(Math.floor(Math.random() * 1e6)).padStart(6, "0"), product = Math.random() < 0.5 ? "MBSLOFF" : "MBGROFF";
+    const raw = `(90)${product}(10)${batch}(97)${label}`;
+    const c = document.createElement("canvas"); c.width = 1400; c.height = 1000;
+    const x = c.getContext("2d");
+    x.fillStyle = "#c9cfc9"; x.fillRect(0, 0, c.width, c.height);              // the bag
+    x.fillStyle = "#ffffff"; x.fillRect(120, 120, 1160, 760);                  // the label
+    x.fillStyle = "#111"; x.font = "bold 64px Arial, sans-serif";
+    x.fillText(product === "MBSLOFF" ? "SLICING OFFCUTS" : "GRATING OFFCUTS", 180, 230);
+    x.font = "48px Arial, sans-serif";
+    x.fillText("Product: " + product, 180, 330); x.fillText("Batch: " + batch, 180, 410); x.fillText("Label: " + label, 180, 490);
+    x.font = "bold 76px Arial, sans-serif"; x.fillText(`Net weight ${kg} kg`, 180, 640);
+    const q = qrcode(0, "M"); q.addData(raw); q.make();
+    const n = q.getModuleCount(), cell = Math.floor(300 / n), ox = 940, oy = 180;
+    for (let r = 0; r < n; r++) for (let k = 0; k < n; k++) if (q.isDark(r, k)) x.fillRect(ox + k * cell, oy + r * cell, cell, cell);
+    c.toBlob(async (blob) => {
+      onScan({ t: "scan", id: B.uid(), job, raw, product, batch, label, at: Date.now(), photo: await blob.arrayBuffer() }, { metadata: { device: "Sample (this laptop)" } });
+    }, "image/jpeg", 0.85);
+  }
+  $("sampleBtn").onclick = sampleBag;
+
+  render();
+  start(B.store.get("sapa-inputs-id") || newCode());
+})();
+</script>
+</body>
+</html>
