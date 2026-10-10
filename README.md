@@ -35,16 +35,24 @@ A demo of scanning offcut bags with a phone instead of the QR gun, so there's a 
 in (with a photo and the weight printed on the bag) to set against what SAP took.
 
 * **Laptop:** open https://nsikak-joseph-ikpong.github.io/SAPA_mobile/inputs.html. It shows a pairing QR code.
-* **Phone:** scan that code with the phone's camera app. The bag scanner opens, already paired. Enter the job
-  number, tap **Start scanning** and point the camera at each bag's label.
+  Type the job on the line in **Job on the line** and click **Set job**: every paired phone scans into that job
+  (phones can't scan until a job is set; changing it here changes it on the phones).
+* **Phone:** scan the pairing code with the phone's camera app. The bag scanner opens, already paired, showing
+  the job. Tap **Scan**: the camera comes on, reads the bag label's QR code, takes the picture and goes off again.
+  Tap **Scan next bag** for the next one. The camera also goes off by itself after 40 seconds without a code, or
+  with **Cancel**.
 
-Each label's QR code (`(90)` product, `(10)` batch, `(97)` label ID) is read on the phone, which takes a photo
-and sends both straight to the laptop. A bag is sent once per session; **Bag without readable QR** sends a photo
-of a bag whose code won't scan. On the laptop each bag appears as a row (photo, job, product, Identified Stock
-ID, label ID), and the weight is read off the photo (OCR, in the browser: "Net weight 12.46 kg", "12.46KG"…).
-A weight that isn't read, or is read wrong, can be typed in; click a photo to see it full size with the text
-that was read. The summary totals bags and kg per job and product; **Export CSV** saves the list, and
-**Add a sample bag** tries it without a phone.
+Each label's QR code (`(90)` product, `(10)` batch, `(97)` label ID) is read on the phone. It sends the photo (for
+the record) and a full-resolution close-up of the label cut out around the QR code, turned upright. A bag is sent
+once per session; **Bag without readable QR** sends a photo of a bag whose code won't scan. On the laptop each bag
+appears as a row (photo, job, product, Identified Stock ID, label ID) and the weight is read from the close-up
+(OCR, Tesseract in the browser: "Net weight 12.46 kg", "NET WT: 12,46", "12.46KG"…). The QR code says where the
+label is and which way up, so the label is cut out, enlarged to a set size and its contrast stretched before it's
+read; then the same turned round, a wider area, and the whole photo as a last resort. On test photos (blurred,
+tilted, unevenly lit) that read 24 of 24 weights where reading the whole photo read 5. A weight that isn't read,
+or is read wrong, can be typed in; click a photo to see it full size with the close-up and the text that was read.
+The summary totals bags and kg per job and product; **Export CSV** saves the list, and **Add a sample bag** tries
+it without a phone.
 
 Nothing is stored anywhere: the phone sends to the laptop's browser directly (WebRTC, through PeerJS). PeerJS's
 free cloud server (0.peerjs.com) only introduces the two browsers to each other, and its relay servers carry the

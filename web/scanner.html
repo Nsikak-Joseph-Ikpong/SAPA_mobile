@@ -43,27 +43,30 @@
   .pill.ok { background: var(--ok-soft); color: var(--ok); } .pill.warn { background: var(--warn-soft); color: var(--warn); } .pill.bad { background: var(--bad-soft); color: var(--bad); }
   .panel { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 14px; display: grid; gap: 10px; }
   .note { margin: 0; font-size: 13px; color: var(--muted); }
-  .note.bad { color: var(--bad); }
-  label { font-weight: 600; font-size: 13px; }
-  input[type=text] { width: 100%; font: 600 22px var(--mono); padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--ink); }
+  input[type=text] { width: 100%; font: 600 18px var(--mono); padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--ink); }
   button { font: 600 15px var(--sans); border-radius: 8px; padding: 12px 16px; cursor: pointer; border: 1px solid var(--accent); background: var(--accent); color: var(--accent-ink); }
   button.quiet { background: var(--surface); color: var(--ink); border-color: var(--line); font-weight: 500; }
-  button:disabled { opacity: 0.5; cursor: default; }
+  button:disabled { opacity: 0.45; cursor: default; }
+  button.big { font-size: 19px; padding: 18px; width: 100%; }
   :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   .row { display: flex; gap: 8px; flex-wrap: wrap; }
   .row > * { flex: 1 1 auto; }
-  .cam { position: relative; background: #000; border-radius: 10px; overflow: hidden; aspect-ratio: 3 / 4; max-height: 62vh; width: 100%; }
+  .job { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+  .job strong { font: 600 26px var(--mono); }
+  .job.none strong { font: 500 15px var(--sans); color: var(--warn); }
+  .cam { position: relative; background: #000; border-radius: 10px; overflow: hidden; aspect-ratio: 3 / 4; max-height: 60vh; width: 100%; }
   .cam video { width: 100%; height: 100%; object-fit: cover; display: block; }
-  .cam .frame { position: absolute; inset: 18% 14%; border: 3px solid rgba(255,255,255,0.85); border-radius: 14px; box-shadow: 0 0 0 999px rgba(0,0,0,0.25); pointer-events: none; transition: border-color .15s; }
-  .cam.hit .frame { border-color: #6dc690; }
+  .cam .frame { position: absolute; inset: 18% 14%; border: 3px solid rgba(255,255,255,0.85); border-radius: 14px; box-shadow: 0 0 0 999px rgba(0,0,0,0.25); pointer-events: none; }
   .cam .msg { position: absolute; left: 10px; right: 10px; bottom: 10px; text-align: center; font: 600 14px var(--sans); color: #fff; background: rgba(0,0,0,0.55); border-radius: 8px; padding: 8px 10px; }
   .cam .torch { position: absolute; right: 10px; top: 10px; padding: 8px 12px; font-size: 13px; background: rgba(0,0,0,0.5); border-color: transparent; color: #fff; }
-  .cam .idle { position: absolute; inset: 0; display: grid; place-items: center; color: #cfd6d2; text-align: center; padding: 20px; font-size: 14px; }
+  .last { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 12px; align-items: center; }
+  .last img { width: 96px; height: 96px; object-fit: cover; border-radius: 8px; background: #000; display: block; }
+  .last b { font-family: var(--mono); }
   .count { display: flex; justify-content: space-between; align-items: baseline; }
   .count strong { font: 600 18px var(--mono); }
   ul.items { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
-  ul.items li { display: grid; grid-template-columns: 56px minmax(0, 1fr) auto; gap: 10px; align-items: center; background: var(--sunken); border-radius: 8px; padding: 6px; }
-  ul.items img { width: 56px; height: 56px; object-fit: cover; border-radius: 6px; display: block; background: #000; }
+  ul.items li { display: grid; grid-template-columns: 48px minmax(0, 1fr) auto; gap: 10px; align-items: center; background: var(--sunken); border-radius: 8px; padding: 6px; }
+  ul.items img { width: 48px; height: 48px; object-fit: cover; border-radius: 6px; display: block; background: #000; }
   .it-main { min-width: 0; font-size: 13px; }
   .it-main b { font-family: var(--mono); font-weight: 600; }
   .it-main span { display: block; color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -82,33 +85,38 @@
 
   <section class="panel" id="pairPanel">
     <h2>Pair with the laptop</h2>
-    <p class="note">On the laptop, open the <b>Inputs</b> page. It shows a pairing code: scan it with this phone's camera app, or start the camera below and point it at the code. You can also type the code.</p>
+    <p class="note">On the laptop, open the <b>Inputs</b> page. Scan its pairing code with this phone's camera app, or tap <b>Scan</b> below and point at it. You can also type the code.</p>
     <form class="row" id="pairForm">
       <input type="text" id="pairCode" placeholder="sapa-…" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="Pairing code">
       <button type="submit">Pair</button>
     </form>
   </section>
 
-  <section class="panel" id="jobPanel">
-    <label for="job">Job (production order) number</label>
-    <input type="text" id="job" inputmode="numeric" autocomplete="off" placeholder="e.g. 2626">
+  <section class="panel job none" id="jobPanel" aria-live="polite">
+    <h2>Job</h2><strong id="jobText">Set the job on the laptop</strong>
   </section>
 
-  <div class="cam" id="cam">
+  <div class="cam" id="cam" hidden>
     <video id="video" playsinline muted></video>
-    <div class="frame" hidden id="frame"></div>
-    <div class="idle" id="idle">Tap <b>&nbsp;Start scanning&nbsp;</b> and allow the camera.</div>
+    <div class="frame"></div>
     <button type="button" class="torch" id="torch" hidden>Light</button>
-    <div class="msg" id="camMsg" hidden></div>
+    <div class="msg" id="camMsg">Point at the bag label</div>
   </div>
-  <div class="row">
-    <button type="button" id="startBtn">Start scanning</button>
-    <button type="button" class="quiet" id="noQrBtn" disabled title="Send a photo of a bag whose QR code won't scan">Bag without readable QR</button>
+
+  <button type="button" class="big" id="scanBtn">Scan</button>
+  <div class="row" id="scanRow" hidden>
+    <button type="button" class="quiet" id="noQrBtn" title="Send a photo of a bag whose QR code won't scan">Bag without readable QR</button>
+    <button type="button" class="quiet" id="cancelBtn">Cancel</button>
   </div>
   <div class="row" id="photoRow" hidden>
     <button type="button" class="quiet" id="photoBtn">Take a photo instead</button>
     <input type="file" id="photoIn" accept="image/*" capture="environment" hidden>
   </div>
+
+  <section class="panel" id="lastPanel" hidden>
+    <h2>Last scan</h2>
+    <div class="last"><img id="lastImg" alt="Last bag photo"><div id="lastText"></div></div>
+  </section>
 
   <section class="panel">
     <div class="count"><h2>This session</h2><span><strong id="nSent">0</strong> of <strong id="nAll">0</strong> on the laptop</span></div>
@@ -121,38 +129,39 @@
 <script src="vendor/peerjs.min.js"></script>
 <script src="vendor/jsQR.js"></script>
 <script src="bagscan.js"></script>
+<script src="bagocr.js"></script>
 <script>
 (function () {
   "use strict";
-  const B = window.BagScan, $ = (id) => document.getElementById(id);
+  const B = window.BagScan, O = window.BagOCR, $ = (id) => document.getElementById(id);
+  const SCAN_SECONDS = 40;            // the camera turns itself off if no code is found by then
   let laptop = new URLSearchParams(location.search).get("pair");
+  let job = "";                       // set on the laptop
   let peer = null, conn = null, retryT = null, openT = null;
-  const items = [];                 // newest last; each { id, job, raw, product, batch, label, at, buf, url, state }
-  const seen = new Map();           // label key -> time sent (a bag is sent once per session)
-  let stream = null, scanning = false, busy = false, detector = null, audio = null, lastMsgAt = 0;
+  const items = [];                   // newest last
+  const seen = new Map();             // label key -> time sent (a bag is sent once per session)
+  let stream = null, scanning = false, busy = false, detector = null, audio = null, lastMsgAt = 0, offT = null;
 
-  function toast(msg) { const t = $("toast"); t.textContent = msg; t.hidden = false; clearTimeout(toast.t); toast.t = setTimeout(() => (t.hidden = true), 2600); }
+  function toast(msg) { const t = $("toast"); t.textContent = msg; t.hidden = false; clearTimeout(toast.t); toast.t = setTimeout(() => (t.hidden = true), 2800); }
   function status(kind, text) { const s = $("status"); s.className = "pill " + kind; s.textContent = text; }
-  function camMsg(text, ms) {
-    const m = $("camMsg"); m.textContent = text; m.hidden = !text;
-    clearTimeout(camMsg.t); if (ms) camMsg.t = setTimeout(() => (m.hidden = true), ms);
+  const camMsg = (text) => ($("camMsg").textContent = text);
+  function showJob() {
+    $("jobPanel").classList.toggle("none", !job);
+    $("jobText").textContent = job || (conn && conn.open ? "Set the job on the laptop" : "Waiting for the laptop");
+    $("scanBtn").disabled = !!laptop && !job;
   }
-
-  // ------------------------------------------------------------ job number (remembered on this phone)
-  $("job").value = B.store.get("sapa-job") || "";
-  $("job").addEventListener("input", () => B.store.set("sapa-job", $("job").value.trim()));
 
   // ------------------------------------------------------------ link to the laptop
   function setLaptop(id) {
     laptop = id.trim().toLowerCase();
     history.replaceState(null, "", location.pathname + "?pair=" + encodeURIComponent(laptop) + B.signalQuery());
-    if (conn) { try { conn.close(); } catch { /* already closed */ } conn = null; }
-    connect();
+    if (conn) { try { conn.close(); } catch { /* closed */ } conn = null; }
+    connect(); showJob();
   }
   function retry(ms) { clearTimeout(retryT); retryT = setTimeout(connect, ms); }
   function connect() {
     $("pairPanel").hidden = !!laptop;
-    if (!laptop) { status("", "Not paired"); return; }
+    if (!laptop) { status("", "Not paired"); showJob(); return; }
     if (typeof Peer === "undefined") { status("bad", "Link didn't load"); return; }
     if (!peer || peer.destroyed) {
       status("warn", "Connecting…");
@@ -162,10 +171,10 @@
       peer.on("error", (e) => {
         if (e.type === "peer-unavailable") {
           status("bad", "Laptop not found");
-          camMsg("Can't find the laptop. Is the Inputs page open there? If it was closed, scan its pairing code again.", 6000);
-          conn = null; retry(5000);
+          toast("Can't find the laptop. Is the Inputs page open there? If it was closed, scan its pairing code again.");
+          conn = null; showJob(); retry(5000);
         } else if (["network", "server-error", "socket-error", "socket-closed"].includes(e.type)) {
-          status("bad", "No connection"); conn = null; retry(5000);
+          status("bad", "No connection"); conn = null; showJob(); retry(5000);
         }
       });
       return;
@@ -177,15 +186,20 @@
     status("warn", "Connecting…");
     const c = conn = peer.connect(laptop, { reliable: true, metadata: { device: deviceName() } });
     clearTimeout(openT);
-    // no answer within 15 s: the network is probably blocking direct connections
     openT = setTimeout(() => {
-      if (c === conn && !c.open) { status("bad", "Couldn't connect"); camMsg("Couldn't reach the laptop. This network may block it: try mobile data on the phone.", 7000); conn = null; try { c.close(); } catch { /* */ } retry(5000); }
+      if (c === conn && !c.open) { status("bad", "Couldn't connect"); toast("Couldn't reach the laptop. This network may block it: try mobile data on the phone."); conn = null; try { c.close(); } catch { /* */ } retry(5000); }
     }, 15000);
-    c.on("open", () => { if (c !== conn) return; clearTimeout(openT); status("ok", "Connected"); flush(); });
+    c.on("open", () => { if (c !== conn) return; clearTimeout(openT); status("ok", "Connected"); showJob(); flush(); });
     c.on("data", (d) => {
-      if (d && d.t === "ack") { const it = items.find((x) => x.id === d.id); if (it) { it.state = "sent"; render(); } }
+      if (!d) return;
+      if (d.t === "ack") { const it = items.find((x) => x.id === d.id); if (it) { it.state = "sent"; render(); } }
+      if (d.t === "job" || d.t === "hello") {
+        const was = job; job = String(d.job || "");
+        showJob();
+        if (was && job !== was) toast(job ? `Job changed to ${job}` : "The laptop cleared the job");
+      }
     });
-    c.on("close", () => { if (c !== conn) return; conn = null; status("warn", "Reconnecting…"); retry(3000); });
+    c.on("close", () => { if (c !== conn) return; conn = null; status("warn", "Reconnecting…"); showJob(); retry(3000); });
   }
   function deviceName() {
     const ua = navigator.userAgent;
@@ -193,8 +207,9 @@
   }
   function send(it) {
     if (!conn || !conn.open) { it.state = "queued"; return; }
-    it.state = it.state === "sent" ? "sent" : "sending";
-    conn.send({ t: "scan", id: it.id, job: it.job, raw: it.raw, product: it.product, batch: it.batch, label: it.label, at: it.at, photo: it.buf, w: it.w, h: it.h });
+    if (it.state !== "sent") it.state = "sending";
+    conn.send({ t: "scan", id: it.id, job: it.job, raw: it.raw, product: it.product, batch: it.batch, label: it.label, at: it.at,
+      photo: it.photo, label_img: it.labelImg, label_qr: it.labelQr });
   }
   function flush() { for (const it of items) if (it.state !== "sent") send(it); render(); }
 
@@ -204,104 +219,130 @@
     if (v) setLaptop(v.includes("pair=") ? new URL(v).searchParams.get("pair") : v);
   });
 
-  // ------------------------------------------------------------ camera and QR reading
+  // ------------------------------------------------------------ camera: on for one scan, then off
   async function startCamera() {
     if (!audio) try { audio = new (window.AudioContext || window.webkitAudioContext)(); } catch { /* no sound */ }
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { noLiveCamera("This browser can't show the camera here."); return; }
     try {
-      stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: { facingMode: { ideal: "environment" }, width: { ideal: 1920 }, height: { ideal: 1080 } } });
+      // as sharp as the phone allows: the label is read from this picture
+      stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: { facingMode: { ideal: "environment" }, width: { ideal: 3840 }, height: { ideal: 2160 } } });
     } catch (e) {
       noLiveCamera(e.name === "NotAllowedError" ? "Camera blocked. Allow the camera for this page in the browser's settings, then try again." : "Couldn't start the camera: " + e.message);
       return;
     }
     const v = $("video"); v.srcObject = stream; await v.play().catch(() => {});
-    $("idle").hidden = true; $("frame").hidden = false; $("noQrBtn").disabled = false;
-    $("startBtn").textContent = "Stop camera";
+    $("cam").hidden = false; $("scanBtn").hidden = true; $("scanRow").hidden = !laptop;
     const track = stream.getVideoTracks()[0], caps = track.getCapabilities ? track.getCapabilities() : {};
-    $("torch").hidden = !caps.torch;
-    if ("BarcodeDetector" in window) {
+    $("torch").hidden = !caps.torch; $("torch").classList.remove("on");
+    if (caps.focusMode && caps.focusMode.includes("continuous")) track.applyConstraints({ advanced: [{ focusMode: "continuous" }] }).catch(() => {});
+    if (!detector && "BarcodeDetector" in window) {
       try { if ((await BarcodeDetector.getSupportedFormats()).includes("qr_code")) detector = new BarcodeDetector({ formats: ["qr_code"] }); } catch { detector = null; }
     }
-    scanning = true;
-    camMsg(laptop ? "Point at a bag label" : "Point at the laptop's pairing code");
+    scanning = true; busy = false;
+    camMsg(laptop ? "Point at the bag label" : "Point at the laptop's pairing code");
+    clearTimeout(offT); offT = setTimeout(() => { if (scanning) { stopCamera(); toast("No code found, camera off. Tap Scan to try again."); } }, SCAN_SECONDS * 1000);
+    $("cam").scrollIntoView({ block: "nearest", behavior: "smooth" });
     loop();
   }
   function stopCamera() {
-    scanning = false;
+    scanning = false; clearTimeout(offT);
     if (stream) stream.getTracks().forEach((t) => t.stop());
     stream = null; $("video").srcObject = null;
-    $("idle").hidden = false; $("frame").hidden = true; $("torch").hidden = true; $("noQrBtn").disabled = true;
-    $("startBtn").textContent = "Start scanning"; camMsg("");
+    $("cam").hidden = true; $("scanRow").hidden = true; $("scanBtn").hidden = false;
   }
-  function noLiveCamera(msg) { $("idle").textContent = msg; $("photoRow").hidden = false; toast(msg); }
+  function noLiveCamera(msg) { $("photoRow").hidden = false; toast(msg); }
 
+  // a QR code in the picture: its text, and its corners in the picture's own pixels
   const small = document.createElement("canvas"), sctx = small.getContext("2d", { willReadFrequently: true });
-  async function decode(src, w, h) {
-    if (detector) { try { const r = await detector.detect(src); if (r.length) return r[0].rawValue; } catch { /* fall back to jsQR */ } }
-    const sc = Math.min(1, 900 / Math.max(w, h));
+  function jsqr(src, w, h, max, attempts) {
+    const sc = Math.min(1, max / Math.max(w, h));
     small.width = Math.round(w * sc); small.height = Math.round(h * sc);
     sctx.drawImage(src, 0, 0, small.width, small.height);
-    const r = window.jsQR(sctx.getImageData(0, 0, small.width, small.height).data, small.width, small.height, { inversionAttempts: "dontInvert" });
-    return r ? r.data : null;
+    const r = window.jsQR(sctx.getImageData(0, 0, small.width, small.height).data, small.width, small.height, { inversionAttempts: attempts });
+    if (!r) return null;
+    const p = (q) => ({ x: q.x / sc, y: q.y / sc }), L = r.location;
+    return { text: r.data, qr: { tl: p(L.topLeftCorner), tr: p(L.topRightCorner), bl: p(L.bottomLeftCorner), br: p(L.bottomRightCorner) } };
+  }
+  async function decode(src, w, h) {
+    if (detector) {
+      try {
+        const r = await detector.detect(src);
+        if (r.length) { const c = r[0].cornerPoints || []; return { text: r[0].rawValue, qr: c.length === 4 ? { tl: c[0], tr: c[1], br: c[2], bl: c[3] } : null }; }
+      } catch { /* fall back to jsQR */ }
+      return null;
+    }
+    return jsqr(src, w, h, 900, "dontInvert");
   }
   async function loop() {
     if (!scanning) return;
     const v = $("video");
     if (!busy && v.readyState >= 2 && v.videoWidth) {
-      const text = await decode(v, v.videoWidth, v.videoHeight).catch(() => null);
-      if (text) await onCode(text, v, v.videoWidth, v.videoHeight);
+      const r = await decode(v, v.videoWidth, v.videoHeight).catch(() => null);
+      if (r && scanning) await onCode(r.text, v, v.videoWidth, v.videoHeight, r.qr);
     }
-    setTimeout(loop, 180);
+    if (scanning) setTimeout(loop, 150);
   }
 
-  async function onCode(text, src, w, h) {
-    // the laptop's pairing code: a link to this page with ?pair=, or the bare code
+  async function onCode(text, src, w, h, hint) {
     const pairing = text.includes("pair=") ? (() => { try { return new URL(text).searchParams.get("pair"); } catch { return null; } })() : text.startsWith(B.PREFIX) ? text : null;
     if (pairing) {
-      if (pairing !== laptop) { setLaptop(pairing); toast("Paired with the laptop"); hit(); camMsg("Paired. Now point at a bag label", 3000); }
+      if (pairing !== laptop) { setLaptop(pairing); hit(); stopCamera(); toast("Paired with the laptop"); }
       return;
     }
-    const lab = B.parseLabel(text);
-    const now = Date.now();
-    if (!lab) { if (now - lastMsgAt > 2500) { lastMsgAt = now; camMsg("That code isn't a bag label", 2000); } return; }
-    if (!laptop) { if (now - lastMsgAt > 2500) { lastMsgAt = now; camMsg("Pair with the laptop first", 2500); } return; }
+    const lab = B.parseLabel(text), now = Date.now();
+    const say = (m) => { if (now - lastMsgAt > 2000) { lastMsgAt = now; camMsg(m); } };
+    if (!lab) return say("That code isn't a bag label");
+    if (!laptop) return say("Pair with the laptop first");
+    if (!job) return say("Set the job on the laptop first");
     const key = lab.label || text;
-    if (seen.has(key)) {
-      if (now - lastMsgAt > 2500) { lastMsgAt = now; camMsg(`Already scanned at ${B.hms(seen.get(key))}: not sent again`, 2500); }
-      return;
-    }
-    if (!$("job").value.trim()) { if (now - lastMsgAt > 2500) { lastMsgAt = now; camMsg("Enter the job number first", 2500); $("job").focus(); } return; }
+    if (seen.has(key)) return say(`Already scanned at ${B.hms(seen.get(key))}. Point at the next bag`);
     seen.set(key, now);
-    await capture(text, lab, src, w, h);
+    await capture(text, lab, src, w, h, hint);
   }
 
-  // the photo: the camera frame at up to 1600 px, as JPEG
-  async function capture(raw, lab, src, w, h) {
+  // The picture at the moment the code was read: a photo for the record (up to 1600 px), and the label cut out
+  // around the QR code at full camera resolution for reading the weight. Then the camera goes off.
+  async function capture(raw, lab, src, w, h, hint) {
     busy = true;
     try {
-      const sc = Math.min(1, 1600 / Math.max(w, h)), c = document.createElement("canvas");
-      c.width = Math.round(w * sc); c.height = Math.round(h * sc);
-      c.getContext("2d").drawImage(src, 0, 0, c.width, c.height);
-      const blob = await new Promise((ok) => c.toBlob(ok, "image/jpeg", 0.85));
-      const it = { id: B.uid(), job: $("job").value.trim(), raw: raw || "", product: lab ? lab.product : "", batch: lab ? lab.batch : "", label: lab ? lab.label : "",
-        at: Date.now(), buf: await blob.arrayBuffer(), url: URL.createObjectURL(blob), w: c.width, h: c.height, state: "queued" };
+      const full = document.createElement("canvas"); full.width = w; full.height = h;
+      full.getContext("2d").drawImage(src, 0, 0, w, h);
+      if (src === $("video")) stopCamera();
+      const sc = Math.min(1, 1600 / Math.max(w, h)), ph = document.createElement("canvas");
+      ph.width = Math.round(w * sc); ph.height = Math.round(h * sc);
+      ph.getContext("2d").drawImage(full, 0, 0, ph.width, ph.height);
+      const photo = await new Promise((ok) => ph.toBlob(ok, "image/jpeg", 0.85));
+      let labelImg = null, labelQr = null;
+      // the code's corners in this exact picture, the right way up (jsQR knows which corner is which); else the
+      // corners the phone's own reader gave (the laptop then also tries the label turned round)
+      const found = raw ? (jsqr(full, w, h, 1400, "attemptBoth") || jsqr(full, w, h, 2200, "attemptBoth")) : null;
+      const corners = found ? found.qr : hint;
+      if (corners) {
+        const cut = O.labelCrop(full, corners);
+        labelImg = await (await new Promise((ok) => cut.canvas.toBlob(ok, "image/jpeg", 0.92))).arrayBuffer();
+        labelQr = cut.qr;
+      }
+      const it = { id: B.uid(), job, raw: raw || "", product: lab ? lab.product : "", batch: lab ? lab.batch : "", label: lab ? lab.label : "",
+        at: Date.now(), photo: await photo.arrayBuffer(), labelImg, labelQr, url: URL.createObjectURL(photo), state: "queued" };
       items.push(it);
-      hit();
-      camMsg(lab ? `Sent ${lab.product || ""} batch ${lab.batch}` : "Photo sent (no QR)", 1800);
-      send(it); render();
-    } finally { setTimeout(() => (busy = false), 1200); }
+      hit(); send(it); render(); showLast(it);
+    } finally { busy = false; }
   }
   function hit() {
-    $("cam").classList.add("hit"); setTimeout(() => $("cam").classList.remove("hit"), 400);
     if (navigator.vibrate) navigator.vibrate(70);
     if (audio) try { const o = audio.createOscillator(), g = audio.createGain(); o.frequency.value = 1320; g.gain.value = 0.08; o.connect(g).connect(audio.destination); o.start(); o.stop(audio.currentTime + 0.09); } catch { /* no sound */ }
   }
+  function showLast(it) {
+    $("lastPanel").hidden = false; $("lastImg").src = it.url;
+    $("lastText").innerHTML = (it.raw ? `<b>${B.esc(it.product || "?")}</b><br>batch <b>${B.esc(it.batch)}</b>` : "<b>No QR read</b> (photo only)")
+      + `<br><span class="note">Job ${B.esc(it.job)} · ${B.hms(it.at)}</span>`;
+  }
 
-  $("startBtn").onclick = () => (scanning ? stopCamera() : startCamera());
+  $("scanBtn").onclick = () => startCamera();
+  $("cancelBtn").onclick = () => stopCamera();
   $("noQrBtn").onclick = () => {
     const v = $("video");
-    if (!$("job").value.trim()) { toast("Enter the job number first"); $("job").focus(); return; }
-    if (!laptop) { toast("Pair with the laptop first"); return; }
+    if (!job) { toast("Set the job on the laptop first"); return; }
     if (v.videoWidth) capture(null, null, v, v.videoWidth, v.videoHeight);
   };
   $("torch").onclick = async () => {
@@ -310,16 +351,16 @@
     const on = !$("torch").classList.contains("on");
     try { await track.applyConstraints({ advanced: [{ torch: on }] }); $("torch").classList.toggle("on", on); } catch { toast("The light can't be switched from here"); }
   };
-  // no live camera: a photo per bag, read the same way
+  // no live camera: one photo per bag, read the same way
   $("photoBtn").onclick = () => $("photoIn").click();
   $("photoIn").onchange = async () => {
     const f = $("photoIn").files[0]; $("photoIn").value = "";
     if (!f) return;
     const url = URL.createObjectURL(f), img = new Image(); img.src = url;
     try { await img.decode(); } catch { toast("Couldn't open that photo"); return; }
-    const text = await decode(img, img.naturalWidth, img.naturalHeight).catch(() => null);
-    if (text) await onCode(text, img, img.naturalWidth, img.naturalHeight);
-    else if (laptop && $("job").value.trim()) await capture(null, null, img, img.naturalWidth, img.naturalHeight);
+    const r = jsqr(img, img.naturalWidth, img.naturalHeight, 1400, "attemptBoth");
+    if (r) await onCode(r.text, img, img.naturalWidth, img.naturalHeight, r.qr);
+    else if (laptop && job) await capture(null, null, img, img.naturalWidth, img.naturalHeight);
     else toast("No QR code found in the photo");
     URL.revokeObjectURL(url);
   };
@@ -334,10 +375,10 @@
     $("empty").hidden = items.length > 0;
     $("nAll").textContent = items.length;
     $("nSent").textContent = items.filter((x) => x.state === "sent").length;
+    $("scanBtn").textContent = items.length ? "Scan next bag" : "Scan";
   }
 
-  render();
-  connect();
+  render(); showJob(); connect();
 })();
 </script>
 </body>

@@ -83,6 +83,13 @@
   .dlg dt { color: var(--muted); } .dlg dd { margin: 0; overflow-wrap: anywhere; }
   .dlg pre { white-space: pre-wrap; font: 12px var(--mono); background: var(--sunken); padding: 8px; border-radius: 6px; margin: 0; max-height: 220px; overflow: auto; }
   .dlghead { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+  .jobbar { display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: center; background: var(--surface); border: 1px solid var(--line); border-left: 5px solid var(--accent); border-radius: 8px; padding: 12px 16px; }
+  .jobbar label { font-weight: 600; }
+  .jobbar input { font: 600 20px var(--mono); width: 9em; padding: 6px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--ink); }
+  .jobbar .now { color: var(--muted); font-size: 13px; }
+  .jobbar .now b { color: var(--ink); font-family: var(--mono); font-size: 15px; }
+  .jobbar.unset { border-left-color: var(--warn); }
+  .dlg .crop { max-height: 220px; width: auto; max-width: 100%; }
   .toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); background: var(--ink); color: var(--ground); padding: 8px 14px; border-radius: 6px; font-size: 13px; z-index: 20; }
   [hidden] { display: none !important; }
 </style>
@@ -93,6 +100,13 @@
     <h1>Input products: bag scans</h1>
     <p class="sub">Bags scanned on the phone appear here as they're scanned, with the photo and the weight read off the bag. Nothing is saved: the scans live in this browser tab only, and reloading the page clears them. Export to keep a copy.</p>
   </div>
+
+  <form class="jobbar unset" id="jobForm">
+    <label for="jobIn">Job on the line</label>
+    <input id="jobIn" type="text" inputmode="numeric" autocomplete="off" placeholder="e.g. 2626">
+    <button type="submit">Set job</button>
+    <span class="now" id="jobNow">No job set: phones can't scan until one is.</span>
+  </form>
 
   <div class="top">
     <section class="panel" aria-labelledby="pair-h">
@@ -136,6 +150,7 @@
     <div style="display:grid;gap:12px;align-content:start">
       <div class="dlghead"><h2>Bag</h2><button type="button" class="quiet" id="dlgClose">Close</button></div>
       <dl id="dlgInfo"></dl>
+      <div><h2 style="margin-bottom:6px">Label close-up (read for the weight)</h2><img id="dlgCrop" class="crop" alt="Label close-up"></div>
       <div><h2 style="margin-bottom:6px">Text read from the photo</h2><pre id="dlgText"></pre></div>
     </div>
   </div>
@@ -145,7 +160,9 @@
 <script src="vendor/peerjs.min.js"></script>
 <script src="vendor/qrcode.js"></script>
 <script src="vendor/tesseract/tesseract.min.js"></script>
+<script src="vendor/jsQR.js"></script>
 <script src="bagscan.js"></script>
+<script src="bagocr.js"></script>
 <script>
 (function () {
   "use strict";
@@ -153,6 +170,7 @@
   const rows = [];                         // newest first
   const phones = new Set();
   let peer = null, fresh = null;
+  let job = B.store.get("sapa-inputs-job") || "";   // the job the phones scan into, set here
 
   function toast(msg) { const t = $("toast"); t.textContent = msg; t.hidden = false; clearTimeout(toast.t); toast.t = setTimeout(() => (t.hidden = true), 2600); }
   function status(kind, text) { const s = $("status"); s.className = "pill " + kind; s.textContent = text; }
@@ -166,7 +184,7 @@
     peer = new Peer(id, B.peerOptions());
     peer.on("open", (myId) => { B.store.set("sapa-inputs-id", myId); showPairing(myId); phoneStatus(); });
     peer.on("connection", (c) => {
-      c.on("open", () => { phones.add(c); phoneStatus(); c.send({ t: "hello" }); toast(`${(c.metadata && c.metadata.device) || "A phone"} connected`); });
+      c.on("open", () => { phones.add(c); phoneStatus(); c.send({ t: "hello", job }); toast(`${(c.metadata && c.metadata.device) || "A phone"} connected`); });
       c.on("data", (d) => onScan(d, c));
       c.on("close", () => { phones.delete(c); phoneStatus(); });
       c.on("error", () => {});
@@ -195,7 +213,8 @@
     if (!d || d.t !== "scan") return;
     if (!rows.some((r) => r.id === d.id)) {
       const blob = new Blob([d.photo], { type: "image/jpeg" });
-      add({ id: d.id, job: String(d.job || ""), raw: d.raw || "", product: d.product || "", batch: d.batch || "", label: d.label || "",
+      const labelBlob = d.label_img ? new Blob([d.label_img], { type: "image/jpeg" }) : null;
+      add({ id: d.id, job: String(d.job || job || ""), labelBlob, labelQr: d.label_qr || null, labelUrl: labelBlob ? URL.createObjectURL(labelBlob) : null, raw: d.raw || "", product: d.product || "", batch: d.batch || "", label: d.label || "",
         at: d.at || Date.now(), received: Date.now(), blob, url: URL.createObjectURL(blob), device: (c && c.metadata && c.metadata.device) || "Phone" });
     }
     if (c && c.open) c.send({ t: "ack", id: d.id });   // a resend after a dropped link is acknowledged again, not added twice
@@ -218,22 +237,15 @@
     });
     return worker;
   }
-  async function prep(blob) {
-    const bmp = await createImageBitmap(blob);
-    const sc = Math.min(1, 2000 / Math.max(bmp.width, bmp.height)), c = document.createElement("canvas");
-    c.width = Math.round(bmp.width * sc); c.height = Math.round(bmp.height * sc);
-    const x = c.getContext("2d"); x.filter = "grayscale(1) contrast(1.4)"; x.drawImage(bmp, 0, 0, c.width, c.height);
-    return c;
-  }
   function readWeight(r) {
     queue = queue.then(async () => {
       if (!rows.includes(r)) return;
       try {
         const w = await getWorker();
-        const { data } = await w.recognize(await prep(r.blob));
-        r.text = data.text || "";
-        const got = B.parseWeight(r.text);
-        if (r.from !== "edited") { r.kg = got ? got.kg : null; r.from = got ? "ocr" : "none"; }
+        // the label close-up from the phone (QR position known) when there is one, else the photo
+        const res = r.labelBlob ? await BagOCR.readWeight(w, r.labelBlob, { qr: r.labelQr, photo: r.blob }) : await BagOCR.readWeight(w, r.blob);
+        r.text = res.text; r.how = res.weight ? res.weight.from : "";
+        if (r.from !== "edited") { r.kg = res.weight ? res.weight.kg : null; r.from = res.weight ? "ocr" : "none"; }
       } catch (e) {
         if (r.from !== "edited") r.from = "error";
         r.text = "Couldn't read the photo: " + e.message;
@@ -292,9 +304,10 @@
     if (!r) return;
     $("dlgImg").src = r.url;
     const info = [["Job", r.job], ["Product ID", r.product || "No QR read"], ["Identified Stock ID", r.batch], ["Label ID", r.label],
-      ["Weight", r.kg === null ? "not read" : fmt(r.kg) + " kg (" + FROM[r.from].toLowerCase() + ")"], ["Scanned", new Date(r.at).toLocaleString("en-GB")],
+      ["Weight", r.kg === null ? "not read" : fmt(r.kg) + " kg (" + FROM[r.from].toLowerCase() + (r.from === "ocr" && r.how ? ", " + r.how : "") + ")"], ["Scanned", new Date(r.at).toLocaleString("en-GB")],
       ["Phone", r.device], ["QR text", r.raw || "none"]];
     $("dlgInfo").innerHTML = info.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join("");
+    $("dlgCrop").hidden = !r.labelUrl; if (r.labelUrl) $("dlgCrop").src = r.labelUrl;
     $("dlgText").textContent = r.from === "reading" ? "Still reading…" : r.text.trim() || "No text found.";
     $("dlg").showModal();
   }
@@ -315,13 +328,13 @@
   };
   $("clearBtn").onclick = () => {
     if (!rows.length || !confirm(`Clear all ${rows.length} scans from this page?`)) return;
-    rows.splice(0).forEach((r) => URL.revokeObjectURL(r.url));
+    rows.splice(0).forEach((r) => { URL.revokeObjectURL(r.url); if (r.labelUrl) URL.revokeObjectURL(r.labelUrl); });
     render();
   };
 
   // ------------------------------------------------------------ a made-up bag, as if scanned on a phone
   function sampleBag() {
-    const job = $("jobSel").value || "2626";
+    const sJob = job || $("jobSel").value || "2626";
     const batch = String(62200 + Math.floor(Math.random() * 99)), kg = (8 + Math.random() * 16).toFixed(2);
     const label = "L" + String(Math.floor(Math.random() * 1e6)).padStart(6, "0"), product = Math.random() < 0.5 ? "MBSLOFF" : "MBGROFF";
     const raw = `(90)${product}(10)${batch}(97)${label}`;
@@ -338,11 +351,29 @@
     const n = q.getModuleCount(), cell = Math.floor(300 / n), ox = 940, oy = 180;
     for (let r = 0; r < n; r++) for (let k = 0; k < n; k++) if (q.isDark(r, k)) x.fillRect(ox + k * cell, oy + r * cell, cell, cell);
     c.toBlob(async (blob) => {
-      onScan({ t: "scan", id: B.uid(), job, raw, product, batch, label, at: Date.now(), photo: await blob.arrayBuffer() }, { metadata: { device: "Sample (this laptop)" } });
+      onScan({ t: "scan", id: B.uid(), job: sJob, raw, product, batch, label, at: Date.now(), photo: await blob.arrayBuffer() }, { metadata: { device: "Sample (this laptop)" } });
     }, "image/jpeg", 0.85);
   }
   $("sampleBtn").onclick = sampleBag;
 
+  // ------------------------------------------------------------ the job: set here, sent to every phone
+  function showJob() {
+    $("jobForm").classList.toggle("unset", !job);
+    $("jobNow").innerHTML = job ? `Phones are scanning into job <b>${esc(job)}</b>` : "No job set: phones can't scan until one is.";
+  }
+  $("jobIn").value = job;
+  $("jobForm").addEventListener("submit", (e) => {
+    e.preventDefault();
+    const v = $("jobIn").value.trim();
+    if (v === job) return;
+    job = v; B.store.set("sapa-inputs-job", job);
+    for (const c of phones) if (c.open) c.send({ t: "job", job });
+    showJob();
+    if (job) { $("jobSel").value = ""; render(); }
+    toast(job ? `Job set to ${job}${phones.size ? ": sent to the phone" + (phones.size > 1 ? "s" : "") : ""}` : "Job cleared");
+  });
+
+  showJob();
   render();
   start(B.store.get("sapa-inputs-id") || newCode());
 })();
