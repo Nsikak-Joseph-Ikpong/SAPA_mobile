@@ -5,29 +5,39 @@
   "use strict";
   const PREFIX = "sapa-";
 
-  // GS1 text on the plant's labels, e.g. "(90)RCSL2061WF1856(10)50085(97)L0001": 90 = product, 10 = batch,
-  // 97 = label ID. Raw GS1 (fields ended by the GS character) and a bare batch number are read too.
-  function parseLabel(text) {
-    const t = String(text || "").trim(), ai = {};
+  // The two QR codes on the plant's SAP labels:
+  //   big (goods movement):  "(90)RMMA20BF(10)43282"          90 = product, 10 = batch (97 = label ID when present)
+  //   small (scanning in):   "RMMA20BF,43282,1007.71,KGM"     product, batch, quantity, unit
+  // Units are UN/ECE codes: KGM = kg, XCS = case, MTR = m. Raw GS1 (fields ended by the GS character) and a bare batch
+  // number are read too.
+  const UNITS = { KGM: "kg", XCS: "case", MTR: "m", EA: "each", C62: "each", H87: "piece", LTR: "l", GRM: "g" };
+  function parseCode(text) {
+    const t = String(text || "").trim();
+    const sm = t.match(/^([A-Z0-9][A-Z0-9._-]{1,39}),([A-Z0-9._-]{1,30}),(-?\d+(?:\.\d+)?),([A-Z0-9]{1,4})$/i);
+    if (sm) return { kind: "small", product: sm[1].toUpperCase(), batch: sm[2], qty: parseFloat(sm[3]), unit: UNITS[sm[4].toUpperCase()] || sm[4].toLowerCase(), unitCode: sm[4].toUpperCase() };
+    const ai = {};
     for (const m of t.matchAll(/\((\d{2,4})\)([^()\u001d]*)/g)) ai[m[1]] = m[2].trim();
     if (!Object.keys(ai).length && /\u001d/.test(t)) {
       for (const part of t.replace(/^\]Q\d/, "").split("\u001d")) { const m = part.match(/^(90|10|97|21|01)(.+)$/); if (m) ai[m[1]] = m[2].trim(); }
     }
-    if (ai["10"] || ai["90"]) return { product: ai["90"] || "", batch: ai["10"] || "", label: ai["97"] || "" };
-    return /^[\w.-]{2,40}$/.test(t) ? { product: "", batch: t, label: "" } : null;
+    if (ai["10"] || ai["90"]) return { kind: "big", product: (ai["90"] || "").toUpperCase(), batch: ai["10"] || "", label: ai["97"] || "" };
+    return { kind: "other" };
   }
-
-  // The weight printed on the bag, from the OCR text: "Net weight 12.46 kg", "NET WT: 12,46", "12.46KG".
-  // A pack size such as "6x1kg" is not a weight.
-  function parseWeight(text) {
-    const t = String(text || "").replace(/(\d)\s*,\s*(\d)/g, "$1.$2");
-    const ok = (v) => v >= 0.05 && v <= 2000;
-    const net = t.match(/(?:net+\s*(?:wt|weight|wgt|mass)?|weight|wgt)\s*[:.=\-]?\s*(\d{1,4}(?:\.\d{1,3})?)\s*(kgs?|k9)?/i);
-    if (net && ok(+net[1])) return { kg: +net[1], how: "net weight" };
-    for (const m of t.matchAll(/(^|[^x×*\d.])(\d{1,4}(?:\.\d{1,3})?)\s*(?:kgs?|k9|kilos?)(?![a-z])/gim)) {
-      if (ok(+m[2])) return { kg: +m[2], how: "number + kg" };
-    }
-    return null;
+  // one label's codes together: product and batch from either, quantity and unit from the small one
+  function parseLabel(text) {
+    const c = parseCode(text);
+    if (c.kind === "big" || c.kind === "small") return { product: c.product, batch: c.batch, label: c.label || "", qty: c.qty ?? null, unit: c.unit || "" };
+    const t = String(text || "").trim();
+    return /^[\w.-]{2,40}$/.test(t) ? { product: "", batch: t, label: "", qty: null, unit: "" } : null;
+  }
+  function mergeCodes(codes) {
+    const big = codes.find((c) => c.kind === "big"), small = codes.find((c) => c.kind === "small" && (!big || (c.batch === big.batch && c.product === big.product)));
+    const any = big || small;
+    if (!any) return null;
+    return { product: any.product, batch: any.batch, label: (big && big.label) || "", qty: small ? small.qty : null, unit: small ? small.unit : "",
+      big: big ? big.text : "", small: small ? small.text : "",
+      // the big and small codes of different bags in one picture
+      clash: !!(big && codes.some((c) => c.kind === "small" && (c.batch !== big.batch || c.product !== big.product)) && !small) };
   }
 
   // ?signal=host:port points both pages at a self-hosted PeerJS server (used for testing); the pairing link carries it
@@ -49,5 +59,5 @@
     set(k, v) { try { localStorage.setItem(k, v); } catch { /* private mode: not remembered */ } },
   };
 
-  root.BagScan = { PREFIX, parseLabel, parseWeight, peerOptions, signalQuery, esc, hms, uid, store };
+  root.BagScan = { PREFIX, UNITS, parseCode, parseLabel, mergeCodes, peerOptions, signalQuery, esc, hms, uid, store };
 })(typeof window !== "undefined" ? window : globalThis);

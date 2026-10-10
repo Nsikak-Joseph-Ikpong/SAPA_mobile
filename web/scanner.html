@@ -112,7 +112,7 @@
 
   <button type="button" class="big" id="scanBtn">Scan</button>
   <div class="row" id="scanRow" hidden>
-    <button type="button" class="quiet" id="noQrBtn" title="Send a photo of a bag whose QR code won't scan">Bag without readable QR</button>
+    <button type="button" class="quiet" id="noQrBtn" title="Send a photo of a label whose QR codes won't scan">No readable QR</button>
     <button type="button" class="quiet" id="cancelBtn">Cancel</button>
   </div>
   <div class="row" id="photoRow" hidden>
@@ -135,6 +135,7 @@
 
 <script src="vendor/peerjs.min.js"></script>
 <script src="vendor/jsQR.js"></script>
+<script src="vendor/zxing/zxing-reader.js"></script>
 <script src="bagscan.js"></script>
 <script src="bagocr.js"></script>
 <script>
@@ -252,8 +253,8 @@
   function send(it) {
     if (!conn || !conn.open) { it.state = "queued"; return; }
     if (it.state !== "sent") it.state = "sending";
-    conn.send({ t: "scan", id: it.id, job: it.job, raw: it.raw, product: it.product, batch: it.batch, label: it.label, at: it.at,
-      photo: it.photo, label_img: it.labelImg, label_qr: it.labelQr });
+    conn.send({ t: "scan", id: it.id, job: it.job, raw: it.raw, product: it.product, batch: it.batch, label: it.label, qty: it.qty, unit: it.unit,
+      big: it.big, small: it.small, at: it.at, photo: it.photo, label_img: it.labelImg, label_frame: it.labelFrame, label_codes: it.labelCodes });
   }
   function flush() { for (const it of items) if (it.state !== "sent") send(it); render(); }
 
@@ -296,57 +297,76 @@
   }
   function noLiveCamera(msg) { $("photoRow").hidden = false; toast(msg); }
 
-  // a QR code in the picture: its text, and its corners in the picture's own pixels
+  // The QR codes in a picture, with their corners in the picture's own pixels. zxing reads several codes at a time
+  // and at any angle; where it can't run, the browser's own reader or jsQR read one.
+  let zxingOk = true;
   const small = document.createElement("canvas"), sctx = small.getContext("2d", { willReadFrequently: true });
-  function jsqr(src, w, h, max, attempts) {
-    const sc = Math.min(1, max / Math.max(w, h));
+  async function decode(src, w, h, max = 1280) {
+    if (zxingOk) {
+      try { return await O.codesIn(src, w, h, max); } catch { zxingOk = false; }
+    }
+    const one = (text, q) => [{ text, ...B.parseCode(text), ...(q || {}) }];
+    if (detector) {
+      try { const r = await detector.detect(src); return r.map((x) => { const c = x.cornerPoints || []; return one(x.rawValue, c.length === 4 ? { tl: c[0], tr: c[1], br: c[2], bl: c[3] } : null)[0]; }); } catch { /* jsQR */ }
+    }
+    const sc = Math.min(1, 900 / Math.max(w, h));
     small.width = Math.round(w * sc); small.height = Math.round(h * sc);
     sctx.drawImage(src, 0, 0, small.width, small.height);
-    const r = window.jsQR(sctx.getImageData(0, 0, small.width, small.height).data, small.width, small.height, { inversionAttempts: attempts });
-    if (!r) return null;
+    const r = window.jsQR(sctx.getImageData(0, 0, small.width, small.height).data, small.width, small.height, { inversionAttempts: "dontInvert" });
+    if (!r) return [];
     const p = (q) => ({ x: q.x / sc, y: q.y / sc }), L = r.location;
-    return { text: r.data, qr: { tl: p(L.topLeftCorner), tr: p(L.topRightCorner), bl: p(L.bottomLeftCorner), br: p(L.bottomRightCorner) } };
+    return one(r.data, { tl: p(L.topLeftCorner), tr: p(L.topRightCorner), bl: p(L.bottomLeftCorner), br: p(L.bottomRightCorner) });
   }
-  async function decode(src, w, h) {
-    if (detector) {
-      try {
-        const r = await detector.detect(src);
-        if (r.length) { const c = r[0].cornerPoints || []; return { text: r[0].rawValue, qr: c.length === 4 ? { tl: c[0], tr: c[1], br: c[2], bl: c[3] } : null }; }
-      } catch { /* fall back to jsQR */ }
-      return null;
-    }
-    return jsqr(src, w, h, 900, "dontInvert");
-  }
+  // Both codes of a label in view: take the picture now. Only one of them (the other covered, overprinted or out of
+  // view): wait a moment for the other, then take it with what there is.
+  const WAIT_FOR_BOTH_MS = 1200;
+  let partialSince = 0, partialKey = "";
   async function loop() {
     if (!scanning) return;
     const v = $("video");
     if (!busy && v.readyState >= 2 && v.videoWidth) {
-      const r = await decode(v, v.videoWidth, v.videoHeight).catch(() => null);
-      if (r && scanning) await onCode(r.text, v, v.videoWidth, v.videoHeight, r.qr);
+      const codes = await decode(v, v.videoWidth, v.videoHeight).catch(() => []);
+      if (codes.length && scanning) await onCodes(codes, v, v.videoWidth, v.videoHeight);
     }
-    if (scanning) setTimeout(loop, 150);
+    if (scanning) setTimeout(loop, 120);
   }
 
-  async function onCode(text, src, w, h, hint) {
-    const pairing = text.includes("pair=") ? (() => { try { return new URL(text).searchParams.get("pair"); } catch { return null; } })() : text.startsWith(B.PREFIX) ? text : null;
-    if (pairing) {
-      if (pairing !== laptop) { setLaptop(pairing); hit(); stopCamera(); toast("Paired with the laptop"); }
-      return;
+  async function onCodes(codes, src, w, h) {
+    for (const c of codes) {
+      const text = c.text;
+      const pairing = text.includes("pair=") ? (() => { try { return new URL(text).searchParams.get("pair"); } catch { return null; } })() : text.startsWith(B.PREFIX) ? text : null;
+      if (pairing) {
+        if (pairing !== laptop) { setLaptop(pairing); hit(); stopCamera(); toast("Paired with the laptop"); }
+        return;
+      }
     }
-    const lab = B.parseLabel(text), now = Date.now();
+    const now = Date.now();
     const say = (m) => { if (now - lastMsgAt > 2000) { lastMsgAt = now; camMsg(m); } };
-    if (!lab) return say("That code isn't a bag label");
+    const bag = codes.filter((c) => c.kind === "big" || c.kind === "small");
+    if (!bag.length) return say("That code isn't an SAP label");
     if (!laptop) return say("Pair with the laptop first");
     if (!job) return say("Set the job on the laptop first");
-    const key = lab.label || text;
-    if (seen.has(key)) return say(`Already scanned at ${B.hms(seen.get(key))}. Point at the next bag`);
+    // with several labels in view, the one nearest the middle of the picture
+    const mid = { x: w / 2, y: h / 2 }, ctr = (q) => (q.tl ? { x: (q.tl.x + q.br.x) / 2, y: (q.tl.y + q.br.y) / 2 } : mid);
+    const near = bag.slice().sort((a, b) => Math.hypot(ctr(a).x - mid.x, ctr(a).y - mid.y) - Math.hypot(ctr(b).x - mid.x, ctr(b).y - mid.y))[0];
+    const mine = bag.filter((c) => c.batch === near.batch && c.product === near.product);
+    const lab = B.mergeCodes(mine);
+    const key = `${lab.product}|${lab.batch}|${lab.qty ?? ""}`;
+    if (seen.has(key)) return say(`Already scanned at ${B.hms(seen.get(key))}. Point at the next one`);
+    const both = mine.some((c) => c.kind === "big") && mine.some((c) => c.kind === "small");
+    if (!both) {
+      if (partialKey !== key) { partialKey = key; partialSince = now; }
+      if (now - partialSince < WAIT_FOR_BOTH_MS) return say("Reading the label… hold still");
+    }
+    partialKey = "";
     seen.set(key, now);
-    await capture(text, lab, src, w, h, hint);
+    await capture(lab, mine, src, w, h);
   }
 
-  // The picture at the moment the code was read: a photo for the record (up to 1600 px), and the label cut out
-  // around the QR code at full camera resolution for reading the weight. Then the camera goes off.
-  async function capture(raw, lab, src, w, h, hint) {
+  // The picture at the moment the codes were read: a photo for the record (up to 1600 px), and the label cut out
+  // upright around its QR codes at full camera resolution, for the laptop to read the printed batch and quantity.
+  // Then the camera goes off.
+  async function capture(lab, hint, src, w, h) {
     busy = true;
     try {
       const full = document.createElement("canvas"); full.width = w; full.height = h;
@@ -355,19 +375,24 @@
       const sc = Math.min(1, 1600 / Math.max(w, h)), ph = document.createElement("canvas");
       ph.width = Math.round(w * sc); ph.height = Math.round(h * sc);
       ph.getContext("2d").drawImage(full, 0, 0, ph.width, ph.height);
-      const photo = await new Promise((ok) => ph.toBlob(ok, "image/jpeg", 0.85));
-      let labelImg = null, labelQr = null;
-      // the code's corners in this exact picture, the right way up (jsQR knows which corner is which); else the
-      // corners the phone's own reader gave (the laptop then also tries the label turned round)
-      const found = raw ? (jsqr(full, w, h, 1400, "attemptBoth") || jsqr(full, w, h, 2200, "attemptBoth")) : null;
-      const corners = found ? found.qr : hint;
-      if (corners) {
-        const cut = O.labelCrop(full, corners);
-        labelImg = await (await new Promise((ok) => cut.canvas.toBlob(ok, "image/jpeg", 0.92))).arrayBuffer();
-        labelQr = cut.qr;
+      const photo = await new Promise((ok) => ph.toBlob(ok, "image/jpeg", 0.82));
+      let labelImg = null, labelFrame = null, labelCodes = null;
+      if (lab) {
+        // the codes again in the full picture, for exact corners; else the ones the scan found
+        let codes = (await decode(full, w, h, 2600).catch(() => [])).filter((c) => c.batch === lab.batch && c.product === lab.product);
+        if (!codes.some((c) => c.tl)) codes = hint;
+        const f = O.frameOf(codes.filter((c) => c.tl));
+        if (f) {
+          const cut = O.labelCut(full, f);
+          const inCut = (p) => O.fromLU(cut.frame, O.toLU(f, p));
+          labelImg = await (await new Promise((ok) => cut.canvas.toBlob(ok, "image/jpeg", 0.9))).arrayBuffer();
+          labelFrame = cut.frame;
+          labelCodes = codes.filter((c) => c.tl).map((c) => ({ text: c.text, kind: c.kind, tl: inCut(c.tl), tr: inCut(c.tr), br: inCut(c.br), bl: inCut(c.bl) }));
+        }
       }
-      const it = { id: B.uid(), job, raw: raw || "", product: lab ? lab.product : "", batch: lab ? lab.batch : "", label: lab ? lab.label : "",
-        at: Date.now(), photo: await photo.arrayBuffer(), labelImg, labelQr, url: URL.createObjectURL(photo), state: "queued" };
+      const it = { id: B.uid(), job, raw: lab ? lab.big || lab.small : "", big: lab ? lab.big : "", small: lab ? lab.small : "",
+        product: lab ? lab.product : "", batch: lab ? lab.batch : "", label: lab ? lab.label : "", qty: lab ? lab.qty : null, unit: lab ? lab.unit : "",
+        at: Date.now(), photo: await photo.arrayBuffer(), labelImg, labelFrame, labelCodes, url: URL.createObjectURL(photo), state: "queued" };
       items.push(it);
       hit(); send(it); render(); showLast(it);
     } finally { busy = false; }
@@ -376,10 +401,11 @@
     if (navigator.vibrate) navigator.vibrate(70);
     if (audio) try { const o = audio.createOscillator(), g = audio.createGain(); o.frequency.value = 1320; g.gain.value = 0.08; o.connect(g).connect(audio.destination); o.start(); o.stop(audio.currentTime + 0.09); } catch { /* no sound */ }
   }
+  const qtyText = (it) => (it.qty === null || it.qty === undefined ? "" : ` · <b>${B.esc(String(it.qty))} ${B.esc(it.unit)}</b>`);
   function showLast(it) {
     $("lastPanel").hidden = false; $("lastImg").src = it.url;
-    $("lastText").innerHTML = (it.raw ? `<b>${B.esc(it.product || "?")}</b><br>batch <b>${B.esc(it.batch)}</b>` : "<b>No QR read</b> (photo only)")
-      + `<br><span class="note">Job ${B.esc(it.job)} · ${B.hms(it.at)}</span>`;
+    $("lastText").innerHTML = (it.raw ? `<b>${B.esc(it.product || "?")}</b><br>batch <b>${B.esc(it.batch)}</b>${qtyText(it)}` : "<b>No QR read</b> (photo only)")
+      + `<br><span class="note">Job ${B.esc(it.job)} · ${B.hms(it.at)}${it.raw && !it.small ? " · small QR not read" : ""}</span>`;
   }
 
   $("scanBtn").onclick = () => startCamera();
@@ -387,7 +413,7 @@
   $("noQrBtn").onclick = () => {
     const v = $("video");
     if (!job) { toast("Set the job on the laptop first"); return; }
-    if (v.videoWidth) capture(null, null, v, v.videoWidth, v.videoHeight);
+    if (v.videoWidth) capture(null, [], v, v.videoWidth, v.videoHeight);
   };
   $("torch").onclick = async () => {
     const track = stream && stream.getVideoTracks()[0];
@@ -395,16 +421,16 @@
     const on = !$("torch").classList.contains("on");
     try { await track.applyConstraints({ advanced: [{ torch: on }] }); $("torch").classList.toggle("on", on); } catch { toast("The light can't be switched from here"); }
   };
-  // no live camera: one photo per bag, read the same way
+  // no live camera: one photo per label, read the same way
   $("photoBtn").onclick = () => $("photoIn").click();
   $("photoIn").onchange = async () => {
     const f = $("photoIn").files[0]; $("photoIn").value = "";
     if (!f) return;
     const url = URL.createObjectURL(f), img = new Image(); img.src = url;
     try { await img.decode(); } catch { toast("Couldn't open that photo"); return; }
-    const r = jsqr(img, img.naturalWidth, img.naturalHeight, 1400, "attemptBoth");
-    if (r) await onCode(r.text, img, img.naturalWidth, img.naturalHeight, r.qr);
-    else if (laptop && job) await capture(null, null, img, img.naturalWidth, img.naturalHeight);
+    const codes = await decode(img, img.naturalWidth, img.naturalHeight, 2400).catch(() => []);
+    if (codes.length) { partialSince = 0; partialKey = ""; await onCodes(codes, img, img.naturalWidth, img.naturalHeight); if (partialKey) { partialSince = -1e12; await onCodes(codes, img, img.naturalWidth, img.naturalHeight); } }
+    else if (laptop && job) await capture(null, [], img, img.naturalWidth, img.naturalHeight);
     else toast("No QR code found in the photo");
     URL.revokeObjectURL(url);
   };
@@ -413,7 +439,7 @@
   function render() {
     const label = { sent: "On laptop", sending: "Sending", queued: "Waiting" };
     $("items").innerHTML = items.slice().reverse().map((it) => `<li><img src="${it.url}" alt="">
-      <div class="it-main">${it.raw ? `<b>${B.esc(it.product || "?")}</b> batch <b>${B.esc(it.batch)}</b>` : "<b>No QR read</b>"}
+      <div class="it-main">${it.raw ? `<b>${B.esc(it.product || "?")}</b> batch <b>${B.esc(it.batch)}</b>${qtyText(it)}` : "<b>No QR read</b>"}
         <span>Job ${B.esc(it.job)} · ${B.hms(it.at)}${it.label ? " · label " + B.esc(it.label) : ""}</span></div>
       <span class="state ${it.state}">${label[it.state]}</span></li>`).join("");
     $("empty").hidden = items.length > 0;

@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="icon" href="data:,">
-<title>Bag Inputs</title>
+<title>Label Inputs</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
@@ -104,6 +104,10 @@
   .sapsec a { color: var(--accent); }
   .sapsec tr.prod td { font-weight: 600; } .sapsec tr.neg td { color: var(--bad); } .sapsec tr.mine td { background: var(--accent-soft); }
   .pairnote { font-size: 13px; background: var(--bad-soft); border-radius: 6px; padding: 8px 10px; margin: 0; }
+  .chk { display: inline-flex; flex-wrap: wrap; gap: 4px; }
+  .chk span { font-size: 11.5px; padding: 2px 7px; border-radius: 999px; background: var(--sunken); color: var(--muted); white-space: nowrap; }
+  .chk .ok { background: var(--ok-soft); color: var(--ok); } .chk .bad { background: var(--bad-soft); color: var(--bad); } .chk .warn { background: var(--warn-soft); color: var(--warn); }
+  .unit { color: var(--muted); font-size: 12px; margin-left: 4px; }
   .toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); background: var(--ink); color: var(--ground); padding: 8px 14px; border-radius: 6px; font-size: 13px; z-index: 20; }
   [hidden] { display: none !important; }
 </style>
@@ -111,8 +115,8 @@
 <body>
 <div class="wrap">
   <div>
-    <h1>Input products: bag scans</h1>
-    <p class="sub">Bags scanned on the phone appear here as they're scanned, with the photo and the weight read off the bag. Nothing is saved: the scans live in this browser tab only, and reloading the page clears them. Export to keep a copy.</p>
+    <h1>Input products: label scans</h1>
+    <p class="sub">Labels scanned on the phone appear here as they're scanned, with the photo. Product, batch and quantity come from the label's QR codes; the printed batch and quantity are read and checked against them, and everything is checked against SAP. Nothing is saved: the scans live in this browser tab only, and reloading the page clears them. Export to keep a copy.</p>
   </div>
 
   <form class="jobbar unset" id="jobForm">
@@ -146,10 +150,10 @@
       </div>
       <dl class="stats" id="stats"></dl>
       <div class="scroll"><table>
-        <thead><tr><th>Job</th><th>Product ID</th><th class="n">Bags</th><th class="n">Weight on bags (kg)</th><th class="n">No weight read</th><th class="n">No QR</th><th class="n">Consumed in SAP</th><th class="n">Not consumed in SAP</th></tr></thead>
+        <thead><tr><th>Job</th><th>Product ID</th><th class="n">Scans</th><th class="n">Quantity on labels</th><th class="n">Print not confirmed</th><th class="n">No QR</th><th class="n">Consumed in SAP</th><th class="n">Not consumed in SAP</th></tr></thead>
         <tbody id="sumBody"></tbody></table></div>
       <div class="bar">
-        <button type="button" class="quiet" id="sampleBtn" title="Adds a made-up bag photo, as if scanned on a phone">Add a sample bag</button>
+        <button type="button" class="quiet" id="sampleBtn" title="Adds a made-up label in the plant's layout, as if scanned on a phone">Add a sample label</button>
         <button type="button" class="quiet" id="csvBtn">Export CSV</button>
         <span class="grow"></span>
         <button type="button" class="link" id="clearBtn">Clear all</button>
@@ -160,9 +164,9 @@
   <section class="panel" aria-labelledby="in-h">
     <h2 id="in-h">Input products</h2>
     <div class="scroll"><table>
-      <thead><tr><th>Photo</th><th>Scanned</th><th>Job</th><th>Product ID</th><th>Identified Stock ID</th><th>Label ID</th><th class="n">Quantity (kg)</th><th>Weight from</th><th>In SAP</th><th>Phone</th></tr></thead>
+      <thead><tr><th>Photo</th><th>Scanned</th><th>Job</th><th>Product ID</th><th>Identified Stock ID</th><th>Label ID</th><th class="n">Quantity</th><th>Label check</th><th>In SAP</th><th>Phone</th></tr></thead>
       <tbody id="rows"></tbody></table></div>
-    <div class="empty" id="empty">No bags yet. Pair a phone and scan a bag label, or try <b>Add a sample bag</b>.</div>
+    <div class="empty" id="empty">No scans yet. Pair a phone and scan a label, or try <b>Add a sample label</b>.</div>
   </section>
 </div>
 
@@ -172,7 +176,7 @@
     <div style="display:grid;gap:12px;align-content:start">
       <div class="dlghead"><h2>Bag</h2><button type="button" class="quiet" id="dlgClose">Close</button></div>
       <dl id="dlgInfo"></dl>
-      <div id="dlgCropBox"><h2 style="margin-bottom:6px">Label close-up (read for the weight)</h2><img id="dlgCrop" class="crop" alt="Label close-up"></div>
+      <div id="dlgCropBox"><h2 style="margin-bottom:6px">Label close-up (read for batch and quantity)</h2><img id="dlgCrop" class="crop" alt="Label close-up"></div>
       <div><h2 style="margin-bottom:6px">Text read from the photo</h2><pre id="dlgText"></pre></div>
     </div>
     <section class="sapsec" id="dlgSap" aria-label="SAP history of this bag"></section>
@@ -187,6 +191,7 @@
 <script src="vendor/qrcode.js"></script>
 <script src="vendor/tesseract/tesseract.min.js"></script>
 <script src="vendor/jsQR.js"></script>
+<script src="vendor/zxing/zxing-reader.js"></script>
 <script src="bagscan.js"></script>
 <script src="bagocr.js"></script>
 <script>
@@ -247,20 +252,24 @@
     if (!rows.some((r) => r.id === d.id)) {
       const blob = new Blob([d.photo], { type: "image/jpeg" });
       const labelBlob = d.label_img ? new Blob([d.label_img], { type: "image/jpeg" }) : null;
-      add({ id: d.id, job: String(d.job || job || ""), labelBlob, labelQr: d.label_qr || null, labelUrl: labelBlob ? URL.createObjectURL(labelBlob) : null, raw: d.raw || "", product: d.product || "", batch: d.batch || "", label: d.label || "",
+      const qrQty = d.qty === null || d.qty === undefined || d.qty === "" ? null : Number(d.qty);
+      add({ id: d.id, job: String(d.job || job || ""), raw: d.raw || "", big: d.big || "", small: d.small || "", product: d.product || "", batch: d.batch || "", label: d.label || "",
+        qrQty, qrUnit: d.unit || "", labelBlob, labelFrame: d.label_frame || null, labelCodes: d.label_codes || [], labelUrl: labelBlob ? URL.createObjectURL(labelBlob) : null,
         at: d.at || Date.now(), received: Date.now(), blob, url: URL.createObjectURL(blob), device: (c && c.metadata && c.metadata.device) || "Phone" });
     }
     if (c && c.open) c.send({ t: "ack", id: d.id });   // a resend after a dropped link is acknowledged again, not added twice
   }
   function add(r) {
-    r.kg = null; r.from = "reading"; r.text = "";
+    // the label's quantity: from the small QR code; from the print when there's no QR to give it; or typed in
+    r.qty = r.qrQty; r.unit = r.qrUnit; r.qtyFrom = r.qrQty !== null ? "qr" : "reading";
+    r.ocr = null; r.ocrState = "reading"; r.text = "";
     rows.unshift(r); fresh = r.id;
     if ($("jobSel").value && $("jobSel").value !== r.job) $("jobSel").value = "";
     render();
-    readWeight(r);
+    readPrint(r);
   }
 
-  // ------------------------------------------------------------ the weight on the bag (OCR, in this browser)
+  // ------------------------------------------------------------ the print on the label (OCR, in this browser)
   let worker = null, queue = Promise.resolve();
   const abs = (p) => new URL(p, location.href).href;
   function getWorker() {
@@ -270,21 +279,43 @@
     });
     return worker;
   }
-  function readWeight(r) {
+  // The printed batch and quantity, each checked against the QR codes (BagOCR.readLabel). The label cut-out from the
+  // phone comes with its frame; a photo without one is searched for the QR codes here.
+  function readPrint(r) {
     queue = queue.then(async () => {
       if (!rows.includes(r)) return;
       try {
         const w = await getWorker();
-        // the label close-up from the phone (QR position known) when there is one, else the photo
-        const res = r.labelBlob ? await BagOCR.readWeight(w, r.labelBlob, { qr: r.labelQr, photo: r.blob }) : await BagOCR.readWeight(w, r.blob);
-        r.text = res.text; r.how = res.weight ? res.weight.from : "";
-        if (r.from !== "edited") { r.kg = res.weight ? res.weight.kg : null; r.from = res.weight ? "ocr" : "none"; }
+        const expect = { batch: r.batch || null, qty: r.qrQty, unit: r.qrUnit };
+        const img = await createImageBitmap(r.labelBlob || r.blob);
+        const res = r.labelBlob && r.labelFrame ? await BagOCR.readLabel(w, img, r.labelFrame, r.labelCodes, expect) : await BagOCR.readLabel(w, img, null, [], expect);
+        if (img.close) img.close();
+        r.ocr = res; r.ocrState = "done"; r.text = res.text;
+        if (r.qtyFrom === "reading") {
+          if (res.qty !== null && res.qtyCheck !== "unread") { r.qty = res.qty; r.unit = res.unit || ""; r.qtyFrom = "print"; }
+          else { r.qty = null; r.qtyFrom = "none"; }
+        }
+        if (!r.batch && res.batch) { r.batch = res.batch; r.batchFrom = "print"; }
       } catch (e) {
-        if (r.from !== "edited") r.from = "error";
-        r.text = "Couldn't read the photo: " + e.message;
+        r.ocrState = "error"; r.text = "Couldn't read the label: " + e.message;
+        if (r.qtyFrom === "reading") r.qtyFrom = r.qty !== null ? "qr" : "none";
       }
       render();
     });
+  }
+  // the print against the QR codes, as badges: ✓ agrees, ✗ two readings say something else, ? couldn't be sure
+  function checkOf(r) {
+    if (r.ocrState === "reading") return { cls: "", parts: [["", "Reading the print…"]], ok: null };
+    if (r.ocrState === "error") return { cls: "warn", parts: [["warn", "Print not read"]], ok: false };
+    const o = r.ocr, parts = [];
+    const one = (what, check, read, hasQr) => {
+      if (!hasQr) return check === "read" ? ["warn", `${what} from print only`] : ["warn", `No ${what.toLowerCase()} on QR or print`];
+      return check === "match" ? ["ok", `✓ ${what}`] : check === "differs" ? ["bad", `✗ ${what}: print says ${read}`] : check === "unclear" ? ["warn", `? ${what} unclear`] : ["warn", `? ${what} not readable`];
+    };
+    parts.push(one("Batch", o.batchCheck, o.batch, !!r.batch && r.batchFrom !== "print"));
+    parts.push(one("Quantity", o.qtyCheck, `${o.qty} ${o.unit || ""}`.trim(), r.qrQty !== null));
+    const bad = parts.some((p) => p[0] === "bad"), allOk = parts.every((p) => p[0] === "ok");
+    return { cls: bad ? "bad" : allOk ? "ok" : "warn", parts, ok: allOk };
   }
 
   // ------------------------------------------------------------ SAP data: the files loaded on the checker page
@@ -379,15 +410,18 @@
     const { p } = traceOf(r), end = sap.ctx.journalRange ? sap.ctx.journalRange[1] : null;
     const late = end !== null && wall(r.at) > end;
     if (!p) return late ? { state: "pending", cls: "", text: `Not in the loaded journal yet (it ends ${F.dmy(end)})` } : { state: "unknown", cls: "bad", text: "Batch not found in the SAP files" };
-    const mine = p.byOrder.find((o) => o.order === r.job), used = mine ? mine.used : 0;
+    const mine = p.byOrder.find((o) => o.order === r.job), used = mine ? mine.used : 0, u = r.unit || "";
+    const restricted = p.rows.some((x) => x.restricted) || p.stock.some((x) => x.restricted);
+    const rx = restricted ? " · restricted stock in SAP" : "";
     if (used > 0.005) {
-      const diff = r.kg === null ? null : used - r.kg, off = diff !== null && Math.abs(diff) > Math.max(0.2, 0.02 * r.kg);
-      return { state: "consumed", cls: off ? "warn" : "ok", text: `Consumed by ${r.job} in SAP: ${F.f(used, 2)} kg` + (off ? ` (${F.fs(diff, 2)} kg against the bag)` : "") };
+      const diff = r.qty === null ? null : used - r.qty, off = diff !== null && Math.abs(diff) > Math.max(0.005, 0.02 * Math.abs(r.qty));
+      return { state: "consumed", cls: restricted ? "bad" : off ? "warn" : "ok", text: `Consumed by ${r.job} in SAP: ${F.f(used, 3)} ${u}` + (off ? ` (${F.fs(diff, 3)} against the label)` : "") + rx };
     }
     const others = p.byOrder.filter((o) => o.used > 0.005 && o.order !== r.job);
     if (late && !others.length) return { state: "pending", cls: "", text: `Not consumed by ${r.job} in the loaded journal, which ends ${F.dmy(end)}: load a newer journal` };
-    const where = p.areas.filter(([, q]) => q > 1e-6).map(([a, q]) => `${F.f(q, 2)} at ${a}`).join(", ");
-    return { state: "missing", cls: "bad", text: `Not consumed by ${r.job} in SAP` + (others.length ? `; consumed by ${others.map((o) => `${o.order} (${F.f(o.used, 2)} kg)`).join(", ")}` : where ? `; SAP still has ${where}` : "") };
+    const where = p.areas.filter(([, q]) => q > 1e-6).map(([a, q]) => `${F.f(q, 3)} at ${a}`).join(", ");
+    const gone = p.rows.length && Math.abs(p.balance) < 1e-6 && !others.length ? "; SAP shows none left (already consumed or moved out)" : "";
+    return { state: "missing", cls: "bad", text: `Not consumed by ${r.job} in SAP` + (others.length ? `; consumed by ${others.map((o) => `${o.order} (${F.f(o.used, 3)})`).join(", ")}` : where ? `; SAP still has ${where}` : gone) + rx };
   }
 
   // the bag's history in SAP, in the bag window
@@ -400,7 +434,8 @@
     const head = `<h2>SAP history: ${esc(r.product)} batch ${esc(r.batch)}</h2><div><span class="sap ${st.cls}">${esc(st.text)}</span></div>`;
     if (!p) return head + `<p class="hint">No journal postings for this batch in the loaded files. ${link}</p>`;
     const ord = (o) => `<a href="./?order=${encodeURIComponent(o)}" target="_blank" rel="noopener">${esc(o)}</a>`;
-    const figs = `<div class="figs"><span>Made <b>${F.f(p.made, 2)}</b></span><span>Used on orders <b>${F.f(p.consumed, 2)}</b></span><span>Stock now (journal) <b>${F.f(p.balance, 2)}</b></span>`
+    const firstIn = p.rows.find((x) => x.qty > 0);
+    const figs = `<div class="figs">${r.qty !== null ? `<span>On the label <b>${F.f(r.qty, 3)} ${esc(r.unit || "")}</b></span>` : ""}${firstIn ? `<span>First booked in SAP <b>${F.f(firstIn.qty, 3)}</b> (${esc(F.dmy(firstIn.time))})</span>` : ""}<span>Made <b>${F.f(p.made, 2)}</b></span><span>Used on orders <b>${F.f(p.consumed, 2)}</b></span><span>Stock now (journal) <b>${F.f(p.balance, 2)}</b></span>`
       + (sap.ctx.wb.stock && sap.ctx.wb.stock.length ? `<span>On hand (stock overview) <b>${F.f(p.stock_total, 2)}</b></span>` : "") + `<span>${p.rows.length} postings</span></div>`;
     const orders = p.byOrder.length ? `<h3>Production orders</h3><div class="scroll"><table><thead><tr><th>Order</th><th>Role</th><th>Line / area</th><th>First</th><th>Last</th><th class="n">Used</th><th class="n">Made</th><th class="n">Left after</th></tr></thead><tbody>`
       + p.byOrder.map((o) => `<tr class="${o.order === r.job ? "mine" : ""}"><td class="m">${ord(o.order)}</td><td>${esc(o.role)}</td><td class="m">${esc(o.area || "")}</td><td class="m">${esc(F.dmy(o.first))}</td><td class="m">${esc(F.dmy(o.last))}</td><td class="n">${o.used ? F.f(o.used, 2) : ""}</td><td class="n">${o.made ? F.f(o.made, 2) : ""}</td><td class="n">${F.f(o.left, 2)}</td></tr>`).join("")
@@ -412,8 +447,9 @@
   }
 
   // ------------------------------------------------------------ table and summary
-  const FROM = { reading: "Reading…", ocr: "Read off the bag", none: "Not found: type it", error: "Couldn't read", edited: "Typed in" };
   const fmt = (v, d = 2) => (v === null || v === undefined ? "" : v.toLocaleString("en-GB", { minimumFractionDigits: d, maximumFractionDigits: d }));
+  const qtyFmt = (v) => (v === null || v === undefined ? "" : String(Number(v.toFixed(6))));
+  const FROMQ = { qr: "from the small QR", print: "read off the print", typed: "typed in", none: "not found", reading: "reading…" };
   function shown() { const j = $("jobSel").value; return j ? rows.filter((r) => r.job === j) : rows; }
   function render() {
     // job filter
@@ -421,13 +457,13 @@
     const cur = $("jobSel").value;
     $("jobSel").innerHTML = `<option value="">All jobs</option>` + jobs.map((j) => `<option value="${esc(j)}"${j === cur ? " selected" : ""}>${esc(j)}</option>`).join("");
     const list = shown();
-    for (const r of rows) r.sap = sapStatus(r);
-    $("rows").innerHTML = list.map((r) => `<tr data-id="${esc(r.id)}" class="${r.id === fresh ? "new" : ""}${!r.raw || r.from === "none" ? " warnrow" : ""}">
-      <td><img class="thumb" src="${r.url}" alt="Bag photo" data-open="${esc(r.id)}"></td>
+    for (const r of rows) { r.sap = sapStatus(r); r.check = checkOf(r); }
+    $("rows").innerHTML = list.map((r) => `<tr data-id="${esc(r.id)}" class="${r.id === fresh ? "new" : ""}${!r.raw || r.check.cls === "bad" ? " warnrow" : ""}">
+      <td><img class="thumb" src="${r.url}" alt="Label photo" data-open="${esc(r.id)}"></td>
       <td class="m">${B.hms(r.at)}</td><td class="m">${esc(r.job)}</td>
-      <td class="m">${r.raw ? esc(r.product) : "<i>No QR read</i>"}</td><td class="m">${esc(r.batch)}</td><td class="m">${esc(r.label)}</td>
-      <td class="n"><input class="kg" type="text" inputmode="decimal" value="${r.kg === null ? "" : r.kg.toFixed(2)}" placeholder="${r.from === "reading" ? "…" : "kg"}" aria-label="Weight in kg" data-kg="${esc(r.id)}"></td>
-      <td><span class="src ${r.from}">${FROM[r.from]}</span></td>
+      <td class="m">${r.raw ? esc(r.product) : "<i>No QR read</i>"}</td><td class="m">${esc(r.batch)}${r.batchFrom === "print" ? ' <span class="unit">(print)</span>' : ""}</td><td class="m">${esc(r.label || (r.ocr && r.ocr.labelId) || "")}</td>
+      <td class="n" title="${esc(FROMQ[r.qtyFrom])}"><input class="kg" type="text" inputmode="decimal" value="${qtyFmt(r.qty)}" placeholder="${r.qtyFrom === "reading" ? "…" : "qty"}" aria-label="Quantity" data-kg="${esc(r.id)}"><span class="unit">${esc(r.unit || "")}</span></td>
+      <td><span class="chk">${r.check.parts.map(([c, t]) => `<span class="${c}">${esc(t)}</span>`).join("")}</span></td>
       <td class="sapcell">${r.sap ? `<span class="sap ${r.sap.cls}">${esc(r.sap.text)}</span>` : `<span class="hint">no SAP files</span>`}</td><td>${esc(r.device)}</td></tr>`).join("");
     fresh = null;
     $("empty").hidden = rows.length > 0;
@@ -435,41 +471,47 @@
     const groups = new Map();
     for (const r of list) {
       const k = r.job + "\u0000" + (r.raw ? r.product : "");
-      if (!groups.has(k)) groups.set(k, { job: r.job, product: r.raw ? r.product : "", bags: 0, kg: 0, unread: 0, noqr: 0, inSap: 0, notSap: 0 });
-      const g = groups.get(k); g.bags++; if (r.kg !== null) g.kg += r.kg; else g.unread++; if (!r.raw) g.noqr++;
+      if (!groups.has(k)) groups.set(k, { job: r.job, product: r.raw ? r.product : "", scans: 0, qty: 0, units: new Set(), unconfirmed: 0, noqr: 0, inSap: 0, notSap: 0 });
+      const g = groups.get(k); g.scans++; if (r.qty !== null) { g.qty += r.qty; if (r.unit) g.units.add(r.unit); }
+      if (r.check.ok === false) g.unconfirmed++; if (!r.raw) g.noqr++;
       if (r.sap && r.sap.state === "consumed") g.inSap++; if (r.sap && (r.sap.state === "missing" || r.sap.state === "unknown")) g.notSap++;
     }
     const gs = [...groups.values()].sort((a, b) => a.job.localeCompare(b.job, undefined, { numeric: true }) || a.product.localeCompare(b.product));
-    $("sumBody").innerHTML = gs.length ? gs.map((g) => `<tr><td class="m">${esc(g.job)}</td><td class="m">${g.product ? esc(g.product) : "<i>No QR read</i>"}</td><td class="n">${g.bags}</td><td class="n">${fmt(g.kg)}</td><td class="n">${g.unread || ""}</td><td class="n">${g.noqr || ""}</td><td class="n">${sap && sap.ctx ? g.inSap : ""}</td><td class="n${g.notSap ? " bad" : ""}">${sap && sap.ctx ? g.notSap || "" : ""}</td></tr>`).join("")
+    $("sumBody").innerHTML = gs.length ? gs.map((g) => `<tr><td class="m">${esc(g.job)}</td><td class="m">${g.product ? esc(g.product) : "<i>No QR read</i>"}</td><td class="n">${g.scans}</td><td class="n">${qtyFmt(Number(g.qty.toFixed(6)))}<span class="unit">${esc([...g.units].join("/"))}</span></td><td class="n${g.unconfirmed ? " bad" : ""}">${g.unconfirmed || ""}</td><td class="n">${g.noqr || ""}</td><td class="n">${sap && sap.ctx ? g.inSap : ""}</td><td class="n${g.notSap ? " bad" : ""}">${sap && sap.ctx ? g.notSap || "" : ""}</td></tr>`).join("")
       : `<tr><td colspan="8" class="hint">Nothing scanned yet.</td></tr>`;
-    const kg = list.reduce((a, r) => a + (r.kg || 0), 0);
-    $("stats").innerHTML = [["Bags", list.length, $("jobSel").value ? "job " + $("jobSel").value : `${jobs.length} job${jobs.length === 1 ? "" : "s"}`],
-      ["Weight on bags", fmt(kg), "kg read or typed"],
-      ["No weight read", list.filter((r) => r.kg === null && r.from !== "reading").length, "type it from the photo"],
+    const kg = list.filter((r) => r.unit === "kg").reduce((a, r) => a + (r.qty || 0), 0);
+    $("stats").innerHTML = [["Scans", list.length, $("jobSel").value ? "job " + $("jobSel").value : `${jobs.length} job${jobs.length === 1 ? "" : "s"}`],
+      ["kg on labels", fmt(kg), "labels in kg"],
+      ["Print not confirmed", list.filter((r) => r.check.ok === false).length, "batch or quantity: check the photo"],
       ["No QR read", list.filter((r) => !r.raw).length, "photo only"],
       ["Not consumed in SAP", sap && sap.ctx ? list.filter((r) => r.sap && (r.sap.state === "missing" || r.sap.state === "unknown")).length : "–", sap && sap.ctx ? "scanned, but SAP didn't take it" : "load the SAP files"]]
-      .map(([k, v, s]) => `<div><dt>${esc(k)}</dt><dd>${esc(v)}<small>${esc(s)}</small></dd></div>`).join("");
+      .map(([k, v, s2]) => `<div><dt>${esc(k)}</dt><dd>${esc(v)}<small>${esc(s2)}</small></dd></div>`).join("");
   }
 
-  // weight typed in: kept as typed, OCR won't overwrite it
+  // a quantity typed in: kept as typed
   $("rows").addEventListener("change", (e) => {
     const id = e.target.dataset.kg; if (!id) return;
     const r = rows.find((x) => x.id === id), v = parseFloat(String(e.target.value).replace(",", "."));
     if (!r) return;
-    if (e.target.value.trim() === "") { r.kg = null; r.from = "none"; }
-    else if (isFinite(v) && v >= 0) { r.kg = v; r.from = "edited"; }
+    if (e.target.value.trim() === "") { r.qty = r.qrQty; r.qtyFrom = r.qrQty !== null ? "qr" : "none"; }
+    else if (isFinite(v) && v >= 0) { r.qty = v; r.qtyFrom = "typed"; }
     render();
   });
   $("rows").addEventListener("click", (e) => { const id = e.target.dataset.open; if (id) openRow(rows.find((x) => x.id === id)); });
   function openRow(r) {
     if (!r) return;
     $("dlgImg").src = r.url;
-    const info = [["Job", r.job], ["Product ID", r.product || "No QR read"], ["Identified Stock ID", r.batch], ["Label ID", r.label],
-      ["Weight", r.kg === null ? "not read" : fmt(r.kg) + " kg (" + FROM[r.from].toLowerCase() + (r.from === "ocr" && r.how ? ", " + r.how : "") + ")"], ["Scanned", new Date(r.at).toLocaleString("en-GB")],
-      ["Phone", r.device], ["QR text", r.raw || "none"]];
+    const o = r.ocr || {};
+    const info = [["Job", r.job], ["Product ID", r.product || "No QR read"], ["Identified Stock ID", r.batch + (r.batchFrom === "print" ? " (read off the print)" : "")],
+      ["Quantity", r.qty === null ? "not known" : `${qtyFmt(r.qty)} ${r.unit || ""} (${FROMQ[r.qtyFrom]})`],
+      ["Label check", r.check.parts.map((p) => p[1]).join(" · ")],
+      ["Printed", r.ocrState === "done" ? `batch ${o.batch || "not read"} · quantity ${o.qty !== null && o.qty !== undefined ? qtyFmt(o.qty) + " " + (o.unit || "") : "not read"}` : r.ocrState === "reading" ? "reading…" : "not read"],
+      ["Label ID / expiry", [r.label || o.labelId, o.expiry].filter(Boolean).join(" · ") || "not read"],
+      ["Scanned", new Date(r.at).toLocaleString("en-GB")], ["Phone", r.device],
+      ["Big QR", r.big || "not read"], ["Small QR", r.small || "not read"]];
     $("dlgInfo").innerHTML = info.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join("");
     $("dlgCropBox").hidden = !r.labelUrl; if (r.labelUrl) $("dlgCrop").src = r.labelUrl;
-    $("dlgText").textContent = r.from === "reading" ? "Still reading…" : r.text.trim() || "No text found.";
+    $("dlgText").textContent = r.ocrState === "reading" ? "Still reading…" : r.text.trim() || "No text found.";
     $("dlgSap").innerHTML = sapHtml(r);
     $("dlg").showModal();
   }
@@ -481,8 +523,8 @@
   $("csvBtn").onclick = () => {
     if (!rows.length) { toast("Nothing to export yet."); return; }
     const cell = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
-    const head = ["Scanned", "Job", "Product ID", "Identified Stock ID", "Label ID", "Quantity (kg)", "Weight from", "In SAP", "QR text", "Phone", "Text read from photo"];
-    const lines = rows.slice().reverse().map((r) => [new Date(r.at).toISOString(), r.job, r.product, r.batch, r.label, r.kg === null ? "" : r.kg, FROM[r.from], r.sap ? r.sap.text : "", r.raw, r.device, r.text.replace(/\s+/g, " ").trim()].map(cell).join(","));
+    const head = ["Scanned", "Job", "Product ID", "Identified Stock ID", "Label ID", "Quantity", "Unit", "Quantity from", "Printed batch", "Printed quantity", "Label check", "In SAP", "Big QR", "Small QR", "Phone", "Text read from the label"];
+    const lines = rows.slice().reverse().map((r) => { const o = r.ocr || {}; return [new Date(r.at).toISOString(), r.job, r.product, r.batch, r.label || o.labelId || "", r.qty === null ? "" : r.qty, r.unit, FROMQ[r.qtyFrom], o.batch || "", o.qty ?? "", r.check ? r.check.parts.map((p) => p[1]).join(" · ") : "", r.sap ? r.sap.text : "", r.big, r.small, r.device, (r.text || "").replace(/\s+/g, " ").trim()].map(cell).join(","); });
     const blob = new Blob([[head.map(cell).join(","), ...lines].join("\r\n")], { type: "text/csv" });
     const a = document.createElement("a"); a.href = URL.createObjectURL(blob);
     a.download = `bag-scans-${new Date().toISOString().slice(0, 16).replace(/[:T]/g, "-")}.csv`;
@@ -494,26 +536,38 @@
     render();
   };
 
-  // ------------------------------------------------------------ a made-up bag, as if scanned on a phone
+  // ------------------------------------------------------------ a made-up label, as if scanned on a phone
+  // Drawn in the layout of the plant's SAP labels (positions in big-QR widths, as measured on real ones), tilted a
+  // little, with both QR codes; the laptop then finds the codes and reads the print as it does for a phone's photo.
   function sampleBag() {
     const sJob = job || $("jobSel").value || "2626";
-    const batch = String(62200 + Math.floor(Math.random() * 99)), kg = (8 + Math.random() * 16).toFixed(2);
-    const label = "L" + String(Math.floor(Math.random() * 1e6)).padStart(6, "0"), product = Math.random() < 0.5 ? "MBSLOFF" : "MBGROFF";
-    const raw = `(90)${product}(10)${batch}(97)${label}`;
-    const c = document.createElement("canvas"); c.width = 1400; c.height = 1000;
+    const product = ["MBSLOFF", "MBGROFF", "RMMA20BF", "RMMO10EX"][Math.floor(Math.random() * 4)];
+    const batch = String(40000 + Math.floor(Math.random() * 29999)), qty = (product.startsWith("MB") ? 8 + Math.random() * 16 : 150 + Math.random() * 850).toFixed(2);
+    const labelId = String(10000 + Math.floor(Math.random() * 89999));
+    const big = `(90)${product}(10)${batch}`, sm = `${product},${batch},${qty},KGM`;
+    const S = 150, c = document.createElement("canvas"); c.width = 1500; c.height = 1100;
     const x = c.getContext("2d");
-    x.fillStyle = "#c9cfc9"; x.fillRect(0, 0, c.width, c.height);              // the bag
-    x.fillStyle = "#ffffff"; x.fillRect(120, 120, 1160, 760);                  // the label
-    x.fillStyle = "#111"; x.font = "bold 64px Arial, sans-serif";
-    x.fillText(product === "MBSLOFF" ? "SLICING OFFCUTS" : "GRATING OFFCUTS", 180, 230);
-    x.font = "48px Arial, sans-serif";
-    x.fillText("Product: " + product, 180, 330); x.fillText("Batch: " + batch, 180, 410); x.fillText("Label: " + label, 180, 490);
-    x.font = "bold 76px Arial, sans-serif"; x.fillText(`Net weight ${kg} kg`, 180, 640);
-    const q = qrcode(0, "M"); q.addData(raw); q.make();
-    const n = q.getModuleCount(), cell = Math.floor(300 / n), ox = 940, oy = 180;
-    for (let r = 0; r < n; r++) for (let k = 0; k < n; k++) if (q.isDark(r, k)) x.fillRect(ox + k * cell, oy + r * cell, cell, cell);
+    x.fillStyle = "#b9c0bb"; x.fillRect(0, 0, c.width, c.height);
+    x.translate(560, 640); x.rotate((Math.random() - 0.5) * 0.35);
+    const at = (u, v) => [u * S, v * S], txt = (t, u, v, size, bold) => { x.font = `${bold ? "bold " : ""}${Math.round(size * S)}px Arial, sans-serif`; x.fillText(t, ...at(u, v)); };
+    x.fillStyle = "#fbfbf8"; x.fillRect(...at(-1.3, -3.3), 6.7 * S, 4.5 * S);
+    x.fillStyle = "#111";
+    txt(product.startsWith("MB") ? "Slicing offcuts bin 9" : "Bidfood Mature UK/IRE 20kg", -1.1, -2.9, 0.2, true);
+    txt("Vendor Code:", -1.0, -2.5, 0.075); txt("Expiration Date:", -1.0, -2.2, 0.075); txt("2027-03-15", -1.0, -2.07, 0.1);
+    txt("Batch Production Date:", 0.6, -2.5, 0.075); txt("2026-09-22", 0.6, -2.37, 0.1); txt("Production Order:", 0.6, -2.25, 0.075);
+    txt("Batch:", 2.0, -2.02, 0.075); txt(batch, 2.0, -1.85, 0.11); txt("Quantity:", 2.0, -1.7, 0.075); txt(`${qty} kg`, 2.0, -1.53, 0.11);
+    txt(`SAP Internal Label ID:   [(97)${labelId}]`, 3.0, -1.42, 0.075);
+    txt("Expiry Date:", 2.6, -1.0, 0.085); txt("2027-03-15", 3.3, -0.98, 0.22, true);
+    txt(product, -1.0, -0.6, 0.3, true);
+    txt("Quantity:", 2.6, -0.22, 0.085); txt(`${qty} kg`, 3.3, -0.18, 0.24, true);
+    const qr = (text, cu, cv, size) => {
+      const q = qrcode(0, "M"); q.addData(text); q.make();
+      const n = q.getModuleCount(), m = (size * S) / n, [ox, oy] = at(cu - size / 2, cv - size / 2);
+      for (let r = 0; r < n; r++) for (let k = 0; k < n; k++) if (q.isDark(r, k)) x.fillRect(ox + k * m, oy + r * m, Math.ceil(m), Math.ceil(m));
+    };
+    qr(big, 0, 0, 1); qr(sm, 3.9, 0.05, 0.65);
     c.toBlob(async (blob) => {
-      onScan({ t: "scan", id: B.uid(), job: sJob, raw, product, batch, label, at: Date.now(), photo: await blob.arrayBuffer() }, { metadata: { device: "Sample (this laptop)" } });
+      onScan({ t: "scan", id: B.uid(), job: sJob, raw: big, big, small: sm, product, batch, label: "", qty: Number(qty), unit: "kg", at: Date.now(), photo: await blob.arrayBuffer() }, { metadata: { device: "Sample (this laptop)" } });
     }, "image/jpeg", 0.85);
   }
   $("sampleBtn").onclick = sampleBag;

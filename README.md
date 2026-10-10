@@ -29,37 +29,50 @@ The phone can't open files straight off the laptop's disk; they have to go throu
 (step 1), email, or a USB cable. If you'd rather the files never leave the laptop, use
 `python serve.py --share` on the office Wi-Fi instead (see *Use it from your phone (office Wi-Fi)*).
 
-## Bag scanner demo (phone → laptop)
+## Label scanner demo (phone → laptop)
 
-A demo of scanning offcut bags with a phone instead of the QR gun, so there's a record of every bag that went
-in (with a photo and the weight printed on the bag) to set against what SAP took.
+A demo of scanning inputs (offcut bags, cheese blocks, packaging) with a phone instead of the QR gun, so there's a
+record of every label that went into a job, with a photo, checked against what SAP took.
 
 * **Laptop:** open https://nsikak-joseph-ikpong.github.io/SAPA_mobile/inputs.html. It shows a pairing QR code.
   Type the job on the line in **Job on the line** and click **Set job**: every paired phone scans into that job
   (phones can't scan until a job is set; changing it here changes it on the phones).
-* **Phone:** scan the pairing code with the phone's camera app. The bag scanner opens, already paired, showing
-  the job. Tap **Scan**: the camera comes on, reads the bag label's QR code, takes the picture and goes off again.
-  Tap **Scan next bag** for the next one. The camera also goes off by itself after 40 seconds without a code, or
-  with **Cancel**.
+* **Phone:** scan the pairing code with the phone's camera app. The scanner opens, already paired, showing the job.
+  Tap **Scan**: the camera comes on, reads the label, takes the picture and goes off again. Tap **Scan next bag**
+  for the next one. The camera also goes off by itself after 40 seconds without a code, or with **Cancel**.
 
-Each label's QR code (`(90)` product, `(10)` batch, `(97)` label ID) is read on the phone. It sends the photo (for
-the record) and a full-resolution close-up of the label cut out around the QR code, turned upright. A bag is sent
-once per session; **Bag without readable QR** sends a photo of a bag whose code won't scan. On the laptop each bag
-appears as a row (photo, job, product, Identified Stock ID, label ID) and the weight is read from the close-up
-(OCR, Tesseract in the browser: "Net weight 12.46 kg", "NET WT: 12,46", "12.46KG"…). The QR code says where the
-label is and which way up, so the label is cut out, enlarged to a set size and its contrast stretched before it's
-read; then the same turned round, a wider area, and the whole photo as a last resort. On test photos (blurred,
-tilted, unevenly lit) that read 24 of 24 weights where reading the whole photo read 5. A weight that isn't read,
-or is read wrong, can be typed in; click a photo to see it full size with the close-up and the text that was read.
-The summary totals bags and kg per job and product; **Export CSV** saves the list, and **Add a sample bag** tries
-it without a phone.
+**The label.** The plant's SAP labels carry two QR codes: the big one (goods movement) holds
+`(90)<product>(10)<batch>`, the small one (scanning in) `<product>,<batch>,<quantity>,<unit>`, e.g.
+`RMMA20BF,43282,1007.71,KGM` (KGM = kg, XCS = case, MTR = m). The phone reads both at once (zxing, any angle, several
+codes per picture; with several labels in view, the one nearest the middle). When only one is readable (the small
+one is often overprinted or creased) it waits a second for the other, then goes ahead with what it has. A label is
+sent once per session (same product, batch and quantity); **No readable QR** sends a photo only. The phone sends the
+photo and a full-resolution close-up of the label cut out upright around the QR codes.
+
+**Checking the print.** On the laptop the printed batch and quantity are read (OCR, Tesseract in the browser) and
+checked against the QR codes. The big QR fixes where everything is: measured on real labels, the small QR sits 3.9
+big-QR widths to its right, the printed "Batch:" / "Quantity:" about 2 widths right and 1.5 to 2 up, and the large
+quantity 3 to 5 right, level with it. So each field is cut out and read on its own at a set size, with the QR codes
+blanked out; the whole label is read too when something is missing. Quantities on the labels always have a decimal
+point ("87.0 case"), which keeps titles like "20kg" or "152 mm" out, and common misreadings ("kq" for kg, "973 39"
+for 973.39) are put right. The **Label check** column shows, for batch and quantity: ✓ the print agrees with the QR
+code, ✗ two separate readings agree on something else (look at the photo), ? the print couldn't be read clearly.
+One misreading on its own never shows as ✗. Tested on 15 photos of real labels (17 labels, some creased, glared,
+handwritten on or overprinted): the QR codes were found on 15 labels, and on every label in the current layout the
+printed batch (14 of 14) and quantity (14 of 14, 3 of them from the print alone where the small QR was unreadable)
+came out right, in about 0.6 s each. The older layout (product name under "Product:", rotated) still reads from its
+QR codes. The quantity is the small QR's, else the print's; it can be typed over. Click a photo to see it full size
+with the close-up, both QR codes and the text that was read. The summary totals quantities per job and product;
+**Export CSV** saves everything, and **Add a sample label** draws a label in the plant's layout to try it without a
+phone.
 
 **SAP history of each bag.** The inputs page uses the same SAP files as the checker: whatever was loaded on the
 checker page in this browser is picked up automatically (or load them with **Load SAP files** on the inputs page,
 which loads them for the checker too). Each bag then gets an **In SAP** status for the job it was scanned into:
-consumed by that job (with SAP's quantity, and the difference when it doesn't match the bag's weight), not
-consumed (and which job consumed it instead, or where SAP still has it), not in the SAP files at all, or not in the
-loaded journal yet when the scan is later than the journal's last posting. The summary counts bags consumed and
+consumed by that job (with SAP's quantity, and the difference when it doesn't match the label), not consumed (and
+which job consumed it instead, where SAP still has it, or that SAP shows none left), not in the SAP files at all, or
+not in the loaded journal yet when the scan is later than the journal's last posting; restricted stock is marked.
+The bag window sets the label's quantity next to what SAP first booked for the batch. The summary counts bags consumed and
 not consumed in SAP per job. Clicking a bag shows its SAP history (production orders that made or used it, every
 confirmation journal posting with the running stock) and links to the full stock trace in the checker
 (`index.html?trace=<batch>&product=<code>`; `?order=<id>` opens an order's check). Export a fresh journal after
@@ -70,7 +83,7 @@ free cloud server (0.peerjs.com) only introduces the two browsers to each other,
 data when a network blocks direct connections. Reloading the laptop page clears the scans (the pairing code
 stays the same). If the phone can't connect on the office Wi-Fi, try it on mobile data. The camera needs `https`,
 so use the GitHub Pages address, not `serve.py`. Libraries are bundled in `web/vendor/`: PeerJS (MIT),
-qrcode-generator (MIT), Tesseract.js with its English data (Apache-2.0), jsQR (Apache-2.0).
+qrcode-generator (MIT), zxing-wasm (MIT), Tesseract.js with its English data (Apache-2.0), jsQR (Apache-2.0).
 
 ## Variance checker
 
