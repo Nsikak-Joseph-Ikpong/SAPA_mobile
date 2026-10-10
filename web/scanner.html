@@ -59,6 +59,17 @@
   .cam .frame { position: absolute; inset: 18% 14%; border: 3px solid rgba(255,255,255,0.85); border-radius: 14px; box-shadow: 0 0 0 999px rgba(0,0,0,0.25); pointer-events: none; }
   .cam .msg { position: absolute; left: 10px; right: 10px; bottom: 10px; text-align: center; font: 600 14px var(--sans); color: #fff; background: rgba(0,0,0,0.55); border-radius: 8px; padding: 8px 10px; }
   .cam .torch { position: absolute; right: 10px; top: 10px; padding: 8px 12px; font-size: 13px; background: rgba(0,0,0,0.5); border-color: transparent; color: #fff; }
+  .cam canvas.overlay { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+  ul.reads { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+  ul.reads li { background: var(--sunken); border-radius: 8px; padding: 8px 10px; display: grid; gap: 3px; border-left: 4px solid var(--line); }
+  ul.reads li.big { border-left-color: #2b9a5b; } ul.reads li.small { border-left-color: #2f7fd6; } ul.reads li.other { border-left-color: var(--warn); }
+  ul.reads li.fresh { animation: flash 1.2s ease-out; }
+  @keyframes flash { from { background: var(--accent-soft); } }
+  .rk { font: 600 12px var(--sans); text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); display: flex; justify-content: space-between; gap: 8px; }
+  .raw { font: 600 14px var(--mono); overflow-wrap: anywhere; color: var(--ink); }
+  .parsed { font-size: 13px; color: var(--ink); }
+  .parsed b { font-family: var(--mono); }
+  .seenhow { font-size: 12px; color: var(--muted); }
   .last { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 12px; align-items: center; }
   .last img { width: 96px; height: 96px; object-fit: cover; border-radius: 8px; background: #000; display: block; }
   .last b { font-family: var(--mono); }
@@ -106,6 +117,7 @@
 
   <div class="cam" id="cam" hidden>
     <video id="video" playsinline muted></video>
+    <canvas class="overlay" id="overlay" aria-hidden="true"></canvas>
     <div class="frame"></div>
     <button type="button" class="torch" id="torch" hidden>Light</button>
     <div class="msg" id="camMsg">Point at the bag label</div>
@@ -116,6 +128,13 @@
     <button type="button" class="quiet" id="noQrBtn" title="Send a photo of a label whose QR codes won't scan">No readable QR</button>
     <button type="button" class="quiet" id="cancelBtn">Cancel</button>
   </div>
+  <button type="button" class="quiet" id="inspectBtn">Just read a label (nothing is sent)</button>
+
+  <section class="panel" id="readPanel" hidden aria-live="polite">
+    <div class="count"><h2>What the scanner reads</h2><span class="note" id="readMeta"></span></div>
+    <ul class="reads" id="reads"></ul>
+    <p class="note" id="readNone">Nothing yet: point the camera at a label.</p>
+  </section>
   <div class="row" id="photoRow" hidden>
     <button type="button" class="quiet" id="photoBtn">Take a photo instead</button>
     <input type="file" id="photoIn" accept="image/*" capture="environment" hidden>
@@ -268,7 +287,9 @@
   });
 
   // ------------------------------------------------------------ camera: on for one scan, then off
-  async function startCamera() {
+  let inspect = false;                // "just read": show what the codes say, send nothing
+  async function startCamera(mode) {
+    inspect = mode === "inspect";
     if (!audio) try { audio = new (window.AudioContext || window.webkitAudioContext)(); } catch { /* no sound */ }
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { noLiveCamera("This browser can't show the camera here."); return; }
     try {
@@ -279,7 +300,8 @@
       return;
     }
     const v = $("video"); v.srcObject = stream; await v.play().catch(() => {});
-    $("cam").hidden = false; $("scanBtn").hidden = true; $("scanRow").hidden = !laptop;
+    $("cam").hidden = false; $("scanBtn").hidden = true; $("inspectBtn").hidden = true; $("scanRow").hidden = !laptop && !inspect; $("noQrBtn").hidden = inspect;
+    readLog.clear(); renderReads(); $("readPanel").hidden = false;
     const track = stream.getVideoTracks()[0], caps = track.getCapabilities ? track.getCapabilities() : {};
     $("torch").hidden = !caps.torch; $("torch").classList.remove("on");
     if (caps.focusMode && caps.focusMode.includes("continuous")) track.applyConstraints({ advanced: [{ focusMode: "continuous" }] }).catch(() => {});
@@ -287,8 +309,8 @@
       try { if ((await BarcodeDetector.getSupportedFormats()).includes("qr_code")) detector = new BarcodeDetector({ formats: ["qr_code"] }); } catch { detector = null; }
     }
     scanning = true; busy = false;
-    camMsg(laptop ? "Point at the bag label" : "Point at the laptop's pairing code");
-    clearTimeout(offT); offT = setTimeout(() => { if (scanning) { stopCamera(); toast("No code found, camera off. Tap Scan to try again."); } }, SCAN_SECONDS * 1000);
+    camMsg(inspect ? "Point at a label: what it reads shows below. Nothing is sent." : laptop ? "Point at the bag label" : "Point at the laptop's pairing code");
+    clearTimeout(offT); offT = setTimeout(() => { if (scanning) { stopCamera(); toast(inspect ? "Camera off." : "No code found, camera off. Tap Scan to try again."); } }, (inspect ? 120 : SCAN_SECONDS) * 1000);
     $("cam").scrollIntoView({ block: "nearest", behavior: "smooth" });
     loop();
   }
@@ -296,7 +318,9 @@
     scanning = false; clearTimeout(offT);
     if (stream) stream.getTracks().forEach((t) => t.stop());
     stream = null; $("video").srcObject = null;
-    $("cam").hidden = true; $("scanRow").hidden = true; $("scanBtn").hidden = false;
+    $("cam").hidden = true; $("scanRow").hidden = true; $("scanBtn").hidden = false; $("inspectBtn").hidden = false;
+    drawOverlay([]);
+    $("readPanel").hidden = !readLog.size;
   }
   function noLiveCamera(msg) { $("photoRow").hidden = false; toast(msg); }
 
@@ -326,15 +350,77 @@
   }
   // The codes of a frame, and the other code of each label looked for where it should be, in the frame at full
   // resolution (a small QR is often too small to read in the frame scaled down for speed)
-  async function codesOf(src, w, h, max) {
+  let passNo = 0;
+  async function codesOf(src, w, h, max, live) {
     let codes = await decode(src, w, h, max).catch(() => []);
+    const passes = live ? [O.PASSES[passNo++ % O.PASSES.length]] : O.PASSES;
     if (!zxingOk) return codes;
     for (const q of codes.filter((c) => c.kind === "big" || c.kind === "small")) {
       const mates = codes.filter((c) => c !== q && c.batch === q.batch && c.product === q.product);
-      if (!mates.some((c) => c.kind !== q.kind)) codes = [...codes, ...(await O.findPartner(src, [q]).catch(() => [q])).slice(1)];
+      if (!mates.some((c) => c.kind !== q.kind)) codes = [...codes, ...(await O.findPartner(src, [q], passes).catch(() => [q])).slice(1)];
     }
     return codes;
   }
+  // ------------------------------------------------------------ what the scanner reads (shown live)
+  // Every code read since the camera came on: its raw text, what it is, and what it says; and an outline on the camera
+  // view where it is (green the big QR, blue the small one, a dashed outline when it was found by looking where the
+  // other code said it should be).
+  const readLog = new Map();          // text -> { code, first, last, n, how }
+  let frameInfo = null, readsT = 0;
+  const KIND = { big: "Big QR (goods movement)", small: "Small QR (scanning in)", pairing: "Laptop pairing code", other: "Not an SAP label" };
+  const kindOf = (c) => (c.kind === "big" || c.kind === "small" ? c.kind : c.text.includes("pair=") || c.text.startsWith(B.PREFIX) ? "pairing" : "other");
+  function noteReads(codes) {
+    const now = Date.now();
+    let fresh = false;
+    for (const c of codes) {
+      const r = readLog.get(c.text);
+      if (r) { r.last = now; r.n++; if (!c.found) r.how = "frame"; }
+      else { readLog.set(c.text, { code: c, first: now, last: now, n: 1, how: c.found ? "where" : "frame", fresh: true }); fresh = true; }
+    }
+    if (fresh && inspect) hit();
+    if (fresh || now - readsT > 1000) { readsT = now; renderReads(); }
+  }
+  function renderReads() {
+    const list = [...readLog.values()].sort((a, b) => a.first - b.first), now = Date.now();
+    $("readNone").hidden = list.length > 0;
+    $("readMeta").textContent = frameInfo ? `camera ${frameInfo.w}×${frameInfo.h} · ${frameInfo.ms} ms a frame · ${zxingOk ? "full reader" : "basic reader"}` : "";
+    $("reads").innerHTML = list.map((r) => {
+      const c = r.code, k = kindOf(c);
+      const parsed = k === "big" ? `Product <b>${B.esc(c.product)}</b> · Batch <b>${B.esc(c.batch)}</b>${c.label ? ` · Label ID <b>${B.esc(c.label)}</b>` : ""}`
+        : k === "small" ? `Product <b>${B.esc(c.product)}</b> · Batch <b>${B.esc(c.batch)}</b> · Quantity <b>${B.esc(String(c.qty))} ${B.esc(c.unit)}</b> <span class="seenhow">(${B.esc(c.unitCode)})</span>`
+        : k === "pairing" ? "Opens the scanner paired with a laptop" : "Not one of the label's codes";
+      const ago = Math.round((now - r.last) / 1000);
+      const html = `<li class="${k === "big" || k === "small" ? k : "other"}${r.fresh ? " fresh" : ""}"><div class="rk"><span>${B.esc(KIND[k])}</span><span>${ago < 2 ? "in view" : `${ago} s ago`}</span></div>
+        <div class="raw">${B.esc(c.text)}</div><div class="parsed">${parsed}</div>
+        <div class="seenhow">Read ${r.n} time${r.n === 1 ? "" : "s"} · ${r.how === "where" ? "found by looking where the other code said it should be" : "found in the camera frame"}</div></li>`;
+      r.fresh = false;
+      return html;
+    }).join("");
+  }
+  // outlines on the camera view; the video fills its box (object-fit: cover), so frame pixels are scaled and centred
+  function drawOverlay(codes) {
+    const cv = $("overlay"), v = $("video"), dpr = window.devicePixelRatio || 1;
+    const W = cv.clientWidth, H = cv.clientHeight;
+    if (!W || !H) return;
+    if (cv.width !== Math.round(W * dpr)) { cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr); }
+    const x = cv.getContext("2d");
+    x.setTransform(dpr, 0, 0, dpr, 0, 0); x.clearRect(0, 0, W, H);
+    if (!codes.length || !v.videoWidth) return;
+    const k = Math.max(W / v.videoWidth, H / v.videoHeight), ox = (W - v.videoWidth * k) / 2, oy = (H - v.videoHeight * k) / 2;
+    const P = (p) => [ox + p.x * k, oy + p.y * k];
+    for (const c of codes.filter((q) => q.tl)) {
+      const kind = kindOf(c), col = kind === "big" ? "#2bd47a" : kind === "small" ? "#4aa3ff" : "#f2b33d";
+      x.strokeStyle = col; x.lineWidth = 3; x.setLineDash(c.found ? [8, 6] : []);
+      x.beginPath(); x.moveTo(...P(c.tl)); x.lineTo(...P(c.tr)); x.lineTo(...P(c.br)); x.lineTo(...P(c.bl)); x.closePath(); x.stroke();
+      x.setLineDash([]);
+      const [lx, ly] = P(c.tl), label = kind === "big" ? "Big QR" : kind === "small" ? `Small QR${c.qty !== undefined ? " · " + c.qty + " " + c.unit : ""}` : kind === "pairing" ? "Pairing" : "Other";
+      x.font = "600 13px system-ui, sans-serif";
+      const tw = x.measureText(label).width + 10, bx = Math.max(0, Math.min(lx, W - tw)), by = Math.max(18, Math.min(ly - 2, H));
+      x.fillStyle = col; x.fillRect(bx, by - 18, tw, 18);
+      x.fillStyle = "#06120b"; x.fillText(label, bx + 5, by - 5);
+    }
+  }
+
   // A label's two codes can turn up in different frames (the small one creased, glared or a bit out of focus): what
   // each frame read is put together for up to WAIT_FOR_BOTH_MS. Both codes: the picture is taken at once. Only one
   // by then: it's taken with what there is.
@@ -344,8 +430,12 @@
     if (!scanning) return;
     const v = $("video");
     if (!busy && v.readyState >= 2 && v.videoWidth) {
-      const codes = await codesOf(v, v.videoWidth, v.videoHeight, 1280);
-      if (codes.length && scanning) await onCodes(codes, v, v.videoWidth, v.videoHeight);
+      const t0 = performance.now();
+      const codes = await codesOf(v, v.videoWidth, v.videoHeight, 1280, true);
+      frameInfo = { w: v.videoWidth, h: v.videoHeight, ms: Math.round(performance.now() - t0) };
+      if (!scanning) return;
+      drawOverlay(codes); noteReads(codes);
+      if (codes.length && !inspect) await onCodes(codes, v, v.videoWidth, v.videoHeight);
     }
     if (scanning) setTimeout(loop, 100);
   }
@@ -428,10 +518,12 @@
   function showLast(it) {
     $("lastPanel").hidden = false; $("lastImg").src = it.url;
     $("lastText").innerHTML = (it.raw ? `<b>${B.esc(it.product || "?")}</b><br>batch <b>${B.esc(it.batch)}</b>${qtyText(it)}` : "<b>No QR read</b> (photo only)")
-      + `<br><span class="note">Job ${B.esc(it.job)} · ${B.hms(it.at)}${it.raw && !it.small ? " · small QR not read" : ""}</span>`;
+      + `<br><span class="note">Job ${B.esc(it.job)} · ${B.hms(it.at)}${it.raw && !it.small ? " · small QR not read" : ""}</span>`
+      + (it.big || it.small ? `<div class="seenhow" style="margin-top:4px">${it.big ? `Big QR: <b class="raw" style="font-size:12px">${B.esc(it.big)}</b><br>` : ""}${it.small ? `Small QR: <b class="raw" style="font-size:12px">${B.esc(it.small)}</b>` : ""}</div>` : "");
   }
 
-  $("scanBtn").onclick = () => startCamera();
+  $("scanBtn").onclick = () => startCamera("scan");
+  $("inspectBtn").onclick = () => startCamera("inspect");
   $("cancelBtn").onclick = () => stopCamera();
   $("noQrBtn").onclick = () => {
     const v = $("video");

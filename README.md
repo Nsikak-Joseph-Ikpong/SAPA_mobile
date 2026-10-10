@@ -55,6 +55,14 @@ builds the site, and added to every file's address so phones don't keep old copi
 sent once per session (same product, batch and quantity); **No readable QR** sends a photo only. The phone sends the
 photo and a full-resolution close-up of the label cut out upright around the QR codes.
 
+**Seeing what the scanner reads.** While the camera is on, each QR code it reads is outlined on the camera view (green
+the big QR, blue the small one with its quantity; dashed when it was found by looking where the other code said it
+should be), and **What the scanner reads** lists every code: its raw text, which code it is, and what it says
+(product, batch, quantity and unit, with the unit code as printed in the QR), how often it was read and how it was
+found, with the camera's resolution and how long a frame takes to read. **Just read a label (nothing is sent)** turns
+the camera on to look at labels without a laptop or a job and without sending anything. After a scan, **Last scan**
+shows both codes as read; on the laptop, clicking a scan shows them too.
+
 **Checking the print.** On the laptop the printed batch and quantity are read (OCR, Tesseract in the browser) and
 checked against the QR codes. The big QR fixes where everything is: measured on real labels, the small QR sits 3.9
 big-QR widths to its right, the printed "Batch:" / "Quantity:" about 2 widths right and 1.5 to 2 up, and the large

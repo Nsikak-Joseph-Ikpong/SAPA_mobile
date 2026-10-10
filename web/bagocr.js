@@ -137,14 +137,17 @@
   // small one 3.7 to 4.3 big-QR widths right of the big one, up to 1 width up or down), cut out upright from the
   // picture at its full resolution, enlarged, and read on its own (then with the contrast stretched).
   const PARTNER = { small: { x0: 2.9, x1: 5.0, y0: -1.4, y1: 1.4 }, big: { x0: -1.0, x1: 1.0, y0: -1.0, y1: 1.0 } };
-  async function findPartner(src, codes) {
+  // `passes` picks which of the ways to look (enlargement, contrast) to try: all of them on a captured picture; one per
+  // frame, in turn, on the live camera, so the camera keeps up
+  const PASSES = [[300, false], [300, true], [420, true]];
+  async function findPartner(src, codes, passes = PASSES) {
     const f = frameOf(codes);
     if (!f) return codes;
     const have = codes.find((c) => c.kind === (f.from === "big QR" ? "big" : "small"));
     const want = f.from === "big QR" ? "small" : "big", box = PARTNER[want];
     const same = (c) => c.kind === want && (!have || (c.batch === have.batch && c.product === have.product));
     if (codes.some(same)) return codes;
-    for (const [px, stretch] of [[300, false], [300, true], [420, true]]) {
+    for (const [px, stretch] of passes) {
       const c = cut(src, f, box, px);
       if (stretch) enhance(c);
       let found = [];
@@ -284,5 +287,5 @@
     return c;
   }
 
-  root.BagOCR = { readCodes, codesIn, findPartner, frameOf, cut, labelCut, readLabel, enhance, LABEL, FIELDS, toLU, fromLU, qtyIn, qtysIn, batchIn, labelIdIn };
+  root.BagOCR = { readCodes, codesIn, findPartner, PASSES, frameOf, cut, labelCut, readLabel, enhance, LABEL, FIELDS, toLU, fromLU, qtyIn, qtysIn, batchIn, labelIdIn };
 })(typeof window !== "undefined" ? window : globalThis);
