@@ -72,6 +72,11 @@
   .it-main span { display: block; color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .state { font: 600 11px var(--sans); padding: 3px 8px; border-radius: 999px; white-space: nowrap; }
   .state.sent { background: var(--ok-soft); color: var(--ok); } .state.queued, .state.sending { background: var(--warn-soft); color: var(--warn); }
+  .diag { font-size: 12.5px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: baseline; margin-top: -6px; }
+  .diag b { font-family: var(--mono); color: var(--ink); font-weight: 600; }
+  .diag .bad { color: var(--bad); font-weight: 600; } .diag .ok { color: var(--ok); }
+  .diag button { font-size: 12.5px; padding: 0; border: 0; background: none; color: var(--accent); text-decoration: underline; font-weight: 500; }
+  .help { background: var(--bad-soft); color: var(--ink); border-radius: 8px; padding: 10px 12px; font-size: 13.5px; }
   .toast { position: fixed; left: 50%; bottom: calc(env(safe-area-inset-bottom, 0px) + 18px); transform: translateX(-50%); background: var(--ink); color: var(--ground); padding: 10px 16px; border-radius: 8px; font-size: 14px; max-width: calc(100vw - 32px); z-index: 10; }
   [hidden] { display: none !important; }
 </style>
@@ -82,6 +87,8 @@
     <h1>Bag scanner</h1>
     <span class="pill" id="status">Not paired</span>
   </header>
+  <div class="diag" id="diag" hidden></div>
+  <div class="help" id="help" hidden></div>
 
   <section class="panel" id="pairPanel">
     <h2>Pair with the laptop</h2>
@@ -138,6 +145,22 @@
   let laptop = new URLSearchParams(location.search).get("pair");
   let job = "";                       // set on the laptop
   let peer = null, conn = null, retryT = null, openT = null;
+  // where the link got to, shown under the title: the pairing service, the laptop's code, the direct link
+  const link = { service: "", laptop: "", direct: "" };
+  function diag(patch, help) {
+    Object.assign(link, patch || {});
+    const d = $("diag"); d.hidden = !laptop;
+    const mark = (v) => (v === "ok" ? `<span class="ok">✓</span>` : v === "bad" ? `<span class="bad">✗</span>` : v ? "…" : "");
+    d.innerHTML = laptop ? `<span>Laptop code <b>${B.esc(laptop)}</b></span><span>Pairing service ${mark(link.service)}</span><span>Laptop found ${mark(link.laptop)}</span><span>Direct link ${mark(link.direct)}</span><button type="button" id="repair">Pair again</button>` : "";
+    if (help !== undefined) { $("help").hidden = !help; $("help").innerHTML = help || ""; }
+    const rb = $("repair"); if (rb) rb.onclick = repair;
+  }
+  function repair() {
+    try { if (conn) conn.close(); } catch { /* closed */ }
+    conn = null; laptop = null; job = ""; clearTimeout(retryT);
+    history.replaceState(null, "", location.pathname + (B.signalQuery() ? "?" + B.signalQuery().slice(1) : ""));
+    diag({ laptop: "", direct: "" }, ""); connect(); showJob();
+  }
   const items = [];                   // newest last
   const seen = new Map();             // label key -> time sent (a bag is sent once per session)
   let stream = null, scanning = false, busy = false, detector = null, audio = null, lastMsgAt = 0, offT = null;
@@ -156,7 +179,7 @@
     laptop = id.trim().toLowerCase();
     history.replaceState(null, "", location.pathname + "?pair=" + encodeURIComponent(laptop) + B.signalQuery());
     if (conn) { try { conn.close(); } catch { /* closed */ } conn = null; }
-    connect(); showJob();
+    diag({ laptop: "", direct: "" }, ""); connect(); showJob();
   }
   function retry(ms) { clearTimeout(retryT); retryT = setTimeout(connect, ms); }
   function connect() {
@@ -164,17 +187,19 @@
     if (!laptop) { status("", "Not paired"); showJob(); return; }
     if (typeof Peer === "undefined") { status("bad", "Link didn't load"); return; }
     if (!peer || peer.destroyed) {
-      status("warn", "Connecting…");
+      status("warn", "Connecting…"); diag({ service: "…" });
       peer = new Peer(B.peerOptions());
-      peer.on("open", openConn);
-      peer.on("disconnected", () => { if (!peer.destroyed) setTimeout(() => peer.reconnect(), 2000); });
+      peer.on("open", () => { diag({ service: "ok" }); openConn(); });
+      peer.on("disconnected", () => { diag({ service: "…" }); if (!peer.destroyed) setTimeout(() => peer.reconnect(), 2000); });
       peer.on("error", (e) => {
         if (e.type === "peer-unavailable") {
           status("bad", "Laptop not found");
-          toast("Can't find the laptop. Is the Inputs page open there? If it was closed, scan its pairing code again.");
+          diag({ laptop: "bad", direct: "" }, `The pairing service has no laptop with the code <b>${B.esc(laptop)}</b>. Check the code on the laptop's Inputs page: if it's different (the page was reopened, or is open in two tabs), scan its pairing code again, or tap <b>Pair again</b>.`);
           conn = null; showJob(); retry(5000);
         } else if (["network", "server-error", "socket-error", "socket-closed"].includes(e.type)) {
-          status("bad", "No connection"); conn = null; showJob(); retry(5000);
+          status("bad", "No connection");
+          diag({ service: "bad" }, "This phone can't reach the pairing service (0.peerjs.com). Check the phone has internet; a guest or company Wi-Fi may block it: try mobile data.");
+          conn = null; showJob(); retry(5000);
         }
       });
       return;
@@ -185,11 +210,30 @@
     if (!laptop || (conn && conn.open)) return;
     status("warn", "Connecting…");
     const c = conn = peer.connect(laptop, { reliable: true, metadata: { device: deviceName() } });
+    // the laptop answering shows as the direct link starting to check routes (ICE); no answer at all leaves it "new"
+    let ice = "new";
+    const watch = () => {
+      const pc = c.peerConnection;
+      if (!pc) return;
+      pc.addEventListener("iceconnectionstatechange", () => {
+        ice = pc.iceConnectionState;
+        if (c !== conn) return;
+        if (ice === "checking") diag({ laptop: "ok", direct: "…" });
+        if (ice === "failed") diag({ laptop: "ok", direct: "bad" });
+      });
+    };
+    setTimeout(watch, 0);
+    diag({ laptop: link.laptop === "ok" ? "ok" : "…", direct: "" });
     clearTimeout(openT);
     openT = setTimeout(() => {
-      if (c === conn && !c.open) { status("bad", "Couldn't connect"); toast("Couldn't reach the laptop. This network may block it: try mobile data on the phone."); conn = null; try { c.close(); } catch { /* */ } retry(5000); }
+      if (c === conn && !c.open) {
+        status("bad", "Couldn't connect");
+        if (ice === "new") diag({ laptop: "bad", direct: "" }, `No answer from the laptop with code <b>${B.esc(laptop)}</b>. Is its Inputs page open, in one tab only, and showing this code? Trying again…`);
+        else diag({ laptop: "ok", direct: "bad" }, "The laptop answered, but the network won't let the phone and laptop link up. Put the phone on the <b>same Wi-Fi as the laptop</b>, or try <b>mobile data</b>. Trying again…");
+        conn = null; try { c.close(); } catch { /* */ } retry(5000);
+      }
     }, 15000);
-    c.on("open", () => { if (c !== conn) return; clearTimeout(openT); status("ok", "Connected"); showJob(); flush(); });
+    c.on("open", () => { if (c !== conn) return; clearTimeout(openT); status("ok", "Connected"); diag({ service: "ok", laptop: "ok", direct: "ok" }, ""); showJob(); flush(); });
     c.on("data", (d) => {
       if (!d) return;
       if (d.t === "ack") { const it = items.find((x) => x.id === d.id); if (it) { it.state = "sent"; render(); } }
@@ -199,7 +243,7 @@
         if (was && job !== was) toast(job ? `Job changed to ${job}` : "The laptop cleared the job");
       }
     });
-    c.on("close", () => { if (c !== conn) return; conn = null; status("warn", "Reconnecting…"); showJob(); retry(3000); });
+    c.on("close", () => { if (c !== conn) return; conn = null; status("warn", "Reconnecting…"); diag({ direct: "…" }); showJob(); retry(3000); });
   }
   function deviceName() {
     const ua = navigator.userAgent;

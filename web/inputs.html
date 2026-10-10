@@ -103,6 +103,7 @@
   .sapsec .figs b { font-family: var(--mono); }
   .sapsec a { color: var(--accent); }
   .sapsec tr.prod td { font-weight: 600; } .sapsec tr.neg td { color: var(--bad); } .sapsec tr.mine td { background: var(--accent-soft); }
+  .pairnote { font-size: 13px; background: var(--bad-soft); border-radius: 6px; padding: 8px 10px; margin: 0; }
   .toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); background: var(--ink); color: var(--ground); padding: 8px 14px; border-radius: 6px; font-size: 13px; z-index: 20; }
   [hidden] { display: none !important; }
 </style>
@@ -134,6 +135,7 @@
       <span class="pill warn" id="status">Starting…</span>
       <div class="qr" id="qr" aria-label="Pairing code"></div>
       <div class="code" id="code"></div>
+      <p class="pairnote" id="pairNote" hidden></p>
       <p class="hint">Scan this code with the phone's camera to open the bag scanner, already paired. Or open <a id="scanLink" href="scanner.html" target="_blank" rel="noopener">the scanner page</a> on the phone and enter the code.</p>
     </section>
 
@@ -208,7 +210,14 @@
     peer = new Peer(id, B.peerOptions());
     peer.on("open", (myId) => { B.store.set("sapa-inputs-id", myId); showPairing(myId); phoneStatus(); });
     peer.on("connection", (c) => {
-      c.on("open", () => { phones.add(c); phoneStatus(); c.send({ t: "hello", job }); toast(`${(c.metadata && c.metadata.device) || "A phone"} connected`); });
+      // a phone that reaches this page but can't link up: the network is in the way; say so here
+      const who = (c.metadata && c.metadata.device) || "A phone", tried = Date.now();
+      const failT = setTimeout(() => {
+        if (c.open) return;
+        $("pairNote").hidden = false;
+        $("pairNote").innerHTML = `${esc(who)} tried to connect at ${B.hms(tried)}, but the network wouldn't let it link up. Put the phone on the <b>same Wi-Fi as this laptop</b>, or on <b>mobile data</b>.`;
+      }, 15000);
+      c.on("open", () => { clearTimeout(failT); $("pairNote").hidden = true; phones.add(c); phoneStatus(); c.send({ t: "hello", job }); toast(`${who} connected`); });
       c.on("data", (d) => onScan(d, c));
       c.on("close", () => { phones.delete(c); phoneStatus(); });
       c.on("error", () => {});
@@ -525,6 +534,16 @@
     if (job) { $("jobSel").value = ""; render(); }
     toast(job ? `Job set to ${job}${phones.size ? ": sent to the phone" + (phones.size > 1 ? "s" : "") : ""}` : "Job cleared");
   });
+
+  // the page open in two tabs: only one can hold the pairing code, and phones end up talking to the other one
+  try {
+    const bc = new BroadcastChannel("sapa-inputs");
+    bc.onmessage = (e) => {
+      if (e.data === "here?") bc.postMessage("here");
+      if (e.data === "here" || e.data === "here?") { $("pairNote").hidden = false; $("pairNote").innerHTML = "This page is also open in another tab or window. Close the others and use one, or phones may pair with the wrong one."; }
+    };
+    bc.postMessage("here?");
+  } catch { /* no BroadcastChannel: skip the check */ }
 
   showJob();
   render();
