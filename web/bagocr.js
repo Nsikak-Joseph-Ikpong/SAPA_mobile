@@ -131,6 +131,33 @@
   // a point in label units, in the picture
   const fromLU = (f, p) => ({ x: f.o.x + p.x * f.ux.x + p.y * f.uy.x, y: f.o.y + p.x * f.ux.y + p.y * f.uy.y });
 
+  // ------------------------------------------------------------ the other QR code, where it should be
+  // A small QR is often too small to read in a whole frame scaled down for speed, though a phone's own scanner reads it.
+  // So once one code of a label is found, the other is looked for where it should be (measured on real labels: the
+  // small one 3.7 to 4.3 big-QR widths right of the big one, up to 1 width up or down), cut out upright from the
+  // picture at its full resolution, enlarged, and read on its own (then with the contrast stretched).
+  const PARTNER = { small: { x0: 2.9, x1: 5.0, y0: -1.4, y1: 1.4 }, big: { x0: -1.0, x1: 1.0, y0: -1.0, y1: 1.0 } };
+  async function findPartner(src, codes) {
+    const f = frameOf(codes);
+    if (!f) return codes;
+    const have = codes.find((c) => c.kind === (f.from === "big QR" ? "big" : "small"));
+    const want = f.from === "big QR" ? "small" : "big", box = PARTNER[want];
+    const same = (c) => c.kind === want && (!have || (c.batch === have.batch && c.product === have.product));
+    if (codes.some(same)) return codes;
+    for (const [px, stretch] of [[300, false], [300, true], [420, true]]) {
+      const c = cut(src, f, box, px);
+      if (stretch) enhance(c);
+      let found = [];
+      try { found = await readCodes(c.getContext("2d", { willReadFrequently: true }).getImageData(0, 0, c.width, c.height)); } catch { return codes; }
+      const hit = found.find(same) || found.find((q) => q.kind === want);
+      if (hit) {
+        const back = (p) => fromLU(f, { x: box.x0 + p.x / px, y: box.y0 + p.y / px });
+        return [...codes, { ...hit, tl: back(hit.tl), tr: back(hit.tr), br: back(hit.br), bl: back(hit.bl), found: "where it should be" }];
+      }
+    }
+    return codes;
+  }
+
   // ------------------------------------------------------------ reading the fields (laptop side)
   const PX = 330;   // pixels per label unit for reading: the small print comes out about 30 px high
   const digits = (t) => String(t || "").replace(/[Oo]/g, "0").replace(/[Il|]/g, "1").replace(/[Ss](?=\d)|(?<=\d)[Ss]/g, "5");
@@ -257,5 +284,5 @@
     return c;
   }
 
-  root.BagOCR = { readCodes, codesIn, frameOf, cut, labelCut, readLabel, enhance, LABEL, FIELDS, toLU, fromLU, qtyIn, qtysIn, batchIn, labelIdIn };
+  root.BagOCR = { readCodes, codesIn, findPartner, frameOf, cut, labelCut, readLabel, enhance, LABEL, FIELDS, toLU, fromLU, qtyIn, qtysIn, batchIn, labelIdIn };
 })(typeof window !== "undefined" ? window : globalThis);

@@ -44,8 +44,14 @@ record of every label that went into a job, with a photo, checked against what S
 **The label.** The plant's SAP labels carry two QR codes: the big one (goods movement) holds
 `(90)<product>(10)<batch>`, the small one (scanning in) `<product>,<batch>,<quantity>,<unit>`, e.g.
 `RMMA20BF,43282,1007.71,KGM` (KGM = kg, XCS = case, MTR = m). The phone reads both at once (zxing, any angle, several
-codes per picture; with several labels in view, the one nearest the middle). When only one is readable (the small
-one is often overprinted or creased) it waits a second for the other, then goes ahead with what it has. A label is
+codes per picture; with several labels in view, the one nearest the middle). Each frame is read scaled down for
+speed, which can leave the small QR too small to read, so once one code of a label is found the other is looked for
+where it should be, cut out of the frame at full resolution and enlarged. What different frames read is put
+together, so the big QR from one frame and the small one from the next make a scan. When only one is readable (the
+small one is often overprinted or creased) the phone says so ("Big QR ✓ · looking for the small QR… hold steady, a
+little closer") and after 3 seconds goes ahead with what it has. If the full QR reader can't load, the phone says it
+is reading one code at a time. Both pages show their version at the bottom (the commit, filled in when GitHub Pages
+builds the site, and added to every file's address so phones don't keep old copies). A label is
 sent once per session (same product, batch and quantity); **No readable QR** sends a photo only. The phone sends the
 photo and a full-resolution close-up of the label cut out upright around the QR codes.
 

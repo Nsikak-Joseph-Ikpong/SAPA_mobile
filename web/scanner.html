@@ -89,6 +89,7 @@
   </header>
   <div class="diag" id="diag" hidden></div>
   <div class="help" id="help" hidden></div>
+  <div class="help" id="readerWarn" hidden></div>
 
   <section class="panel" id="pairPanel">
     <h2>Pair with the laptop</h2>
@@ -131,13 +132,14 @@
     <p class="note" id="empty">Scanned bags show here. Nothing is kept on this phone: reload and the list is gone.</p>
   </section>
 </div>
+<p class="note" style="text-align:center;margin:0 0 16px">Version __BUILD__</p>
 <div class="toast" id="toast" hidden></div>
 
-<script src="vendor/peerjs.min.js"></script>
-<script src="vendor/jsQR.js"></script>
-<script src="vendor/zxing/zxing-reader.js"></script>
-<script src="bagscan.js"></script>
-<script src="bagocr.js"></script>
+<script src="vendor/peerjs.min.js?v=__BUILD__"></script>
+<script src="vendor/jsQR.js?v=__BUILD__"></script>
+<script src="vendor/zxing/zxing-reader.js?v=__BUILD__"></script>
+<script src="bagscan.js?v=__BUILD__"></script>
+<script src="bagocr.js?v=__BUILD__"></script>
 <script>
 (function () {
   "use strict";
@@ -240,6 +242,7 @@
       if (d.t === "ack") { const it = items.find((x) => x.id === d.id); if (it) { it.state = "sent"; render(); } }
       if (d.t === "job" || d.t === "hello") {
         const was = job; job = String(d.job || "");
+        if (was !== job) { seen.clear(); pending.clear(); }
         showJob();
         if (was && job !== was) toast(job ? `Job changed to ${job}` : "The laptop cleared the job");
       }
@@ -298,12 +301,12 @@
   function noLiveCamera(msg) { $("photoRow").hidden = false; toast(msg); }
 
   // The QR codes in a picture, with their corners in the picture's own pixels. zxing reads several codes at a time
-  // and at any angle; where it can't run, the browser's own reader or jsQR read one.
+  // and at any angle; if it can't load, the browser's own reader or jsQR read one code at a time, and the page says so.
   let zxingOk = true;
   const small = document.createElement("canvas"), sctx = small.getContext("2d", { willReadFrequently: true });
   async function decode(src, w, h, max = 1280) {
     if (zxingOk) {
-      try { return await O.codesIn(src, w, h, max); } catch { zxingOk = false; }
+      try { return await O.codesIn(src, w, h, max); } catch (e) { zxingOk = false; readerWarning(e); }
     }
     const one = (text, q) => [{ text, ...B.parseCode(text), ...(q || {}) }];
     if (detector) {
@@ -317,21 +320,37 @@
     const p = (q) => ({ x: q.x / sc, y: q.y / sc }), L = r.location;
     return one(r.data, { tl: p(L.topLeftCorner), tr: p(L.topRightCorner), bl: p(L.bottomLeftCorner), br: p(L.bottomRightCorner) });
   }
-  // Both codes of a label in view: take the picture now. Only one of them (the other covered, overprinted or out of
-  // view): wait a moment for the other, then take it with what there is.
-  const WAIT_FOR_BOTH_MS = 1200;
-  let partialSince = 0, partialKey = "";
+  function readerWarning(e) {
+    $("readerWarn").hidden = false;
+    $("readerWarn").innerHTML = "The full QR reader didn't load, so this phone reads one QR code at a time and may miss the small one. Close this tab and open the scanner again from the laptop's pairing code." + (e && e.message ? ` <small>(${B.esc(e.message)})</small>` : "");
+  }
+  // The codes of a frame, and the other code of each label looked for where it should be, in the frame at full
+  // resolution (a small QR is often too small to read in the frame scaled down for speed)
+  async function codesOf(src, w, h, max) {
+    let codes = await decode(src, w, h, max).catch(() => []);
+    if (!zxingOk) return codes;
+    for (const q of codes.filter((c) => c.kind === "big" || c.kind === "small")) {
+      const mates = codes.filter((c) => c !== q && c.batch === q.batch && c.product === q.product);
+      if (!mates.some((c) => c.kind !== q.kind)) codes = [...codes, ...(await O.findPartner(src, [q]).catch(() => [q])).slice(1)];
+    }
+    return codes;
+  }
+  // A label's two codes can turn up in different frames (the small one creased, glared or a bit out of focus): what
+  // each frame read is put together for up to WAIT_FOR_BOTH_MS. Both codes: the picture is taken at once. Only one
+  // by then: it's taken with what there is.
+  const WAIT_FOR_BOTH_MS = 3000;
+  const pending = new Map();          // product|batch -> { first, last, big, small }
   async function loop() {
     if (!scanning) return;
     const v = $("video");
     if (!busy && v.readyState >= 2 && v.videoWidth) {
-      const codes = await decode(v, v.videoWidth, v.videoHeight).catch(() => []);
+      const codes = await codesOf(v, v.videoWidth, v.videoHeight, 1280);
       if (codes.length && scanning) await onCodes(codes, v, v.videoWidth, v.videoHeight);
     }
-    if (scanning) setTimeout(loop, 120);
+    if (scanning) setTimeout(loop, 100);
   }
 
-  async function onCodes(codes, src, w, h) {
+  async function onCodes(codes, src, w, h, force) {
     for (const c of codes) {
       const text = c.text;
       const pairing = text.includes("pair=") ? (() => { try { return new URL(text).searchParams.get("pair"); } catch { return null; } })() : text.startsWith(B.PREFIX) ? text : null;
@@ -349,17 +368,21 @@
     // with several labels in view, the one nearest the middle of the picture
     const mid = { x: w / 2, y: h / 2 }, ctr = (q) => (q.tl ? { x: (q.tl.x + q.br.x) / 2, y: (q.tl.y + q.br.y) / 2 } : mid);
     const near = bag.slice().sort((a, b) => Math.hypot(ctr(a).x - mid.x, ctr(a).y - mid.y) - Math.hypot(ctr(b).x - mid.x, ctr(b).y - mid.y))[0];
+    const lk = `${near.product}|${near.batch}`;
+    if (seen.has(lk)) return say(`Already scanned at ${B.hms(seen.get(lk))}. Point at the next one`);
     const mine = bag.filter((c) => c.batch === near.batch && c.product === near.product);
-    const lab = B.mergeCodes(mine);
-    const key = `${lab.product}|${lab.batch}|${lab.qty ?? ""}`;
-    if (seen.has(key)) return say(`Already scanned at ${B.hms(seen.get(key))}. Point at the next one`);
-    const both = mine.some((c) => c.kind === "big") && mine.some((c) => c.kind === "small");
-    if (!both) {
-      if (partialKey !== key) { partialKey = key; partialSince = now; }
-      if (now - partialSince < WAIT_FOR_BOTH_MS) return say("Reading the label… hold still");
+    let acc = pending.get(lk);
+    if (!acc || now - acc.last > 4000) { acc = { first: now, big: null, small: null }; pending.set(lk, acc); }
+    acc.last = now;
+    for (const c of mine) acc[c.kind] = acc[c.kind] || c;
+    const both = acc.big && acc.small;
+    if (!both && !force && now - acc.first < WAIT_FOR_BOTH_MS) {
+      camMsg(acc.big ? "Big QR ✓ · looking for the small QR… hold steady, a little closer" : "Small QR ✓ · looking for the big QR… hold steady");
+      return;
     }
-    partialKey = "";
-    seen.set(key, now);
+    pending.delete(lk);
+    seen.set(lk, now);
+    const lab = B.mergeCodes([acc.big, acc.small].filter(Boolean));
     await capture(lab, mine, src, w, h);
   }
 
@@ -379,7 +402,7 @@
       let labelImg = null, labelFrame = null, labelCodes = null;
       if (lab) {
         // the codes again in the full picture, for exact corners; else the ones the scan found
-        let codes = (await decode(full, w, h, 2600).catch(() => [])).filter((c) => c.batch === lab.batch && c.product === lab.product);
+        let codes = (await codesOf(full, w, h, 2600)).filter((c) => c.batch === lab.batch && c.product === lab.product);
         if (!codes.some((c) => c.tl)) codes = hint;
         const f = O.frameOf(codes.filter((c) => c.tl));
         if (f) {
@@ -428,8 +451,8 @@
     if (!f) return;
     const url = URL.createObjectURL(f), img = new Image(); img.src = url;
     try { await img.decode(); } catch { toast("Couldn't open that photo"); return; }
-    const codes = await decode(img, img.naturalWidth, img.naturalHeight, 2400).catch(() => []);
-    if (codes.length) { partialSince = 0; partialKey = ""; await onCodes(codes, img, img.naturalWidth, img.naturalHeight); if (partialKey) { partialSince = -1e12; await onCodes(codes, img, img.naturalWidth, img.naturalHeight); } }
+    const codes = await codesOf(img, img.naturalWidth, img.naturalHeight, 2400);
+    if (codes.length) await onCodes(codes, img, img.naturalWidth, img.naturalHeight, true);
     else if (laptop && job) await capture(null, [], img, img.naturalWidth, img.naturalHeight);
     else toast("No QR code found in the photo");
     URL.revokeObjectURL(url);
