@@ -4,8 +4,7 @@ name: Deploy web tool to GitHub Pages
 
 on:
   push:
-    branches: [main]
-    paths: ["web/**", ".github/workflows/pages.yml"]
+    branches: [main, claude/vibrant-ritchie-p1ubko]
   workflow_dispatch:
 
 permissions:

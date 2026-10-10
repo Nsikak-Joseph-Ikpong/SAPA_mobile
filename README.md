@@ -1,8 +1,33 @@
-# SAP production variance checker
+# SAPA mobile
 
-Reads SAP ByDesign spreadsheet exports, checks each production order's cheese
-input against its output and offcuts, and flags anything that doesn't add up,
-so someone can find out why and correct it.
+**Open it on your phone: https://nsikak-joseph-ikpong.github.io/SAPA_mobile/**
+
+SAPA mobile is the cheese variance checker from the SAP project, set up to be used from a phone. It reads
+SAP ByDesign spreadsheet exports, checks each production order's cheese input against its output and
+offcuts, and flags anything that doesn't add up, so someone can find out why and correct it.
+
+## Open it on your phone
+
+The checker is a web page hosted on GitHub Pages, so the phone needs nothing installed and doesn't have
+to be on the office network.
+
+1. **On the laptop**, save the SAP exports (`.xlsx`) into a folder your phone can also see: OneDrive,
+   Google Drive, iCloud Drive or Dropbox. For example, make a `SAPA` folder in OneDrive and save the
+   order list, confirmation journal and stock overview exports there.
+2. **On the phone**, open https://nsikak-joseph-ikpong.github.io/SAPA_mobile/ (add it to the home
+   screen: Safari *Share → Add to Home Screen*, Chrome *⋮ → Add to Home screen*).
+3. Tap **Load SAP files** and pick the exports. iPhone: *Browse → OneDrive / Drive / iCloud Drive*. Android:
+   *☰ → OneDrive / Drive*, or the *Files* app. You can pick several at once.
+4. Type a job number, a batch for its history, or use the stock trace (the camera button scans a
+   pallet label's QR code).
+
+The files are read on the phone and kept in its browser, so they're still there next time. Nothing is
+uploaded to GitHub or anywhere else. When you save newer exports on the laptop, load them again on the
+phone; *Remove* / *Remove all files* clears the old ones.
+
+The phone can't open files straight off the laptop's disk; they have to go through a synced folder
+(step 1), email, or a USB cable. If you'd rather the files never leave the laptop, use
+`python serve.py --share` on the office Wi-Fi instead (see *Use it from your phone (office Wi-Fi)*).
 
 You can give it several spreadsheets at once. They are read together and
 cross-referenced:
@@ -371,10 +396,11 @@ type, Conf.ID, logistics area, Effective Qty and the running stock after each ro
 
 ## Hosting the web tool on GitHub Pages
 
-`.github/workflows/pages.yml` publishes the `web/` folder to GitHub Pages whenever `web/` changes on `main`
-(or when run by hand from the Actions tab). One-time setup: in the repository go to
-**Settings → Pages → Build and deployment → Source** and choose **GitHub Actions**. The page is then at
-`https://nsikak-joseph-ikpong.github.io/SAP/`.
+`.github/workflows/pages.yml` publishes the `web/` folder to GitHub Pages on every push to `main` or to
+`claude/vibrant-ritchie-p1ubko` (the default branch for now), or when run by hand from the Actions tab
+(*Deploy web tool to GitHub Pages → Run workflow*). One-time setup: in the repository go to
+**Settings → Pages → Build and deployment → Source** and choose **GitHub Actions**, then run the workflow
+once. The page is then at `https://nsikak-joseph-ikpong.github.io/SAPA_mobile/`.
 
 The page is static: files you load are read in your browser and kept there (IndexedDB), nothing is uploaded.
 The **Stock trace** section takes a batch (pallet) number, and optionally a product code, and lists every
