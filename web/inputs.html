@@ -108,6 +108,7 @@
   .chk span { font-size: 11.5px; padding: 2px 7px; border-radius: 999px; background: var(--sunken); color: var(--muted); white-space: nowrap; }
   .chk .ok { background: var(--ok-soft); color: var(--ok); } .chk .bad { background: var(--bad-soft); color: var(--bad); } .chk .warn { background: var(--warn-soft); color: var(--warn); }
   .unit { color: var(--muted); font-size: 12px; margin-left: 4px; }
+  .qsrc { display: block; font-size: 11px; color: var(--muted); margin-top: 2px; }
   .toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); background: var(--ink); color: var(--ground); padding: 8px 14px; border-radius: 6px; font-size: 13px; z-index: 20; }
   [hidden] { display: none !important; }
 </style>
@@ -116,7 +117,7 @@
 <div class="wrap">
   <div>
     <h1>Input products: label scans</h1>
-    <p class="sub">Labels scanned on the phone appear here as they're scanned, with the photo. Product, batch and quantity come from the label's QR codes; the printed batch and quantity are read and checked against them, and everything is checked against SAP. Nothing is saved: the scans live in this browser tab only, and reloading the page clears them. Export to keep a copy.</p>
+    <p class="sub">Labels scanned on the phone appear here as they're scanned, with the photo. Product, batch and quantity come from the label's QR codes; the large printed product code and quantity are read and checked against them, and everything is checked against SAP. Nothing is saved: the scans live in this browser tab only, and reloading the page clears them. Export to keep a copy.</p>
   </div>
 
   <form class="jobbar unset" id="jobForm">
@@ -176,7 +177,7 @@
     <div style="display:grid;gap:12px;align-content:start">
       <div class="dlghead"><h2>Bag</h2><button type="button" class="quiet" id="dlgClose">Close</button></div>
       <dl id="dlgInfo"></dl>
-      <div id="dlgCropBox"><h2 style="margin-bottom:6px">Label close-up (read for batch and quantity)</h2><img id="dlgCrop" class="crop" alt="Label close-up"></div>
+      <div id="dlgCropBox"><h2 style="margin-bottom:6px">Label close-up (read for the product code and quantity)</h2><img id="dlgCrop" class="crop" alt="Label close-up"></div>
       <div><h2 style="margin-bottom:6px">Text read from the photo</h2><pre id="dlgText"></pre></div>
     </div>
     <section class="sapsec" id="dlgSap" aria-label="SAP history of this bag"></section>
@@ -280,14 +281,14 @@
     });
     return worker;
   }
-  // The printed batch and quantity, each checked against the QR codes (BagOCR.readLabel). The label cut-out from the
+  // The printed product code and quantity, each checked against the QR codes (BagOCR.readLabel). The label cut-out from the
   // phone comes with its frame; a photo without one is searched for the QR codes here.
   function readPrint(r) {
     queue = queue.then(async () => {
       if (!rows.includes(r)) return;
       try {
         const w = await getWorker();
-        const expect = { batch: r.batch || null, qty: r.qrQty, unit: r.qrUnit };
+        const expect = { product: r.raw ? r.product : null, batch: r.batch || null, qty: r.qrQty, unit: r.qrUnit };
         const img = await createImageBitmap(r.labelBlob || r.blob);
         const res = r.labelBlob && r.labelFrame ? await BagOCR.readLabel(w, img, r.labelFrame, r.labelCodes, expect) : await BagOCR.readLabel(w, img, null, [], expect);
         if (img.close) img.close();
@@ -304,19 +305,30 @@
       render();
     });
   }
-  // the print against the QR codes, as badges: ✓ agrees, ✗ two readings say something else, ? couldn't be sure
+  // The large print against the QR codes, as badges: the product code and the quantity count; the batch comes from
+  // the QR codes and the small print only confirms it. ✓ agrees, ✗ two readings say something else, ? not sure.
   function checkOf(r) {
     if (r.ocrState === "reading") return { cls: "", parts: [["", "Reading the print…"]], ok: null };
     if (r.ocrState === "error") return { cls: "warn", parts: [["warn", "Print not read"]], ok: false };
     const o = r.ocr, parts = [];
-    const one = (what, check, read, hasQr) => {
-      if (!hasQr) return check === "read" ? ["warn", `${what} from print only`] : ["warn", `No ${what.toLowerCase()} on QR or print`];
-      return check === "match" ? ["ok", `✓ ${what}`] : check === "differs" ? ["bad", `✗ ${what}: print says ${read}`] : check === "unclear" ? ["warn", `? ${what} unclear`] : ["warn", `? ${what} not readable`];
-    };
-    parts.push(one("Batch", o.batchCheck, o.batch, !!r.batch && r.batchFrom !== "print"));
-    parts.push(one("Quantity", o.qtyCheck, `${o.qty} ${o.unit || ""}`.trim(), r.qrQty !== null));
-    const bad = parts.some((p) => p[0] === "bad"), allOk = parts.every((p) => p[0] === "ok");
-    return { cls: bad ? "bad" : allOk ? "ok" : "warn", parts, ok: allOk };
+    const vs = (what, check, read) => check === "match" ? ["ok", `✓ ${what}`] : check === "differs" ? ["bad", `✗ ${what}: print says ${read}`]
+      : check === "unclear" ? ["warn", `? ${what} unclear (print reads ${read})`] : ["warn", `? ${what} not readable`];
+    // product code: the QR's, checked against the large print
+    if (r.product && r.raw) parts.push(vs("Product", o.productCheck, o.product));
+    else parts.push(o.product ? ["warn", `Product ${o.product} from print only`] : ["warn", "No product code"]);
+    // quantity: the small QR's, checked against the large print; without the small QR, the print's
+    const qtxt = `${qtyFmt(o.qty)} ${o.unit || ""}`.trim();
+    if (r.qrQty !== null) parts.push(vs("Quantity", o.qtyCheck, qtxt));
+    else if (o.qtyCheck === "read") parts.push(o.qtyAgree ? ["ok", "✓ Quantity from print (large and small print agree)"] : ["warn", `Quantity from ${o.qtyFrom || "print"} only`]);
+    else if (o.qtyCheck === "unclear") parts.push(["warn", `? Quantity unclear: ${qtxt} or ${qtyFmt(o.qtyOther)}`]);
+    else parts.push(["warn", "No quantity on QR or print"]);
+    // batch: from the QR codes; the small print may confirm it, and never counts against it
+    if (o.batchCheck === "match") parts.push(["ok", "✓ Batch"]);
+    else if (o.batchCheck === "qr") parts.push(["", "Batch from QR"]);
+    else if (o.batchCheck === "read") parts.push(["warn", "Batch from print only"]);
+    else parts.push(["warn", "No batch"]);
+    const bad = parts.some((p) => p[0] === "bad"), ok = parts.slice(0, 2).every((p) => p[0] === "ok");
+    return { cls: bad ? "bad" : ok ? "ok" : "warn", parts, ok };
   }
 
   // ------------------------------------------------------------ SAP data: the files loaded on the checker page
@@ -451,6 +463,7 @@
   const fmt = (v, d = 2) => (v === null || v === undefined ? "" : v.toLocaleString("en-GB", { minimumFractionDigits: d, maximumFractionDigits: d }));
   const qtyFmt = (v) => (v === null || v === undefined ? "" : String(Number(v.toFixed(6))));
   const FROMQ = { qr: "from the small QR", print: "read off the print", typed: "typed in", none: "not found", reading: "reading…" };
+  const qtySource = (r) => (r.qtyFrom === "qr" ? "small QR" : r.qtyFrom === "print" ? (r.ocr && r.ocr.qtyFrom) || "print" : r.qtyFrom === "typed" ? "typed in" : r.qtyFrom === "reading" ? "" : "not found");
   function shown() { const j = $("jobSel").value; return j ? rows.filter((r) => r.job === j) : rows; }
   function render() {
     // job filter
@@ -463,7 +476,7 @@
       <td><img class="thumb" src="${r.url}" alt="Label photo" data-open="${esc(r.id)}"></td>
       <td class="m">${B.hms(r.at)}</td><td class="m">${esc(r.job)}</td>
       <td class="m">${r.raw ? esc(r.product) : "<i>No QR read</i>"}</td><td class="m">${esc(r.batch)}${r.batchFrom === "print" ? ' <span class="unit">(print)</span>' : ""}</td><td class="m">${esc(r.label || (r.ocr && r.ocr.labelId) || "")}</td>
-      <td class="n" title="${esc(FROMQ[r.qtyFrom])}"><input class="kg" type="text" inputmode="decimal" value="${qtyFmt(r.qty)}" placeholder="${r.qtyFrom === "reading" ? "…" : "qty"}" aria-label="Quantity" data-kg="${esc(r.id)}"><span class="unit">${esc(r.unit || "")}</span></td>
+      <td class="n" title="${esc(FROMQ[r.qtyFrom])}"><input class="kg" type="text" inputmode="decimal" value="${qtyFmt(r.qty)}" placeholder="${r.qtyFrom === "reading" ? "…" : "qty"}" aria-label="Quantity" data-kg="${esc(r.id)}"><span class="unit">${esc(r.unit || "")}</span><span class="qsrc">${esc(qtySource(r))}</span></td>
       <td><span class="chk">${r.check.parts.map(([c, t]) => `<span class="${c}">${esc(t)}</span>`).join("")}</span></td>
       <td class="sapcell">${r.sap ? `<span class="sap ${r.sap.cls}">${esc(r.sap.text)}</span>` : `<span class="hint">no SAP files</span>`}</td><td>${esc(r.device)}</td></tr>`).join("");
     fresh = null;
@@ -483,7 +496,7 @@
     const kg = list.filter((r) => r.unit === "kg").reduce((a, r) => a + (r.qty || 0), 0);
     $("stats").innerHTML = [["Scans", list.length, $("jobSel").value ? "job " + $("jobSel").value : `${jobs.length} job${jobs.length === 1 ? "" : "s"}`],
       ["kg on labels", fmt(kg), "labels in kg"],
-      ["Print not confirmed", list.filter((r) => r.check.ok === false).length, "batch or quantity: check the photo"],
+      ["Print not confirmed", list.filter((r) => r.check.ok === false).length, "product code or quantity: check the photo"],
       ["No QR read", list.filter((r) => !r.raw).length, "photo only"],
       ["Not consumed in SAP", sap && sap.ctx ? list.filter((r) => r.sap && (r.sap.state === "missing" || r.sap.state === "unknown")).length : "–", sap && sap.ctx ? "scanned, but SAP didn't take it" : "load the SAP files"]]
       .map(([k, v, s2]) => `<div><dt>${esc(k)}</dt><dd>${esc(v)}<small>${esc(s2)}</small></dd></div>`).join("");
@@ -506,7 +519,8 @@
     const info = [["Job", r.job], ["Product ID", r.product || "No QR read"], ["Identified Stock ID", r.batch + (r.batchFrom === "print" ? " (read off the print)" : "")],
       ["Quantity", r.qty === null ? "not known" : `${qtyFmt(r.qty)} ${r.unit || ""} (${FROMQ[r.qtyFrom]})`],
       ["Label check", r.check.parts.map((p) => p[1]).join(" · ")],
-      ["Printed", r.ocrState === "done" ? `batch ${o.batch || "not read"} · quantity ${o.qty !== null && o.qty !== undefined ? qtyFmt(o.qty) + " " + (o.unit || "") : "not read"}` : r.ocrState === "reading" ? "reading…" : "not read"],
+      ["Printed (large)", r.ocrState === "done" ? `product ${o.product || "not read"} · quantity ${o.qty !== null && o.qty !== undefined ? qtyFmt(o.qty) + " " + (o.unit || "") + (o.qtyFrom ? ` (${o.qtyFrom})` : "") : "not read"}${o.qtyOther !== null && o.qtyOther !== undefined ? ` · other reading ${qtyFmt(o.qtyOther)}` : ""}` : r.ocrState === "reading" ? "reading…" : "not read"],
+      ["Printed (small)", r.ocrState === "done" ? `batch ${o.batchCheck === "match" ? r.batch + " ✓" : (o.reads && o.reads.batch[0] ? o.reads.batch[0].value : "not read")}` : ""],
       ["Label ID / expiry", [r.label || o.labelId, o.expiry].filter(Boolean).join(" · ") || "not read"],
       ["Scanned", new Date(r.at).toLocaleString("en-GB")], ["Phone", r.device],
       ["Big QR", r.big || "not read"], ["Small QR", r.small || "not read"]];

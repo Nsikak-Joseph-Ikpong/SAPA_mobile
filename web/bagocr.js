@@ -82,10 +82,14 @@
   }
   // the whole label, with room to spare (measured: the label runs from about 1.3 left to 5.4 right, 3.3 up to 1.2 down)
   const LABEL = { x0: -1.7, x1: 5.8, y0: -3.7, y1: 1.5 };
-  // the fields, read one by one
+  // The fields, read one by one. The large print is what counts: the product code over the big QR, and the
+  // quantity (a long one wraps, "0.833333" over "case", and the unit can run into the small QR). The small print
+  // (batch, quantity) is only a second opinion: it's small, and often creased.
   const FIELDS = {
-    small: { x0: 1.55, x1: 3.6, y0: -2.3, y1: -1.38 },     // "Batch: 43282 / Quantity: 1007.71 kg"
-    big: { x0: 2.3, x1: 5.7, y0: -0.8, y1: 0.12 },         // "Quantity: 1007.71 kg" in large print
+    product: { x0: -1.45, x1: 3.1, y0: -1.0, y1: -0.4 },   // "RCSL2061WF1856" in large print
+    big: { x0: 2.45, x1: 6.0, y0: -0.85, y1: 0.55 },       // "Quantity: 1007.71 kg" in large print
+    bigLine: { x0: 2.45, x1: 6.0, y0: -0.85, y1: -0.1 },   // the same, just the number's line, above the small QR
+    small: { x0: 1.55, x1: 3.6, y0: -2.3, y1: -1.38 },     // "Batch: 43282 / Quantity: 1007.71 kg" in small print
     ids: { x0: 2.9, x1: 5.75, y0: -1.8, y1: -0.82 },       // "SAP Internal Label ID: [(97)57996]", "Expiry Date: 2026-12-04"
   };
 
@@ -211,6 +215,44 @@
     for (let i = 0; i < (q >= 0 ? q : lines.length); i++) { const n = num(lines[i]); if (n) return n; }
     return null;
   }
+  // What could be a product code, as printed in large capitals: runs of 5 to 22 letters and digits (spaces OCR put
+  // inside dropped), letters with digits (RMMA20BF) or letters alone (the offcut codes, MBSLOFF). Runs mostly in small
+  // letters are titles ("Slicing offcuts bin 9", "Mature Cheddar Slices 20g"), not codes.
+  function productsIn(text) {
+    const out = [];
+    for (const line of String(text || "").split(/\n/)) {
+      for (const run of line.replace(/[^A-Za-z0-9| ]/g, " ").replace(/\|/g, "I").split(/ {2,}/)) {
+        const raw = run.replace(/ /g, ""), t = raw.toUpperCase();
+        if (t.length >= 5 && t.length <= 22 && /[A-Z]/.test(t) && (raw.match(/[a-z]/g) || []).length <= 2) out.push(t);
+      }
+    }
+    return out;
+  }
+  // the product code in a field: the longest of them
+  const productIn = (text) => productsIn(text).reduce((a, b) => (!a || b.length > a.length ? b : a), null);
+  // Codes compared the way OCR confuses them: O/0/Q/D, I/1/L, S/5, B/8, Z/2, G/6 count as the same; one more
+  // difference is allowed on a code of 8 or more.
+  const canon = (t) => String(t || "").toUpperCase().replace(/[O0QD]/g, "0").replace(/[I1L|]/g, "1").replace(/[S5]/g, "5").replace(/[B8]/g, "8").replace(/[Z2]/g, "2").replace(/[G6]/g, "6");
+  function edits(a, b) {
+    const d = Array.from({ length: a.length + 1 }, (_, i) => [i, ...Array(b.length).fill(0)]);
+    for (let j = 1; j <= b.length; j++) d[0][j] = j;
+    for (let i = 1; i <= a.length; i++) for (let j = 1; j <= b.length; j++) d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    return d[a.length][b.length];
+  }
+  function sameCode(read, want) {
+    const a = canon(read), b = canon(want);
+    return !!a && !!b && (a === b || a.includes(b) || (b.length >= 8 && edits(a, b) <= 1));
+  }
+  // The quantity in large print: a number with a decimal point (the label always prints one). Its unit is the word
+  // after it, or on the next line, or (run into the small QR) left to the QR code or the small print.
+  function bigQtyIn(text) {
+    const t = digits(String(text || "").replace(/(\d),(\d)/g, "$1.$2").replace(/(\d{1,5}) (\d{1,6})(?=\s*(?:k[gq9a]|cas|m[mn]?\b|$))/gim, "$1.$2"));
+    const m = t.match(/(\d{1,6}\.\d{1,6})/);
+    if (!m) return null;
+    const after = t.slice(t.indexOf(m[1]) + m[1].length);
+    const u = after.match(/^\s*(k[gq9a]s?)(?![a-z])/i) || after.match(/(c\s?a\s?s\s?e?|c\s?a\s?5|\bcas|ase\b)/i) || after.match(/^\s*(m[mn]?)\b/i);
+    return { qty: parseFloat(m[1]), unit: u ? unitOf(u[1].replace(/5/g, "s")) : null };
+  }
   function labelIdIn(text) {
     const m = String(text || "").match(/\(\s*9\s*7\s*\)\s*([0-9OoIlS|]{3,10})/) || String(text || "").match(/Label\s*ID\s*[:.]?\s*\[?\s*\(?97\)?\s*([0-9OoIlS|]{3,10})/i);
     return m ? digits(m[1]) : null;
@@ -225,58 +267,94 @@
 
   // Read the label: `img` is the label cut-out from the phone (or a whole photo), `frame` its label frame if known,
   // `codes` the QR codes read on the phone (blanked out before reading), `expect` what the QR codes say (product,
-  // batch, qty, unit). The printed batch and quantity are each checked against the QR codes:
+  // batch, qty, unit). The large print is read first and is what counts: the product code and the quantity. The small
+  // print (batch, quantity) is a second opinion. Each is checked against the QR codes:
   //   "match"   some reading of the print agrees with the QR code
-  //   "differs" the print was read, and says something else (worth a look at the photo)
+  //   "differs" the print was read, and says something else (two readings agree on it)
+  //   "unclear" the print was read once, and says something else (likely a misreading)
   //   "read"    no QR value to check against: the print is all there is
   //   "unread"  the print couldn't be read
-  // The fields are read one by one first; the whole label is read too when something is missing or doesn't match.
+  // The whole label is read too when the product code or the quantity is missing or doesn't match.
   async function readLabel(worker, img, frame, codes = [], expect = {}) {
     let f = frame;
     if (!f) { const found = await codesIn(img, img.width, img.height); f = frameOf(found); codes = found; }
     const out = { labelId: null, expiry: null, texts: [], anchored: !!f };
-    const reads = { batch: [], qty: [] };
+    const reads = { product: [], qty: [], batch: [] };
     const codesLU = f ? codes.filter((q) => q.tl).map((q) => ({ tl: toLU(f, q.tl), tr: toLU(f, q.tr), br: toLU(f, q.br), bl: toLU(f, q.bl) })) : [];
     const read = async (name, c, psm) => { const t = await ocr(worker, c, psm); out.texts.push(`[${name}]\n${t.trim()}`); return t; };
-    const field = (name, box, psm) => read(name, blankCodes(enhance(cut(img, f, box, PX)), box, PX, codesLU), psm);
-    const note = (t, from) => {
-      const b = batchIn(t); if (b) reads.batch.push({ value: b, from });
-      for (const q of qtysIn(t)) reads.qty.push({ value: q.qty, unit: q.unit, from });
-      out.labelId = out.labelId || labelIdIn(t); out.expiry = out.expiry || expiryIn(t);
-    };
-    const sameQty = (r) => expect.qty !== null && expect.qty !== undefined && Math.abs(r.value - expect.qty) < 1e-6 && (!expect.unit || r.unit === expect.unit);
-    const done = () => (expect.batch ? reads.batch.some((r) => r.value === expect.batch) : reads.batch.length > 0)
-      && (expect.qty !== null && expect.qty !== undefined ? reads.qty.some(sameQty) : reads.qty.length > 0);
+    const field = (name, box, psm, px = PX) => read(name, blankCodes(enhance(cut(img, f, box, px)), box, px, codesLU), psm);
+    const hasQty = expect.qty !== null && expect.qty !== undefined;
+    const sameQty = (r) => hasQty && Math.abs(r.value - expect.qty) < 1e-6 && (!expect.unit || !r.unit || r.unit === expect.unit);
+    const done = () => (expect.product ? reads.product.some((r) => sameCode(r.value, expect.product)) : reads.product.length > 0)
+      && (hasQty ? reads.qty.some(sameQty) : reads.qty.some((r) => r.from === "large print"));
     if (f) {
-      note(await field("Batch and Quantity", FIELDS.small, "6"), "small print");
-      const big = await field("Quantity (large print)", FIELDS.big, "7");
-      for (const q of qtysIn(big)) reads.qty.push({ value: q.qty, unit: q.unit, from: "large print" });
-      note(await field("Label ID and expiry", FIELDS.ids, "6"), "ids");
+      // large print: product code and quantity
+      const pt = await field("Product code (large print)", FIELDS.product, "7", 200);
+      const pc = productIn(pt); if (pc) reads.product.push({ value: pc, from: "large print" });
+      const bt = await field("Quantity (large print)", FIELDS.big, "6", 220);
+      let bq = bigQtyIn(bt);
+      // nothing read, or the small QR not read (its squares then confuse the reading): just the number's line too
+      if (!bq || !codesLU.some((q) => (q.tl.x + q.br.x) / 2 > 2.5)) {
+        const lq = bigQtyIn(await field("Quantity line (large print)", FIELDS.bigLine, "7", 220));
+        if (lq && (!bq || lq.qty !== bq.qty)) bq = bq ? (lq.unit || !bq.unit ? lq : { ...lq, unit: bq.unit }) : lq;
+      }
+      if (bq) reads.qty.push({ value: bq.qty, unit: bq.unit, from: "large print" });
+      // small print: a second opinion on the quantity, and the batch
+      const st = await field("Batch and Quantity (small print)", FIELDS.small, "6");
+      const sb = batchIn(st); if (sb) reads.batch.push({ value: sb, from: "small print" });
+      for (const q of qtysIn(st)) reads.qty.push({ value: q.qty, unit: q.unit, from: "small print" });
+      const it = await field("Label ID and expiry", FIELDS.ids, "6");
+      out.labelId = labelIdIn(it); out.expiry = expiryIn(it);
     }
     if (!done()) {
       const px = Math.min(PX, 3000 / (LABEL.x1 - LABEL.x0));
       const c = f ? blankCodes(enhance(cut(img, f, LABEL, px)), LABEL, px, codesLU) : enhance(whole(img, 2400));
-      note(await read(f ? "whole label" : "whole photo (no QR code found)", c, "11"), "whole label");
+      const t = await read(f ? "whole label" : "whole photo (no QR code found)", c, "11");
+      // with the QR's code to look for, any run that matches it; without, the longest run (a stray word is no evidence
+      // against the QR, so it isn't taken then)
+      if (expect.product) { const pc = productsIn(t).find((c) => sameCode(c, expect.product)); if (pc) reads.product.push({ value: pc, from: "whole label" }); }
+      else if (!reads.product.length) { const pc = productIn(t); if (pc) reads.product.push({ value: pc, from: "whole label" }); }
+      const b = batchIn(t); if (b) reads.batch.push({ value: b, from: "whole label" });
+      for (const q of qtysIn(t)) reads.qty.push({ value: q.qty, unit: q.unit, from: "whole label" });
+      out.labelId = out.labelId || labelIdIn(t); out.expiry = out.expiry || expiryIn(t);
     }
     out.text = out.texts.join("\n\n");
-    // the QR's batch printed anywhere in what was read (spaces and look-alike letters allowed) also counts
-    const flat = digits(out.text).replace(/[^0-9]/g, "");
     // "differs" only when two separate readings agree on the other value; one misreading on its own is "unclear"
-    const pick = (list, expected, same, seen) => {
+    const pick = (list, expected, same, key = (r) => r.value + "|" + (r.unit || "")) => {
       if (expected !== null && expected !== undefined && expected !== "") {
-        if (list.some(same) || seen) return { check: "match", value: expected };
+        if (list.some(same)) return { check: "match", value: expected };
         const n = new Map();
-        for (const r of list) { const k = r.value + "|" + (r.unit || ""); n.set(k, (n.get(k) || new Set()).add(r.from)); }
-        const agreed = list.find((r) => n.get(r.value + "|" + (r.unit || "")).size >= 2);
+        for (const r of list) n.set(key(r), (n.get(key(r)) || new Set()).add(r.from));
+        const agreed = list.find((r) => n.get(key(r)).size >= 2);
         if (agreed) return { check: "differs", value: agreed.value, unit: agreed.unit };
         return list.length ? { check: "unclear", value: list[0].value, unit: list[0].unit } : { check: "unread", value: null };
       }
-      return list.length ? { check: "read", value: list[0].value, unit: list[0].unit } : { check: "unread", value: null };
+      // Nothing to check against: the large print first, the small print as a second opinion. A reading cut short
+      // (the label's edge, a crease: "973.3" for "973.39") is the start of the full one, so the longer one is taken.
+      // Readings that disagree any other way leave it unclear, with both shown.
+      let main = list.find((r) => r.from === "large print") || list[0];
+      if (!main) return { check: "unread", value: null };
+      const unitOfAll = list.find((r) => r.unit) ? list.find((r) => r.unit).unit : null;
+      const others = list.filter((r) => r !== main && String(r.value) !== String(main.value));
+      let agree = list.some((r) => r !== main && String(r.value) === String(main.value)), conflict = null;
+      for (const r of others) {
+        const a = String(main.value), b = String(r.value);
+        if (b.startsWith(a) && b.length > a.length) { main = r; agree = true; }
+        else if (!a.startsWith(b) && r.from !== "whole label") conflict = r;
+      }
+      if (conflict && !agree) return { check: "unclear", value: main.value, unit: main.unit || unitOfAll, from: main.from, other: conflict.value };
+      return { check: "read", value: main.value, unit: main.unit || unitOfAll, agree, from: main.from };
     };
-    const b = pick(reads.batch, expect.batch, (r) => r.value === expect.batch, !!expect.batch && expect.batch.length >= 5 && flat.includes(expect.batch));
-    const q = pick(reads.qty, expect.qty, sameQty, false);
-    out.batch = b.value; out.batchCheck = b.check;
-    out.qty = q.value; out.unit = q.check === "match" ? expect.unit || (reads.qty.find(sameQty) || {}).unit || null : q.unit || null; out.qtyCheck = q.check;
+    const pr = pick(reads.product, expect.product, (r) => sameCode(r.value, expect.product), (r) => canon(r.value));
+    out.product = pr.value; out.productCheck = pr.check;
+    const q = pick(reads.qty, hasQty ? expect.qty : null, sameQty, (r) => String(r.value));
+    out.qty = q.value; out.qtyCheck = q.check; out.qtyAgree = !!q.agree; out.qtyFrom = q.from || null; out.qtyOther = q.other ?? null;
+    out.unit = q.check === "match" ? expect.unit || null : q.unit || null;
+    // the batch comes from the QR codes; the small print only confirms it (it never counts against it)
+    const flat = digits(out.text).replace(/[^0-9]/g, "");
+    const bOk = !!expect.batch && (reads.batch.some((r) => r.value === expect.batch) || (expect.batch.length >= 5 && flat.includes(expect.batch)));
+    out.batch = bOk ? expect.batch : (reads.batch[0] || {}).value || null;
+    out.batchCheck = expect.batch ? (bOk ? "match" : "qr") : reads.batch.length ? "read" : "unread";
     out.reads = reads;
     return out;
   }
@@ -287,5 +365,5 @@
     return c;
   }
 
-  root.BagOCR = { readCodes, codesIn, findPartner, PASSES, frameOf, cut, labelCut, readLabel, enhance, LABEL, FIELDS, toLU, fromLU, qtyIn, qtysIn, batchIn, labelIdIn };
+  root.BagOCR = { readCodes, codesIn, findPartner, PASSES, frameOf, cut, labelCut, readLabel, enhance, LABEL, FIELDS, toLU, fromLU, qtyIn, qtysIn, bigQtyIn, productIn, sameCode, batchIn, labelIdIn };
 })(typeof window !== "undefined" ? window : globalThis);

@@ -63,19 +63,26 @@ found, with the camera's resolution and how long a frame takes to read. **Just r
 the camera on to look at labels without a laptop or a job and without sending anything. After a scan, **Last scan**
 shows both codes as read; on the laptop, clicking a scan shows them too.
 
-**Checking the print.** On the laptop the printed batch and quantity are read (OCR, Tesseract in the browser) and
-checked against the QR codes. The big QR fixes where everything is: measured on real labels, the small QR sits 3.9
-big-QR widths to its right, the printed "Batch:" / "Quantity:" about 2 widths right and 1.5 to 2 up, and the large
-quantity 3 to 5 right, level with it. So each field is cut out and read on its own at a set size, with the QR codes
-blanked out; the whole label is read too when something is missing. Quantities on the labels always have a decimal
+**Checking the print.** On the laptop the label's large print, the product code and the quantity, is read (OCR,
+Tesseract in the browser) and checked against the QR codes. The small print (batch, label numbers, dates) is hard to
+read off a phone photo, so it only ever confirms: the batch comes from the QR codes, and the small "Quantity:" line
+is a second reading of the quantity. The big QR fixes where everything is: measured on real labels, the product code
+is printed just above it, the large quantity 3 to 5 big-QR widths to its right, the small QR 3.9 widths right and the
+small print about 2 right and 1.5 to 2 up. So each field is cut out and read on its own at a set size, with the QR
+codes blanked out; the whole label is read too when something is missing. A product code is a run of capitals, with
+or without digits (RMMA20BF, or MBSLOFF for offcuts), and is compared allowing for the letters OCR mixes up (O and
+0, I and 1, S and 5, B and 8…); titles in small letters are left out. Quantities on the labels always have a decimal
 point ("87.0 case"), which keeps titles like "20kg" or "152 mm" out, and common misreadings ("kq" for kg, "973 39"
-for 973.39) are put right. The **Label check** column shows, for batch and quantity: ✓ the print agrees with the QR
-code, ✗ two separate readings agree on something else (look at the photo), ? the print couldn't be read clearly.
-One misreading on its own never shows as ✗. Tested on 15 photos of real labels (17 labels, some creased, glared,
-handwritten on or overprinted): the QR codes were found on 15 labels, and on every label in the current layout the
-printed batch (14 of 14) and quantity (14 of 14, 3 of them from the print alone where the small QR was unreadable)
-came out right, in about 0.6 s each. The older layout (product name under "Product:", rotated) still reads from its
-QR codes. The quantity is the small QR's, else the print's; it can be typed over. Click a photo to see it full size
+for 973.39) are put right. The **Label check** column shows **Product** and **Quantity**: ✓ the print agrees with the
+QR code, ✗ two separate readings agree on something else (look at the photo), ? the print couldn't be read clearly;
+one misreading on its own never shows as ✗. Without the small QR, the quantity comes from the large print, ✓ when the
+small print says the same, and "unclear" with both readings when they disagree. **Batch** is ✓ when the small print
+confirms it and "from QR" otherwise, never a warning. Under the quantity, a note says where it came from (small QR,
+large print, small print, whole label, typed in). Tested on 15 photos of real labels (17 labels, some creased,
+glared, handwritten on or overprinted): the QR codes were found on 15 labels, the printed product code agreed with
+the QR on all 15, and with the small QR left out the quantity was read from the print right on 14 of 15 and never
+wrong (the one missed is the older layout); 1 to 3 seconds a label, up to 6 on hard ones. The older layout (product
+name under "Product:", rotated) still reads from its QR codes. The quantity is the small QR's, else the print's; it can be typed over. Click a photo to see it full size
 with the close-up, both QR codes and the text that was read. The summary totals quantities per job and product;
 **Export CSV** saves everything, and **Add a sample label** draws a label in the plant's layout to try it without a
 phone.
