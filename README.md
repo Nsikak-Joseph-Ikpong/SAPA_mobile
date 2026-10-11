@@ -93,7 +93,16 @@ which loads them for the checker too). Each bag then gets an **In SAP** status f
 consumed by that job (with SAP's quantity, and the difference when it doesn't match the label), not consumed (and
 which job consumed it instead, where SAP still has it, or that SAP shows none left), not in the SAP files at all, or
 not in the loaded journal yet when the scan is later than the journal's last posting; restricted stock is marked.
-The bag window sets the label's quantity next to what SAP first booked for the batch. The summary counts bags consumed and
+**Used on another job.** The confirmation journal is also searched for every other job that consumed
+the bag's batch: the job (production order), its line (the order's Resource ID, e.g. SLICING_L2, else the line of
+the logistics area), when it was consumed and how much. Each is shown under **In SAP**: "Already used on job 2601 ·
+line SLICING_L1 · 10.10.2026 07:30 · 12.100 kg" when SAP used it before the scan (it has none of that bag left for
+this job), or "Used on job 2601 after the scan" when SAP booked it to another job afterwards; consumption the journal
+ties to no order is noted too. When the laptop has the SAP files loaded at the time of the scan and the bag was already
+used, the phone is told at once: a red "Already used on job …" on the last scan and in its list, with a long buzz,
+so the operator can set the bag aside. The summary counts bags used on another job per job, the bag window lists
+those jobs, and the export has a column for them. The bag window sets the label's quantity next to what SAP first
+booked for the batch. The summary counts bags consumed and
 not consumed in SAP per job. Clicking a bag shows its SAP history (production orders that made or used it, every
 confirmation journal posting with the running stock) and links to the full stock trace in the checker
 (`index.html?trace=<batch>&product=<code>`; `?order=<id>` opens an order's check). Export a fresh journal after

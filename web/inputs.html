@@ -97,6 +97,7 @@
   .sap.ok { background: var(--ok-soft); color: var(--ok); } .sap.warn { background: var(--warn-soft); color: var(--warn); } .sap.bad { background: var(--bad-soft); color: var(--bad); }
   td.n.bad { color: var(--bad); font-weight: 600; }
   td.sapcell { white-space: normal; min-width: 180px; }
+  td.sapcell .sap, .sapsec .sap { display: block; width: fit-content; } td.sapcell .sap + .sap, .sapsec .sap + .sap { margin-top: 4px; }
   .dlg .sapsec { grid-column: 1 / -1; display: grid; gap: 10px; border-top: 1px solid var(--line); padding-top: 12px; min-width: 0; }
   .sapsec h3 { margin: 6px 0 0; font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
   .sapsec .figs { display: flex; flex-wrap: wrap; gap: 8px 22px; font-size: 13px; }
@@ -151,7 +152,7 @@
       </div>
       <dl class="stats" id="stats"></dl>
       <div class="scroll"><table>
-        <thead><tr><th>Job</th><th>Product ID</th><th class="n">Scans</th><th class="n">Quantity on labels</th><th class="n">Print not confirmed</th><th class="n">No QR</th><th class="n">Consumed in SAP</th><th class="n">Not consumed in SAP</th></tr></thead>
+        <thead><tr><th>Job</th><th>Product ID</th><th class="n">Scans</th><th class="n">Quantity on labels</th><th class="n">Print not confirmed</th><th class="n">No QR</th><th class="n">Consumed in SAP</th><th class="n">Not consumed in SAP</th><th class="n">Used on another job</th></tr></thead>
         <tbody id="sumBody"></tbody></table></div>
       <div class="bar">
         <button type="button" class="quiet" id="sampleBtn" title="Adds a made-up label in the plant's layout, as if scanned on a phone">Add a sample label</button>
@@ -259,7 +260,12 @@
         qrQty, qrUnit: d.unit || "", labelBlob, labelFrame: d.label_frame || null, labelCodes: d.label_codes || [], labelUrl: labelBlob ? URL.createObjectURL(labelBlob) : null,
         at: d.at || Date.now(), received: Date.now(), blob, url: URL.createObjectURL(blob), device: (c && c.metadata && c.metadata.device) || "Phone" });
     }
-    if (c && c.open) c.send({ t: "ack", id: d.id });   // a resend after a dropped link is acknowledged again, not added twice
+    if (c && c.open) {
+      c.send({ t: "ack", id: d.id });   // a resend after a dropped link is acknowledged again, not added twice
+      // SAP had already used this bag on another job: the operator is told on the phone
+      const r = rows.find((x) => x.id === d.id), used = r ? otherJobs(r).filter((x) => x.before) : [];
+      if (used.length) c.send({ t: "used", id: d.id, used: used.map((x) => ({ job: x.order, line: x.line, at: F.dmy(x.first), qty: F.f(x.used, 3), unit: r.unit || "" })) });
+    }
   }
   function add(r) {
     // the label's quantity: from the small QR code; from the print when there's no QR to give it; or typed in
@@ -417,6 +423,31 @@
     const want = String(r.product || "").toUpperCase();
     return { t, p: t.products.find((x) => x.material.toUpperCase() === want) || t.products[0] || null };
   }
+  // The line an order ran on: its resource in the order sheets (SLICING_L2), else the line its logistics area belongs
+  // to, else the area itself.
+  function lineOf(order, area) {
+    const ctx = sap.ctx;
+    if (!ctx._lineOf) ctx._lineOf = new Map(ctx.wb.orders.filter((o) => o.resource).map((o) => [String(o.order_id), String(o.resource)]));
+    if (order && ctx._lineOf.has(String(order))) return ctx._lineOf.get(String(order));
+    const lines = Object.keys(R.RULES.line_areas).filter((k) => R.RULES.line_areas[k] === area);
+    return lines.length === 1 ? lines[0] : area || "";
+  }
+  // Where the confirmation journal used this batch other than on the job it was scanned into: each order that consumed
+  // it, with its line, when and how much. Before the scan, the bag had already been used (SAP has none of it left for
+  // this job); after it, SAP booked it to another job. Consumption the journal ties to no order is listed too.
+  function usedElsewhere(r, p) {
+    const at = wall(r.at), out = [];
+    for (const o of p.byOrder) {
+      if (o.order === r.job || o.used <= 0.005) continue;
+      const posts = p.rows.filter((x) => x.order === o.order && x.qty < 0);
+      const first = posts.length ? posts[0].time : o.first, last = posts.length ? posts[posts.length - 1].time : o.last;
+      out.push({ order: o.order, line: lineOf(o.order, o.area), area: o.area, first, last, used: o.used, before: first <= at, cls: "bad" });
+    }
+    for (const x of p.rows) if (x.is_prod && x.qty < 0 && !x.order) out.push({ order: null, line: lineOf(null, x.area), area: x.area, first: x.time, last: x.time, used: -x.qty, before: x.time <= at, cls: "warn" });
+    return out.sort((a, b) => a.first - b.first);
+  }
+  const usedText = (x, unit) => (x.order ? (x.before ? `Already used on job ${x.order}` : `Used on job ${x.order} after the scan`) : "Used, no order in the journal")
+    + `${x.line ? " · line " + x.line : ""} · ${F.dmy(x.first)} · ${F.f(x.used, 3)}${unit ? " " + unit : ""}`;
   function sapStatus(r) {
     if (!sap || !sap.ctx) return null;
     if (!r.batch) return { state: "nobatch", cls: "", text: "No batch to look up" };
@@ -424,18 +455,22 @@
     const late = end !== null && wall(r.at) > end;
     if (!p) return late ? { state: "pending", cls: "", text: `Not in the loaded journal yet (it ends ${F.dmy(end)})` } : { state: "unknown", cls: "bad", text: "Batch not found in the SAP files" };
     const mine = p.byOrder.find((o) => o.order === r.job), used = mine ? mine.used : 0, u = r.unit || "";
+    const elsewhere = usedElsewhere(r, p);
     const restricted = p.rows.some((x) => x.restricted) || p.stock.some((x) => x.restricted);
     const rx = restricted ? " · restricted stock in SAP" : "";
     if (used > 0.005) {
       const diff = r.qty === null ? null : used - r.qty, off = diff !== null && Math.abs(diff) > Math.max(0.005, 0.02 * Math.abs(r.qty));
-      return { state: "consumed", cls: restricted ? "bad" : off ? "warn" : "ok", text: `Consumed by ${r.job} in SAP: ${F.f(used, 3)} ${u}` + (off ? ` (${F.fs(diff, 3)} against the label)` : "") + rx };
+      for (const x of elsewhere) x.cls = "warn";   // part of it went to this job, part elsewhere
+      return { state: "consumed", cls: restricted ? "bad" : off || elsewhere.length ? "warn" : "ok", text: `Consumed by ${r.job} in SAP: ${F.f(used, 3)} ${u}` + (off ? ` (${F.fs(diff, 3)} against the label)` : "") + rx, elsewhere };
     }
-    const others = p.byOrder.filter((o) => o.used > 0.005 && o.order !== r.job);
-    if (late && !others.length) return { state: "pending", cls: "", text: `Not consumed by ${r.job} in the loaded journal, which ends ${F.dmy(end)}: load a newer journal` };
+    const others = elsewhere.filter((x) => x.order);
+    if (late && !others.length) return { state: "pending", cls: "", text: `Not consumed by ${r.job} in the loaded journal, which ends ${F.dmy(end)}: load a newer journal`, elsewhere };
     const where = p.areas.filter(([, q]) => q > 1e-6).map(([a, q]) => `${F.f(q, 3)} at ${a}`).join(", ");
     const gone = p.rows.length && Math.abs(p.balance) < 1e-6 && !others.length ? "; SAP shows none left (already consumed or moved out)" : "";
-    return { state: "missing", cls: "bad", text: `Not consumed by ${r.job} in SAP` + (others.length ? `; consumed by ${others.map((o) => `${o.order} (${F.f(o.used, 3)})`).join(", ")}` : where ? `; SAP still has ${where}` : gone) + rx };
+    return { state: "missing", cls: "bad", text: `Not consumed by ${r.job} in SAP` + (others.length ? "" : where ? `; SAP still has ${where}` : gone) + rx, elsewhere };
   }
+  const otherJobs = (r) => (r.sap && r.sap.elsewhere ? r.sap.elsewhere.filter((x) => x.order) : []);
+  const sapBadges = (r) => `<span class="sap ${r.sap.cls}">${esc(r.sap.text)}</span>` + (r.sap.elsewhere || []).map((x) => `<span class="sap ${x.cls}">${esc(usedText(x, r.unit))}</span>`).join("");
 
   // the bag's history in SAP, in the bag window
   function sapHtml(r) {
@@ -444,19 +479,23 @@
     if (!r.batch) return `<h2>SAP history</h2><p class="hint">No QR code was read, so there's no batch to look up.</p>`;
     const { p } = traceOf(r), st = r.sap || sapStatus(r);
     const link = `<a href="./?trace=${encodeURIComponent(r.batch)}&product=${encodeURIComponent(r.product || "")}" target="_blank" rel="noopener">Open the full stock trace in the checker</a>`;
-    const head = `<h2>SAP history: ${esc(r.product)} batch ${esc(r.batch)}</h2><div><span class="sap ${st.cls}">${esc(st.text)}</span></div>`;
+    const head = `<h2>SAP history: ${esc(r.product)} batch ${esc(r.batch)}</h2><div>${st.elsewhere ? sapBadges({ ...r, sap: st }) : `<span class="sap ${st.cls}">${esc(st.text)}</span>`}</div>`;
     if (!p) return head + `<p class="hint">No journal postings for this batch in the loaded files. ${link}</p>`;
     const ord = (o) => `<a href="./?order=${encodeURIComponent(o)}" target="_blank" rel="noopener">${esc(o)}</a>`;
     const firstIn = p.rows.find((x) => x.qty > 0);
     const figs = `<div class="figs">${r.qty !== null ? `<span>On the label <b>${F.f(r.qty, 3)} ${esc(r.unit || "")}</b></span>` : ""}${firstIn ? `<span>First booked in SAP <b>${F.f(firstIn.qty, 3)}</b> (${esc(F.dmy(firstIn.time))})</span>` : ""}<span>Made <b>${F.f(p.made, 2)}</b></span><span>Used on orders <b>${F.f(p.consumed, 2)}</b></span><span>Stock now (journal) <b>${F.f(p.balance, 2)}</b></span>`
       + (sap.ctx.wb.stock && sap.ctx.wb.stock.length ? `<span>On hand (stock overview) <b>${F.f(p.stock_total, 2)}</b></span>` : "") + `<span>${p.rows.length} postings</span></div>`;
+    const els = st.elsewhere || [];
+    const other = els.length ? `<h3>Used on other jobs</h3><div class="scroll"><table><thead><tr><th>Job</th><th>Line</th><th>Logistics area</th><th>Consumed on</th><th class="n">Quantity</th><th>Against the scan (${esc(B.hms(r.at))})</th></tr></thead><tbody>`
+      + els.map((x) => `<tr><td class="m">${x.order ? ord(x.order) : "<i>not in the journal</i>"}</td><td class="m">${esc(x.line)}</td><td class="m">${esc(x.area || "")}</td><td class="m">${esc(F.dmy(x.first))}${x.last !== x.first ? " to " + esc(F.dmy(x.last)) : ""}</td><td class="n">${F.f(x.used, 3)}${r.unit ? " " + esc(r.unit) : ""}</td><td>${x.before ? "before: already used" : "after"}</td></tr>`).join("")
+      + `</tbody></table></div>` : "";
     const orders = p.byOrder.length ? `<h3>Production orders</h3><div class="scroll"><table><thead><tr><th>Order</th><th>Role</th><th>Line / area</th><th>First</th><th>Last</th><th class="n">Used</th><th class="n">Made</th><th class="n">Left after</th></tr></thead><tbody>`
-      + p.byOrder.map((o) => `<tr class="${o.order === r.job ? "mine" : ""}"><td class="m">${ord(o.order)}</td><td>${esc(o.role)}</td><td class="m">${esc(o.area || "")}</td><td class="m">${esc(F.dmy(o.first))}</td><td class="m">${esc(F.dmy(o.last))}</td><td class="n">${o.used ? F.f(o.used, 2) : ""}</td><td class="n">${o.made ? F.f(o.made, 2) : ""}</td><td class="n">${F.f(o.left, 2)}</td></tr>`).join("")
+      + p.byOrder.map((o) => `<tr class="${o.order === r.job ? "mine" : ""}"><td class="m">${ord(o.order)}</td><td>${esc(o.role)}</td><td class="m">${esc([lineOf(o.order, o.area), o.area].filter((v, i, a) => v && a.indexOf(v) === i).join(" · "))}</td><td class="m">${esc(F.dmy(o.first))}</td><td class="m">${esc(F.dmy(o.last))}</td><td class="n">${o.used ? F.f(o.used, 2) : ""}</td><td class="n">${o.made ? F.f(o.made, 2) : ""}</td><td class="n">${F.f(o.left, 2)}</td></tr>`).join("")
       + `</tbody></table></div>` : `<p class="hint">No production order made or used this batch in the loaded journal.</p>`;
     const posts = `<h3>Confirmation journal</h3><div class="scroll"><table><thead><tr><th>Created On</th><th>Conf.Document Type</th><th>Conf.ID</th><th>Logistics Area ID</th><th>Reference Document ID</th><th>Restricted</th><th class="n">Effective Qty</th><th class="n">Stock after</th><th>Order</th></tr></thead><tbody>`
       + p.rows.map((x) => `<tr class="${x.is_prod ? "prod" : ""}${x.qty < 0 ? " neg" : ""}"><td class="m">${esc(F.dmy(x.time))}</td><td>${esc(x.doc)}</td><td class="m">${esc(x.conf)}</td><td class="m">${esc(x.area)}</td><td class="m">${esc(x.ref ?? "")}</td><td>${x.restricted ? "X" : ""}</td><td class="n">${F.f(x.qty, 2)}</td><td class="n">${F.f(x.balance, 2)}</td><td>${x.order ? esc(x.link) + " " + ord(x.order) : ""}</td></tr>`).join("")
       + `</tbody></table></div>`;
-    return head + figs + orders + (p.rows.length ? posts : "") + `<p class="hint">${link}</p>`;
+    return head + figs + other + orders + (p.rows.length ? posts : "") + `<p class="hint">${link}</p>`;
   }
 
   // ------------------------------------------------------------ table and summary
@@ -478,27 +517,29 @@
       <td class="m">${r.raw ? esc(r.product) : "<i>No QR read</i>"}</td><td class="m">${esc(r.batch)}${r.batchFrom === "print" ? ' <span class="unit">(print)</span>' : ""}</td><td class="m">${esc(r.label || (r.ocr && r.ocr.labelId) || "")}</td>
       <td class="n" title="${esc(FROMQ[r.qtyFrom])}"><input class="kg" type="text" inputmode="decimal" value="${qtyFmt(r.qty)}" placeholder="${r.qtyFrom === "reading" ? "…" : "qty"}" aria-label="Quantity" data-kg="${esc(r.id)}"><span class="unit">${esc(r.unit || "")}</span><span class="qsrc">${esc(qtySource(r))}</span></td>
       <td><span class="chk">${r.check.parts.map(([c, t]) => `<span class="${c}">${esc(t)}</span>`).join("")}</span></td>
-      <td class="sapcell">${r.sap ? `<span class="sap ${r.sap.cls}">${esc(r.sap.text)}</span>` : `<span class="hint">no SAP files</span>`}</td><td>${esc(r.device)}</td></tr>`).join("");
+      <td class="sapcell">${r.sap ? sapBadges(r) : `<span class="hint">no SAP files</span>`}</td><td>${esc(r.device)}</td></tr>`).join("");
     fresh = null;
     $("empty").hidden = rows.length > 0;
     // summary per job and product
     const groups = new Map();
     for (const r of list) {
       const k = r.job + "\u0000" + (r.raw ? r.product : "");
-      if (!groups.has(k)) groups.set(k, { job: r.job, product: r.raw ? r.product : "", scans: 0, qty: 0, units: new Set(), unconfirmed: 0, noqr: 0, inSap: 0, notSap: 0 });
+      if (!groups.has(k)) groups.set(k, { job: r.job, product: r.raw ? r.product : "", scans: 0, qty: 0, units: new Set(), unconfirmed: 0, noqr: 0, inSap: 0, notSap: 0, elsewhere: 0 });
       const g = groups.get(k); g.scans++; if (r.qty !== null) { g.qty += r.qty; if (r.unit) g.units.add(r.unit); }
       if (r.check.ok === false) g.unconfirmed++; if (!r.raw) g.noqr++;
       if (r.sap && r.sap.state === "consumed") g.inSap++; if (r.sap && (r.sap.state === "missing" || r.sap.state === "unknown")) g.notSap++;
+      if (otherJobs(r).length) g.elsewhere++;
     }
     const gs = [...groups.values()].sort((a, b) => a.job.localeCompare(b.job, undefined, { numeric: true }) || a.product.localeCompare(b.product));
-    $("sumBody").innerHTML = gs.length ? gs.map((g) => `<tr><td class="m">${esc(g.job)}</td><td class="m">${g.product ? esc(g.product) : "<i>No QR read</i>"}</td><td class="n">${g.scans}</td><td class="n">${qtyFmt(Number(g.qty.toFixed(6)))}<span class="unit">${esc([...g.units].join("/"))}</span></td><td class="n${g.unconfirmed ? " bad" : ""}">${g.unconfirmed || ""}</td><td class="n">${g.noqr || ""}</td><td class="n">${sap && sap.ctx ? g.inSap : ""}</td><td class="n${g.notSap ? " bad" : ""}">${sap && sap.ctx ? g.notSap || "" : ""}</td></tr>`).join("")
-      : `<tr><td colspan="8" class="hint">Nothing scanned yet.</td></tr>`;
+    $("sumBody").innerHTML = gs.length ? gs.map((g) => `<tr><td class="m">${esc(g.job)}</td><td class="m">${g.product ? esc(g.product) : "<i>No QR read</i>"}</td><td class="n">${g.scans}</td><td class="n">${qtyFmt(Number(g.qty.toFixed(6)))}<span class="unit">${esc([...g.units].join("/"))}</span></td><td class="n${g.unconfirmed ? " bad" : ""}">${g.unconfirmed || ""}</td><td class="n">${g.noqr || ""}</td><td class="n">${sap && sap.ctx ? g.inSap : ""}</td><td class="n${g.notSap ? " bad" : ""}">${sap && sap.ctx ? g.notSap || "" : ""}</td><td class="n${g.elsewhere ? " bad" : ""}">${sap && sap.ctx ? g.elsewhere || "" : ""}</td></tr>`).join("")
+      : `<tr><td colspan="9" class="hint">Nothing scanned yet.</td></tr>`;
     const kg = list.filter((r) => r.unit === "kg").reduce((a, r) => a + (r.qty || 0), 0);
     $("stats").innerHTML = [["Scans", list.length, $("jobSel").value ? "job " + $("jobSel").value : `${jobs.length} job${jobs.length === 1 ? "" : "s"}`],
       ["kg on labels", fmt(kg), "labels in kg"],
       ["Print not confirmed", list.filter((r) => r.check.ok === false).length, "product code or quantity: check the photo"],
       ["No QR read", list.filter((r) => !r.raw).length, "photo only"],
-      ["Not consumed in SAP", sap && sap.ctx ? list.filter((r) => r.sap && (r.sap.state === "missing" || r.sap.state === "unknown")).length : "–", sap && sap.ctx ? "scanned, but SAP didn't take it" : "load the SAP files"]]
+      ["Not consumed in SAP", sap && sap.ctx ? list.filter((r) => r.sap && (r.sap.state === "missing" || r.sap.state === "unknown")).length : "–", sap && sap.ctx ? "scanned, but SAP didn't take it" : "load the SAP files"],
+      ["Used on another job", sap && sap.ctx ? list.filter((r) => otherJobs(r).length).length : "–", sap && sap.ctx ? "SAP booked the bag to a different job" : "load the SAP files"]]
       .map(([k, v, s2]) => `<div><dt>${esc(k)}</dt><dd>${esc(v)}<small>${esc(s2)}</small></dd></div>`).join("");
   }
 
@@ -538,8 +579,8 @@
   $("csvBtn").onclick = () => {
     if (!rows.length) { toast("Nothing to export yet."); return; }
     const cell = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
-    const head = ["Scanned", "Job", "Product ID", "Identified Stock ID", "Label ID", "Quantity", "Unit", "Quantity from", "Printed batch", "Printed quantity", "Label check", "In SAP", "Big QR", "Small QR", "Phone", "Text read from the label"];
-    const lines = rows.slice().reverse().map((r) => { const o = r.ocr || {}; return [new Date(r.at).toISOString(), r.job, r.product, r.batch, r.label || o.labelId || "", r.qty === null ? "" : r.qty, r.unit, FROMQ[r.qtyFrom], o.batch || "", o.qty ?? "", r.check ? r.check.parts.map((p) => p[1]).join(" · ") : "", r.sap ? r.sap.text : "", r.big, r.small, r.device, (r.text || "").replace(/\s+/g, " ").trim()].map(cell).join(","); });
+    const head = ["Scanned", "Job", "Product ID", "Identified Stock ID", "Label ID", "Quantity", "Unit", "Quantity from", "Printed batch", "Printed quantity", "Label check", "In SAP", "Used on other jobs", "Big QR", "Small QR", "Phone", "Text read from the label"];
+    const lines = rows.slice().reverse().map((r) => { const o = r.ocr || {}; return [new Date(r.at).toISOString(), r.job, r.product, r.batch, r.label || o.labelId || "", r.qty === null ? "" : r.qty, r.unit, FROMQ[r.qtyFrom], o.batch || "", o.qty ?? "", r.check ? r.check.parts.map((p) => p[1]).join(" · ") : "", r.sap ? r.sap.text : "", r.sap && r.sap.elsewhere ? r.sap.elsewhere.map((x) => usedText(x, r.unit)).join(" | ") : "", r.big, r.small, r.device, (r.text || "").replace(/\s+/g, " ").trim()].map(cell).join(","); });
     const blob = new Blob([[head.map(cell).join(","), ...lines].join("\r\n")], { type: "text/csv" });
     const a = document.createElement("a"); a.href = URL.createObjectURL(blob);
     a.download = `bag-scans-${new Date().toISOString().slice(0, 16).replace(/[:T]/g, "-")}.csv`;

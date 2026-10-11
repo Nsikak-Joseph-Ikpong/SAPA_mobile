@@ -83,6 +83,8 @@
   .it-main span { display: block; color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .state { font: 600 11px var(--sans); padding: 3px 8px; border-radius: 999px; white-space: nowrap; }
   .state.sent { background: var(--ok-soft); color: var(--ok); } .state.queued, .state.sending { background: var(--warn-soft); color: var(--warn); }
+  .usedwarn { background: var(--bad-soft); color: var(--bad); border-radius: 8px; padding: 8px 10px; margin-top: 6px; font-size: 13.5px; line-height: 1.4; }
+  .usedwarn b { font-weight: 700; } .it-main .usedwarn { padding: 4px 8px; font-size: 12.5px; }
   .diag { font-size: 12.5px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: baseline; margin-top: -6px; }
   .diag b { font-family: var(--mono); color: var(--ink); font-weight: 600; }
   .diag .bad { color: var(--bad); font-weight: 600; } .diag .ok { color: var(--ok); }
@@ -259,6 +261,15 @@
     c.on("data", (d) => {
       if (!d) return;
       if (d.t === "ack") { const it = items.find((x) => x.id === d.id); if (it) { it.state = "sent"; render(); } }
+      // the laptop's SAP files say this bag was already used on another job
+      if (d.t === "used") {
+        const it = items.find((x) => x.id === d.id);
+        if (it && Array.isArray(d.used) && d.used.length) {
+          it.used = d.used; render(); if (it === lastIt) showLast(it);
+          if (navigator.vibrate) navigator.vibrate([150, 90, 150, 90, 150]);
+          toast(`Already used on job ${d.used.map((x) => x.job).join(", ")}: set this bag aside`);
+        }
+      }
       if (d.t === "job" || d.t === "hello") {
         const was = job; job = String(d.job || "");
         if (was !== job) { seen.clear(); pending.clear(); }
@@ -515,10 +526,14 @@
     if (audio) try { const o = audio.createOscillator(), g = audio.createGain(); o.frequency.value = 1320; g.gain.value = 0.08; o.connect(g).connect(audio.destination); o.start(); o.stop(audio.currentTime + 0.09); } catch { /* no sound */ }
   }
   const qtyText = (it) => (it.qty === null || it.qty === undefined ? "" : ` · <b>${B.esc(String(it.qty))} ${B.esc(it.unit)}</b>`);
+  const usedHtml = (it) => (it.used || []).map((x) => `<div class="usedwarn">⚠ Already used on job <b>${B.esc(x.job)}</b>${x.line ? ` · line <b>${B.esc(x.line)}</b>` : ""}<br>${B.esc(x.at)} · ${B.esc(x.qty)} ${B.esc(x.unit)} (SAP confirmation journal)</div>`).join("");
+  let lastIt = null;
   function showLast(it) {
+    lastIt = it;
     $("lastPanel").hidden = false; $("lastImg").src = it.url;
     $("lastText").innerHTML = (it.raw ? `<b>${B.esc(it.product || "?")}</b><br>batch <b>${B.esc(it.batch)}</b>${qtyText(it)}` : "<b>No QR read</b> (photo only)")
       + `<br><span class="note">Job ${B.esc(it.job)} · ${B.hms(it.at)}${it.raw && !it.small ? " · small QR not read" : ""}</span>`
+      + usedHtml(it)
       + (it.big || it.small ? `<div class="seenhow" style="margin-top:4px">${it.big ? `Big QR: <b class="raw" style="font-size:12px">${B.esc(it.big)}</b><br>` : ""}${it.small ? `Small QR: <b class="raw" style="font-size:12px">${B.esc(it.small)}</b>` : ""}</div>` : "");
   }
 
@@ -555,7 +570,7 @@
     const label = { sent: "On laptop", sending: "Sending", queued: "Waiting" };
     $("items").innerHTML = items.slice().reverse().map((it) => `<li><img src="${it.url}" alt="">
       <div class="it-main">${it.raw ? `<b>${B.esc(it.product || "?")}</b> batch <b>${B.esc(it.batch)}</b>${qtyText(it)}` : "<b>No QR read</b>"}
-        <span>Job ${B.esc(it.job)} · ${B.hms(it.at)}${it.label ? " · label " + B.esc(it.label) : ""}</span></div>
+        <span>Job ${B.esc(it.job)} · ${B.hms(it.at)}${it.label ? " · label " + B.esc(it.label) : ""}</span>${usedHtml(it)}</div>
       <span class="state ${it.state}">${label[it.state]}</span></li>`).join("");
     $("empty").hidden = items.length > 0;
     $("nAll").textContent = items.length;
