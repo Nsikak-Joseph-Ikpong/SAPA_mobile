@@ -117,7 +117,7 @@
 <body>
 <div class="wrap">
   <div>
-    <h1>Input products: label scans</h1>
+    <h1 data-nav="inputs">Input products: label scans</h1>
     <p class="sub">Labels scanned on the phone appear here as they're scanned, with the photo. Product, batch and quantity come from the label's QR codes; the large printed product code and quantity are read and checked against them, and everything is checked against SAP. Nothing is saved: the scans live in this browser tab only, and reloading the page clears them. Export to keep a copy.</p>
   </div>
 
@@ -132,7 +132,7 @@
     <div class="grow"><b>SAP data:</b> <span id="sapText">looking for the SAP files…</span></div>
     <button type="button" class="quiet" id="sapLoad">Load SAP files</button>
     <input type="file" id="sapFile" accept=".xlsx,.xlsm,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,application/vnd.ms-excel.sheet.macroEnabled.12" multiple hidden>
-    <a href="./" target="_blank" rel="noopener">Open the checker</a>
+    <a href="./" target="sapa-checker">Open the checker</a>
   </section>
 
   <div class="top">
@@ -196,6 +196,7 @@
 <script src="vendor/jsQR.js?v=__BUILD__"></script>
 <script src="vendor/zxing/zxing-reader.js?v=__BUILD__"></script>
 <script src="bagscan.js?v=__BUILD__"></script>
+<script src="nav.js?v=__BUILD__"></script>
 <script src="bagocr.js?v=__BUILD__"></script>
 <script>
 (function () {
@@ -478,10 +479,10 @@
     if (!sap || !sap.ctx) return `<h2>SAP history</h2><p class="hint">${sap && sap.error ? "The SAP files couldn't be used: " + esc(sap.error) : "Load the SAP files (above, or on the checker page) to see this bag's history in SAP."}</p>`;
     if (!r.batch) return `<h2>SAP history</h2><p class="hint">No QR code was read, so there's no batch to look up.</p>`;
     const { p } = traceOf(r), st = r.sap || sapStatus(r);
-    const link = `<a href="./?trace=${encodeURIComponent(r.batch)}&product=${encodeURIComponent(r.product || "")}" target="_blank" rel="noopener">Open the full stock trace in the checker</a>`;
+    const link = `<a href="./?trace=${encodeURIComponent(r.batch)}&product=${encodeURIComponent(r.product || "")}" target="sapa-checker">Open the full stock trace in the checker</a>`;
     const head = `<h2>SAP history: ${esc(r.product)} batch ${esc(r.batch)}</h2><div>${st.elsewhere ? sapBadges({ ...r, sap: st }) : `<span class="sap ${st.cls}">${esc(st.text)}</span>`}</div>`;
     if (!p) return head + `<p class="hint">No journal postings for this batch in the loaded files. ${link}</p>`;
-    const ord = (o) => `<a href="./?order=${encodeURIComponent(o)}" target="_blank" rel="noopener">${esc(o)}</a>`;
+    const ord = (o) => `<a href="./?order=${encodeURIComponent(o)}" target="sapa-checker">${esc(o)}</a>`;
     const firstIn = p.rows.find((x) => x.qty > 0);
     const figs = `<div class="figs">${r.qty !== null ? `<span>On the label <b>${F.f(r.qty, 3)} ${esc(r.unit || "")}</b></span>` : ""}${firstIn ? `<span>First booked in SAP <b>${F.f(firstIn.qty, 3)}</b> (${esc(F.dmy(firstIn.time))})</span>` : ""}<span>Made <b>${F.f(p.made, 2)}</b></span><span>Used on orders <b>${F.f(p.consumed, 2)}</b></span><span>Stock now (journal) <b>${F.f(p.balance, 2)}</b></span>`
       + (sap.ctx.wb.stock && sap.ctx.wb.stock.length ? `<span>On hand (stock overview) <b>${F.f(p.stock_total, 2)}</b></span>` : "") + `<span>${p.rows.length} postings</span></div>`;
@@ -650,6 +651,7 @@
     const bc = new BroadcastChannel("sapa-inputs");
     bc.onmessage = (e) => {
       if (e.data === "here?") bc.postMessage("here");
+      if (e.data === "inputs?") bc.postMessage("inputs");   // the page switcher on another page, asking if this one is open
       if (e.data === "here" || e.data === "here?") { $("pairNote").hidden = false; $("pairNote").innerHTML = "This page is also open in another tab or window. Close the others and use one, or phones may pair with the wrong one."; }
     };
     bc.postMessage("here?");

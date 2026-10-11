@@ -34,7 +34,17 @@ The phone can't open files straight off the laptop's disk; they have to go throu
 A demo of scanning inputs (offcut bags, cheese blocks, packaging) with a phone instead of the QR gun, so there's a
 record of every label that went into a job, with a photo, checked against what SAP took.
 
-* **Laptop:** open https://nsikak-joseph-ikpong.github.io/SAPA_mobile/inputs.html. It shows a pairing QR code.
+**Moving between the pages.** Every page's title is a menu (click it, ▾) listing the three pages: **Cheese variance
+check** (the checker, https://nsikak-joseph-ikpong.github.io/SAPA_mobile/), **Input products** (the laptop dashboard)
+and **Bag scanner** (the phone). So start on the checker and pick **Input products** from its title. Each page opens
+in a tab of its own, and picking a page that's already open brings its tab forward instead of loading it again: the
+scans on Input products and its phone link live only in that tab, so switching to the checker and back never loses
+them (the checker's links from a bag's SAP history open in the checker's tab too). If Input products is already open
+in a tab the menu can't reach (opened separately), it says so rather than opening a second copy, which would give
+phones a second pairing code.
+
+* **Laptop:** open https://nsikak-joseph-ikpong.github.io/SAPA_mobile/inputs.html, or pick **Input products** from the
+  checker's title. It shows a pairing QR code.
   Type the job on the line in **Job on the line** and click **Set job**: every paired phone scans into that job
   (phones can't scan until a job is set; changing it here changes it on the phones).
 * **Phone:** scan the pairing code with the phone's camera app. The scanner opens, already paired, showing the job.

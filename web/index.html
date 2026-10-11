@@ -227,7 +227,7 @@
 
 <div class="wrap">
   <div>
-    <h1>Cheese Variance Check</h1>
+    <h1 data-nav="checker">Cheese Variance Check</h1>
     <p class="sub">Type a production order. Output and packaging are checked against the order's planned, issued and open quantities. Cheese is checked against what the confirmation journal shows consumed on the line during the run (or, if the journal has no consumption lines, what was moved to the line), and everything that went in (cheese blocks, offcuts, starch) is balanced against everything that came out (product and offcuts). The journal also backs up the output: pallets, late or bulk postings.</p>
   </div>
 
@@ -288,6 +288,7 @@
 <script src="vendor/xlsx.full.min.js?v=__BUILD__"></script>
 <script>window.XLSX || document.write('<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"><\/script>');</script>
 <script src="reconcile.js?v=__BUILD__"></script>
+<script src="nav.js?v=__BUILD__"></script>
 <script src="demo-workbook.js?v=__BUILD__"></script>
 <script>
 (function () {
