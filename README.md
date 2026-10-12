@@ -18,8 +18,8 @@ to be on the office network.
    screen: Safari *Share → Add to Home Screen*, Chrome *⋮ → Add to Home screen*).
 3. Tap **Load SAP files** and pick the exports. iPhone: *Browse → OneDrive / Drive / iCloud Drive*. Android:
    *☰ → OneDrive / Drive*, or the *Files* app. You can pick several at once.
-4. Type a job number, a batch for its history, or use the stock trace (the camera button opens a live camera:
-   point it at a label and its trace shows by itself).
+4. Type a job number, a batch for its history, or use the stock trace (the camera button opens the camera: point
+   it at a label, and once it's read the camera closes and the trace shows by itself).
 
 The files are read on the phone and kept in its browser, so they're still there next time. Nothing is
 uploaded to GitHub or anywhere else. When you save newer exports on the laptop, load them again on the
@@ -412,12 +412,12 @@ restricted, external ID (e.g. PO569-01), production and expiry dates and days to
 running total, with a note when the two differ. A batch that is on hand but has no postings in the journal's dates
 is still found.
 
-**Scan a label (stock trace).** In the stock trace, the camera button in the batch box opens a live camera across
-the top of the screen. Point it at a label: as soon as a QR code is read (the big one, `(90)RCSL2061WF1856(10)50085`,
-GS1: 90 = product, 10 = batch, 97 = label ID, or the small one, `product,batch,quantity,unit`) both boxes fill in and
-the trace shows under the camera, with nothing to tap. The camera stays on: point at the next label and its trace
-replaces the last. **Close camera** (or the camera button again) turns it off, as do a minute with no new label and
-leaving the page; **Light** switches the phone's torch where it can. With several labels in view, the one nearest the
+**Scan a label (stock trace).** In the stock trace, the camera button in the batch box opens the camera across the
+whole screen (the picture in a rounded frame with a margin round it, the buttons under it). Point it at a label: as
+soon as a QR code is read (the big one, `(90)RCSL2061WF1856(10)50085`, GS1: 90 = product, 10 = batch, 97 = label ID,
+or the small one, `product,batch,quantity,unit`) the frame turns green, the camera closes by itself, both boxes fill
+in and the trace shows, with nothing to tap. The ✕ button closes it without reading, as do a minute with no label
+read and leaving the page; the light button switches the phone's torch where it can. With several labels in view, the one nearest the
 middle is read. The QR reader is zxing, as in the bag scanner. Where there's no live camera (plain http, as over
 `serve.py --share`, or the camera blocked) the button takes a photo instead, read by the browser's own QR reader or
 jsQR (bundled in `web/vendor/`, Apache-2.0). The trace page shows the product name,
