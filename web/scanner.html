@@ -92,6 +92,10 @@
   .help { background: var(--bad-soft); color: var(--ink); border-radius: 8px; padding: 10px 12px; font-size: 13.5px; }
   .toast { position: fixed; left: 50%; bottom: calc(env(safe-area-inset-bottom, 0px) + 18px); transform: translateX(-50%); background: var(--ink); color: var(--ground); padding: 10px 16px; border-radius: 8px; font-size: 14px; max-width: calc(100vw - 32px); z-index: 10; }
   [hidden] { display: none !important; }
+  /* inside "Scan and check here": only the camera and what it reads; the page around has the rest */
+  body.embed header, body.embed #diag, body.embed #help, body.embed #pairPanel, body.embed #jobPanel, body.embed #scanBtn,
+  body.embed #inspectBtn, body.embed #lastPanel, body.embed #sessionPanel, body.embed .foot { display: none !important; }
+  body.embed .wrap { padding-top: 10px; }
 </style>
 </head>
 <body>
@@ -147,13 +151,13 @@
     <div class="last"><img id="lastImg" alt="Last bag photo"><div id="lastText"></div></div>
   </section>
 
-  <section class="panel">
+  <section class="panel" id="sessionPanel">
     <div class="count"><h2>This session</h2><span><strong id="nSent">0</strong> of <strong id="nAll">0</strong> on the laptop</span></div>
     <ul class="items" id="items"></ul>
     <p class="note" id="empty">Scanned bags show here. Nothing is kept on this phone: reload and the list is gone.</p>
   </section>
 </div>
-<p class="note" style="text-align:center;margin:0 0 16px">Version __BUILD__</p>
+<p class="note foot" style="text-align:center;margin:0 0 16px">Version __BUILD__</p>
 <div class="toast" id="toast" hidden></div>
 
 <script src="vendor/peerjs.min.js?v=__BUILD__"></script>
@@ -168,6 +172,11 @@
   const B = window.BagScan, O = window.BagOCR, $ = (id) => document.getElementById(id);
   const SCAN_SECONDS = 40;            // the camera turns itself off if no code is found by then
   let laptop = new URLSearchParams(location.search).get("pair");
+  // Inside "Scan and check here" (inputs.html?here): the camera only. The page around it sets the job, starts the
+  // camera and takes each scan; nothing goes over the network.
+  const EMBED = new URLSearchParams(location.search).has("embed") && window.parent !== window;
+  const up = (msg, transfer) => parent.postMessage(msg, location.origin, transfer || []);
+  if (EMBED) document.body.classList.add("embed");
   // a relay set up on the laptop comes in the pairing link (after #): kept on this phone, then out of the address bar
   if (B.relay.fromLink(location.href)) history.replaceState(null, "", location.pathname + location.search);
   let job = "";                       // set on the laptop
@@ -192,7 +201,7 @@
   const seen = new Map();             // label key -> time sent (a bag is sent once per session)
   let stream = null, scanning = false, busy = false, detector = null, audio = null, lastMsgAt = 0, offT = null;
 
-  function toast(msg) { const t = $("toast"); t.textContent = msg; t.hidden = false; clearTimeout(toast.t); toast.t = setTimeout(() => (t.hidden = true), 2800); }
+  function toast(msg) { if (EMBED) { up({ t: "toast", msg }); return; } const t = $("toast"); t.textContent = msg; t.hidden = false; clearTimeout(toast.t); toast.t = setTimeout(() => (t.hidden = true), 2800); }
   function status(kind, text) { const s = $("status"); s.className = "pill " + kind; s.textContent = text; }
   const camMsg = (text) => ($("camMsg").textContent = text);
   function showJob() {
@@ -294,6 +303,14 @@
     return /iPhone/.test(ua) ? "iPhone" : /Android/.test(ua) ? (ua.match(/Android[^;]*;\s*([^;)]+)/) || [, "Android"])[1].trim() : "Phone";
   }
   function send(it) {
+    if (EMBED) {
+      // to the page around: the pictures are handed over, not copied
+      up({ t: "scan", id: it.id, job: it.job, raw: it.raw, product: it.product, batch: it.batch, label: it.label, qty: it.qty, unit: it.unit,
+        big: it.big, small: it.small, at: it.at, photo: it.photo, label_img: it.labelImg, label_frame: it.labelFrame, label_codes: it.labelCodes },
+      [it.photo, it.labelImg].filter(Boolean));
+      it.state = "sent"; it.photo = it.labelImg = null;
+      return;
+    }
     if (!conn || !conn.open) { it.state = "queued"; return; }
     if (it.state !== "sent") it.state = "sending";
     conn.send({ t: "scan", id: it.id, job: it.job, raw: it.raw, product: it.product, batch: it.batch, label: it.label, qty: it.qty, unit: it.unit,
@@ -322,7 +339,7 @@
       return;
     }
     const v = $("video"); v.srcObject = stream; await v.play().catch(() => {});
-    $("cam").hidden = false; $("scanBtn").hidden = true; $("inspectBtn").hidden = true; $("scanRow").hidden = !laptop && !inspect; $("noQrBtn").hidden = inspect;
+    $("cam").hidden = false; $("scanBtn").hidden = true; $("inspectBtn").hidden = true; $("scanRow").hidden = !(laptop || EMBED) && !inspect; $("noQrBtn").hidden = inspect;
     readLog.clear(); renderReads(); $("readPanel").hidden = false;
     const track = stream.getVideoTracks()[0], caps = track.getCapabilities ? track.getCapabilities() : {};
     $("torch").hidden = !caps.torch; $("torch").classList.remove("on");
@@ -331,7 +348,7 @@
       try { if ((await BarcodeDetector.getSupportedFormats()).includes("qr_code")) detector = new BarcodeDetector({ formats: ["qr_code"] }); } catch { detector = null; }
     }
     scanning = true; busy = false;
-    camMsg(inspect ? "Point at a label: what it reads shows below. Nothing is sent." : laptop ? "Point at the bag label" : "Point at the laptop's pairing code");
+    camMsg(inspect ? "Point at a label: what it reads shows below. Nothing is sent." : laptop || EMBED ? "Point at the bag label" : "Point at the laptop's pairing code");
     clearTimeout(offT); offT = setTimeout(() => { if (scanning) { stopCamera(); toast(inspect ? "Camera off." : "No code found, camera off. Tap Scan to try again."); } }, (inspect ? 120 : SCAN_SECONDS) * 1000);
     $("cam").scrollIntoView({ block: "nearest", behavior: "smooth" });
     loop();
@@ -343,6 +360,7 @@
     $("cam").hidden = true; $("scanRow").hidden = true; $("scanBtn").hidden = false; $("inspectBtn").hidden = false;
     drawOverlay([]);
     $("readPanel").hidden = !readLog.size;
+    if (EMBED) up({ t: "camera", on: false });
   }
   function noLiveCamera(msg) { $("photoRow").hidden = false; toast(msg); }
 
@@ -465,7 +483,7 @@
   async function onCodes(codes, src, w, h, force) {
     for (const c of codes) {
       const text = c.text;
-      const pairing = text.includes("pair=") ? (() => { try { return new URL(text).searchParams.get("pair"); } catch { return null; } })() : text.startsWith(B.PREFIX) ? text : null;
+      const pairing = EMBED ? null : text.includes("pair=") ? (() => { try { return new URL(text).searchParams.get("pair"); } catch { return null; } })() : text.startsWith(B.PREFIX) ? text : null;
       if (pairing) {
         const newRelay = B.relay.fromLink(text) && JSON.stringify(B.peerOptions().config) !== usedConfig;
         if (pairing !== laptop || newRelay) { setLaptop(pairing); hit(); stopCamera(); toast(newRelay ? "Paired with the laptop, through its relay" : "Paired with the laptop"); }
@@ -476,8 +494,8 @@
     const say = (m) => { if (now - lastMsgAt > 2000) { lastMsgAt = now; camMsg(m); } };
     const bag = codes.filter((c) => c.kind === "big" || c.kind === "small");
     if (!bag.length) return say("That code isn't an SAP label");
-    if (!laptop) return say("Pair with the laptop first");
-    if (!job) return say("Set the job on the laptop first");
+    if (!laptop && !EMBED) return say("Pair with the laptop first");
+    if (!job) return say(EMBED ? "Set the job first" : "Set the job on the laptop first");
     // with several labels in view, the one nearest the middle of the picture
     const mid = { x: w / 2, y: h / 2 }, ctr = (q) => (q.tl ? { x: (q.tl.x + q.br.x) / 2, y: (q.tl.y + q.br.y) / 2 } : mid);
     const near = bag.slice().sort((a, b) => Math.hypot(ctr(a).x - mid.x, ctr(a).y - mid.y) - Math.hypot(ctr(b).x - mid.x, ctr(b).y - mid.y))[0];
@@ -529,6 +547,7 @@
       const it = { id: B.uid(), job, raw: lab ? lab.big || lab.small : "", big: lab ? lab.big : "", small: lab ? lab.small : "",
         product: lab ? lab.product : "", batch: lab ? lab.batch : "", label: lab ? lab.label : "", qty: lab ? lab.qty : null, unit: lab ? lab.unit : "",
         at: Date.now(), photo: await photo.arrayBuffer(), labelImg, labelFrame, labelCodes, url: URL.createObjectURL(photo), state: "queued" };
+      if (EMBED) { send(it); URL.revokeObjectURL(it.url); if (!scanning) up({ t: "camera", on: false }); return; }
       items.push(it);
       hit(); send(it); render(); showLast(it);
     } finally { busy = false; }
@@ -572,7 +591,7 @@
     try { await img.decode(); } catch { toast("Couldn't open that photo"); return; }
     const codes = await codesOf(img, img.naturalWidth, img.naturalHeight, 2400);
     if (codes.length) await onCodes(codes, img, img.naturalWidth, img.naturalHeight, true);
-    else if (laptop && job) await capture(null, [], img, img.naturalWidth, img.naturalHeight);
+    else if ((laptop || EMBED) && job) await capture(null, [], img, img.naturalWidth, img.naturalHeight);
     else toast("No QR code found in the photo");
     URL.revokeObjectURL(url);
   };
@@ -590,7 +609,21 @@
     $("scanBtn").textContent = items.length ? "Scan next bag" : "Scan";
   }
 
-  render(); showJob(); connect();
+  // embedded: the page around sends the job and starts and stops the camera
+  if (EMBED) {
+    window.addEventListener("message", (e) => {
+      if (e.source !== parent || e.origin !== location.origin || !e.data) return;
+      const d = e.data;
+      if (d.t === "start") {
+        const j = String(d.job || "");
+        if (j !== job) { job = j; seen.clear(); pending.clear(); }
+        if (!scanning) startCamera("scan");
+      }
+      if (d.t === "stop") { if (scanning) stopCamera(); else up({ t: "camera", on: false }); }
+    });
+  }
+
+  render(); showJob(); if (!EMBED) connect();
 })();
 </script>
 </body>

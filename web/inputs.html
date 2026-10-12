@@ -123,7 +123,39 @@
   .chk .ok { background: var(--ok-soft); color: var(--ok); } .chk .bad { background: var(--bad-soft); color: var(--bad); } .chk .warn { background: var(--warn-soft); color: var(--warn); }
   .unit { color: var(--muted); font-size: 12px; margin-left: 4px; }
   .qsrc { display: block; font-size: 11px; color: var(--muted); margin-top: 2px; }
-  .toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); background: var(--ink); color: var(--ground); padding: 8px 14px; border-radius: 6px; font-size: 13px; z-index: 20; }
+  .toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); background: var(--ink); color: var(--ground); padding: 8px 14px; border-radius: 6px; font-size: 13px; z-index: 60; max-width: calc(100vw - 32px); }
+  /* "Scan and check here": this device scans, nothing is linked */
+  body.here #pairPanel { display: none; }
+  @media (min-width: 900px) { body.here .top { grid-template-columns: minmax(0, 1fr); } }
+  .scanbar { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; }
+  .scanbar button { font-size: 17px; padding: 14px 22px; flex: 1 1 240px; max-width: 420px; }
+  /* on a phone: the button stays at the bottom of the screen, under the thumb, whatever is scrolled into view */
+  @media (max-width: 720px) {
+    .scanbar { position: fixed; left: 12px; right: 12px; bottom: calc(env(safe-area-inset-bottom, 0px) + 12px); z-index: 30; }
+    .scanbar .hint { display: none; } .scanbar button { max-width: none; box-shadow: 0 6px 18px rgba(0,0,0,.25); }
+    body.here .wrap { padding-bottom: 104px; } body.here .toast { bottom: calc(env(safe-area-inset-bottom, 0px) + 88px); }
+  }
+  .camlayer { position: fixed; inset: 0; z-index: 50; background: rgba(0, 0, 0, .6); display: grid; place-items: center; }
+  .camlayer .box { background: var(--ground); width: min(560px, 100vw); height: min(92vh, 940px); display: grid; grid-template-rows: auto minmax(0, 1fr); border-radius: 10px; overflow: hidden; }
+  @media (max-width: 600px) { .camlayer .box { width: 100vw; height: 100vh; height: 100dvh; border-radius: 0; } }
+  .camlayer .head { display: flex; align-items: center; gap: 10px; padding: 8px 12px; background: var(--surface); border-bottom: 1px solid var(--line); }
+  .camlayer .head b { font-family: var(--mono); }
+  .camlayer iframe { width: 100%; height: 100%; border: 0; background: var(--ground); display: block; }
+  /* the scans as cards on a phone */
+  @media (max-width: 720px) {
+    #inTable thead { display: none; }
+    #inTable, #inTable tbody { display: block; }
+    #inTable tr { display: grid; grid-template-columns: 76px minmax(0, 1fr); column-gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+    #inTable tr.warnrow { background: var(--warn-soft); }
+    #inTable td { display: block; border: 0; padding: 2px 0; white-space: normal; text-align: left; grid-column: 2; background: none; }
+    #inTable td.ph { grid-column: 1; grid-row: 1 / span 9; padding-top: 4px; }
+    #inTable td:empty { display: none; }
+    #inTable td[data-l]::before { content: attr(data-l); display: inline-block; min-width: 8.2em; color: var(--muted); font: 12px var(--sans); }
+    #inTable td.prod { font-weight: 600; font-size: 14px; order: -1; }
+    #inTable img.thumb { width: 76px; height: 57px; }
+    #inTable td.sapcell { min-width: 0; }
+    #inTable td.sapcell::before, #inTable td.chkcell::before { display: block; margin-bottom: 2px; }
+  }
   [hidden] { display: none !important; }
 </style>
 </head>
@@ -141,6 +173,11 @@
     <span class="now" id="jobNow">No job set: phones can't scan until one is.</span>
   </form>
 
+  <div class="scanbar" id="scanBar" hidden>
+    <button type="button" id="hereScan">Scan a bag</button>
+    <span class="hint">This device's camera comes on for one label, then goes off. Each scan is checked here: the print, and SAP once its files are loaded.</span>
+  </div>
+
   <section class="sapbar" aria-label="SAP data">
     <div class="grow"><b>SAP data:</b> <span id="sapText">looking for the SAP files…</span></div>
     <button type="button" class="quiet" id="sapLoad">Load SAP files</button>
@@ -149,7 +186,7 @@
   </section>
 
   <div class="top">
-    <section class="panel" aria-labelledby="pair-h">
+    <section class="panel" id="pairPanel" aria-labelledby="pair-h">
       <h2 id="pair-h">Pair a phone</h2>
       <span class="pill warn" id="status">Starting…</span>
       <div class="qr" id="qr" aria-label="Pairing code"></div>
@@ -191,8 +228,8 @@
 
   <section class="panel" aria-labelledby="in-h">
     <h2 id="in-h">Input products</h2>
-    <div class="scroll"><table>
-      <thead><tr><th>Photo</th><th>Scanned</th><th>Job</th><th>Product ID</th><th>Identified Stock ID</th><th>Label ID</th><th class="n">Quantity</th><th>Label check</th><th>In SAP</th><th>Phone</th></tr></thead>
+    <div class="scroll"><table id="inTable">
+      <thead><tr><th>Photo</th><th>Scanned</th><th>Job</th><th>Product ID</th><th>Identified Stock ID</th><th>Label ID</th><th class="n">Quantity</th><th>Label check</th><th>In SAP</th><th id="devTh">Phone</th></tr></thead>
       <tbody id="rows"></tbody></table></div>
     <div class="empty" id="empty">No scans yet. Pair a phone and scan a label, or try <b>Add a sample label</b>.</div>
   </section>
@@ -210,6 +247,12 @@
     <section class="sapsec" id="dlgSap" aria-label="SAP history of this bag"></section>
   </div>
 </dialog>
+<div class="camlayer" id="camLayer" hidden>
+  <div class="box" role="dialog" aria-modal="true" aria-label="Scan a bag">
+    <div class="head"><span>Scanning into job <b id="camJob"></b></span><span style="flex:1"></span><button type="button" class="quiet" id="camClose">Close</button></div>
+    <iframe id="camFrame" title="Camera" allow="camera; autoplay; fullscreen"></iframe>
+  </div>
+</div>
 <p class="hint" style="text-align:center;margin:0 0 20px">Version __BUILD__</p>
 <div class="toast" id="toast" hidden></div>
 
@@ -231,9 +274,12 @@
   const rows = [];                         // newest first
   const phones = new Set();
   let peer = null, fresh = null;
-  let job = B.store.get("sapa-inputs-job") || "";   // the job the phones scan into, set here
+  // "Scan and check here" (inputs.html?here): this device scans with its own camera, nothing is linked
+  const HERE = new URLSearchParams(location.search).has("here");
+  const JOB_KEY = HERE ? "sapa-here-job" : "sapa-inputs-job";
+  let job = B.store.get(JOB_KEY) || "";   // the job the phones scan into, set here
 
-  function toast(msg) { const t = $("toast"); t.textContent = msg; t.hidden = false; clearTimeout(toast.t); toast.t = setTimeout(() => (t.hidden = true), 2600); }
+  function toast(msg, ms = 2600) { const t = $("toast"); t.textContent = msg; t.hidden = false; clearTimeout(toast.t); toast.t = setTimeout(() => (t.hidden = true), ms); }
   function status(kind, text) { const s = $("status"); s.className = "pill " + kind; s.textContent = text; }
   const phoneStatus = () => (phones.size ? status("ok", `${phones.size} phone${phones.size > 1 ? "s" : ""} connected`) : status("warn", "Waiting for a phone"));
 
@@ -283,7 +329,7 @@
   }
 
   // ------------------------------------------------------------ a scan arrives
-  function onScan(d, c) {
+  function onScan(d, c, device) {
     if (!d || d.t !== "scan") return;
     if (!rows.some((r) => r.id === d.id)) {
       const blob = new Blob([d.photo], { type: "image/jpeg" });
@@ -291,7 +337,7 @@
       const qrQty = d.qty === null || d.qty === undefined || d.qty === "" ? null : Number(d.qty);
       add({ id: d.id, job: String(d.job || job || ""), raw: d.raw || "", big: d.big || "", small: d.small || "", product: d.product || "", batch: d.batch || "", label: d.label || "",
         qrQty, qrUnit: d.unit || "", labelBlob, labelFrame: d.label_frame || null, labelCodes: d.label_codes || [], labelUrl: labelBlob ? URL.createObjectURL(labelBlob) : null,
-        at: d.at || Date.now(), received: Date.now(), blob, url: URL.createObjectURL(blob), device: (c && c.metadata && c.metadata.device) || "Phone" });
+        at: d.at || Date.now(), received: Date.now(), blob, url: URL.createObjectURL(blob), device: device || (c && c.metadata && c.metadata.device) || "Phone" });
     }
     if (c && c.open) {
       c.send({ t: "ack", id: d.id });   // a resend after a dropped link is acknowledged again, not added twice
@@ -545,12 +591,12 @@
     const list = shown();
     for (const r of rows) { r.sap = sapStatus(r); r.check = checkOf(r); }
     $("rows").innerHTML = list.map((r) => `<tr data-id="${esc(r.id)}" class="${r.id === fresh ? "new" : ""}${!r.raw || r.check.cls === "bad" ? " warnrow" : ""}">
-      <td><img class="thumb" src="${r.url}" alt="Label photo" data-open="${esc(r.id)}"></td>
-      <td class="m">${B.hms(r.at)}</td><td class="m">${esc(r.job)}</td>
-      <td class="m">${r.raw ? esc(r.product) : "<i>No QR read</i>"}</td><td class="m">${esc(r.batch)}${r.batchFrom === "print" ? ' <span class="unit">(print)</span>' : ""}</td><td class="m">${esc(r.label || (r.ocr && r.ocr.labelId) || "")}</td>
-      <td class="n" title="${esc(FROMQ[r.qtyFrom])}"><input class="kg" type="text" inputmode="decimal" value="${qtyFmt(r.qty)}" placeholder="${r.qtyFrom === "reading" ? "…" : "qty"}" aria-label="Quantity" data-kg="${esc(r.id)}"><span class="unit">${esc(r.unit || "")}</span><span class="qsrc">${esc(qtySource(r))}</span></td>
-      <td><span class="chk">${r.check.parts.map(([c, t]) => `<span class="${c}">${esc(t)}</span>`).join("")}</span></td>
-      <td class="sapcell">${r.sap ? sapBadges(r) : `<span class="hint">no SAP files</span>`}</td><td>${esc(r.device)}</td></tr>`).join("");
+      <td class="ph"><img class="thumb" src="${r.url}" alt="Label photo" data-open="${esc(r.id)}"></td>
+      <td class="m" data-l="Scanned">${B.hms(r.at)}</td><td class="m" data-l="Job">${esc(r.job)}</td>
+      <td class="m prod">${r.raw ? esc(r.product) : "<i>No QR read</i>"}</td><td class="m" data-l="Stock ID">${esc(r.batch)}${r.batchFrom === "print" ? ' <span class="unit">(print)</span>' : ""}</td><td class="m" data-l="Label ID">${esc(r.label || (r.ocr && r.ocr.labelId) || "")}</td>
+      <td class="n" data-l="Quantity" title="${esc(FROMQ[r.qtyFrom])}"><input class="kg" type="text" inputmode="decimal" value="${qtyFmt(r.qty)}" placeholder="${r.qtyFrom === "reading" ? "…" : "qty"}" aria-label="Quantity" data-kg="${esc(r.id)}"><span class="unit">${esc(r.unit || "")}</span><span class="qsrc">${esc(qtySource(r))}</span></td>
+      <td class="chkcell" data-l="Label check"><span class="chk">${r.check.parts.map(([c, t]) => `<span class="${c}">${esc(t)}</span>`).join("")}</span></td>
+      <td class="sapcell" data-l="In SAP">${r.sap ? sapBadges(r) : `<span class="hint">no SAP files</span>`}</td><td data-l="${HERE ? "Device" : "Phone"}">${esc(r.device)}</td></tr>`).join("");
     fresh = null;
     $("empty").hidden = rows.length > 0;
     // summary per job and product
@@ -725,14 +771,15 @@
   // ------------------------------------------------------------ the job: set here, sent to every phone
   function showJob() {
     $("jobForm").classList.toggle("unset", !job);
-    $("jobNow").innerHTML = job ? `Phones are scanning into job <b>${esc(job)}</b>` : "No job set: phones can't scan until one is.";
+    $("jobNow").innerHTML = HERE ? (job ? `Scanning into job <b>${esc(job)}</b>` : "No job set: set one to start scanning.")
+      : job ? `Phones are scanning into job <b>${esc(job)}</b>` : "No job set: phones can't scan until one is.";
   }
   $("jobIn").value = job;
   $("jobForm").addEventListener("submit", (e) => {
     e.preventDefault();
     const v = $("jobIn").value.trim();
     if (v === job) return;
-    job = v; B.store.set("sapa-inputs-job", job);
+    job = v; B.store.set(JOB_KEY, job);
     for (const c of phones) if (c.open) c.send({ t: "job", job });
     showJob();
     if (job) { $("jobSel").value = ""; render(); }
@@ -740,7 +787,7 @@
   });
 
   // the page open in two tabs: only one can hold the pairing code, and phones end up talking to the other one
-  try {
+  if (!HERE) try {
     const bc = new BroadcastChannel("sapa-inputs");
     bc.onmessage = (e) => {
       if (e.data === "here?") bc.postMessage("here");
@@ -750,10 +797,60 @@
     bc.postMessage("here?");
   } catch { /* no BroadcastChannel: skip the check */ }
 
+  // ------------------------------------------------------------ "Scan and check here": this device's own camera
+  // The bag scanner page runs inside this one (scanner.html?embed) for the camera and the reading; each scan comes
+  // back here and is checked as a phone's would be. No pairing, no link: nothing leaves this device.
+  let camReady = null, beep = null;
+  if (HERE) {
+    document.body.classList.add("here");
+    const h1 = document.querySelector("h1[data-nav]");
+    h1.dataset.nav = "here"; h1.textContent = "Scan and check here";
+    document.title = "Scan and check here";
+    h1.nextElementSibling.textContent = "Book the job, scan each bag with this device's camera and see it checked: the label's print against its QR codes, and the bag against SAP once the SAP files are loaded on this device (here, or on the checker). Nothing is sent anywhere and nothing is saved: the scans live in this tab only, and reloading clears them. Export to keep a copy.";
+    $("scanBar").hidden = false;
+    $("devTh").textContent = "Device";
+    $("empty").innerHTML = "No scans yet. Set the job and tap <b>Scan a bag</b>, or try <b>Add a sample label</b>.";
+    $("hereScan").onclick = hereScan;
+    $("camClose").onclick = closeCam;
+    document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !$("camLayer").hidden) closeCam(); });
+    window.addEventListener("message", onCamMessage);
+  }
+  function hereScan() {
+    if (!job) { toast("Set the job first"); $("jobIn").focus(); return; }
+    try { if (!beep) beep = new (window.AudioContext || window.webkitAudioContext)(); } catch { /* no sound */ }
+    $("camJob").textContent = job;
+    $("camLayer").hidden = false;
+    const f = $("camFrame");
+    if (!camReady) camReady = new Promise((ok) => { f.addEventListener("load", ok, { once: true }); f.src = "scanner.html?embed=1"; });
+    camReady.then(() => f.contentWindow.postMessage({ t: "start", job }, location.origin));
+  }
+  function closeCam() {
+    const f = $("camFrame");
+    if (camReady && f.contentWindow) f.contentWindow.postMessage({ t: "stop" }, location.origin);
+    $("camLayer").hidden = true;
+  }
+  function onCamMessage(e) {
+    const f = $("camFrame");
+    if (e.source !== f.contentWindow || e.origin !== location.origin || !e.data) return;
+    const d = e.data;
+    if (d.t === "toast") toast(d.msg, 3500);
+    if (d.t === "camera" && !d.on) $("camLayer").hidden = true;
+    if (d.t !== "scan") return;
+    onScan(d, null, "This device");
+    if (navigator.vibrate) navigator.vibrate(70);
+    if (beep) try { const o = beep.createOscillator(), g = beep.createGain(); o.frequency.value = 1320; g.gain.value = 0.08; o.connect(g).connect(beep.destination); o.start(); o.stop(beep.currentTime + 0.09); } catch { /* no sound */ }
+    // SAP had already used this bag on another job: said at once, not only in the list
+    const r = rows.find((x) => x.id === d.id), used = r ? otherJobs(r).filter((x) => x.before) : [];
+    if (used.length) {
+      if (navigator.vibrate) setTimeout(() => navigator.vibrate([150, 90, 150, 90, 150]), 150);
+      toast(`⚠ Already used on job ${used.map((x) => `${x.order}${x.line ? " (" + x.line + ", " + F.dmy(x.first) + ")" : ""}`).join(", ")}: set this bag aside`, 8000);
+    } else toast(r && r.raw ? `${r.product} batch ${r.batch} scanned` : "Photo added (no QR read)");
+  }
+
   showJob();
   render();
   refreshSap();
-  start(B.store.get("sapa-inputs-id") || newCode());
+  if (!HERE) start(B.store.get("sapa-inputs-id") || newCode());
 })();
 </script>
 </body>

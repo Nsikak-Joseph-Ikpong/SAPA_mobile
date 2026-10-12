@@ -29,14 +29,36 @@ The phone can't open files straight off the laptop's disk; they have to go throu
 (step 1), email, or a USB cable. If you'd rather the files never leave the laptop, use
 `python serve.py --share` on the office Wi-Fi instead (see *Use it from your phone (office Wi-Fi)*).
 
-## Label scanner demo (phone → laptop)
+## Scan and check on one device (phone or laptop)
 
-A demo of scanning inputs (offcut bags, cheese blocks, packaging) with a phone instead of the QR gun, so there's a
-record of every label that went into a job, with a photo, checked against what SAP took.
+Scanning inputs (offcut bags, cheese blocks, packaging) with a phone instead of the QR gun, so there's a record of
+every label that went into a job, with a photo, checked against what SAP took. Everything happens on the one device:
+nothing is linked or sent anywhere, so it works on any network.
 
-**Moving between the pages.** Every page's title is a menu (click it, ▾) listing the three pages: **Cheese variance
-check** (the checker, https://nsikak-joseph-ikpong.github.io/SAPA_mobile/), **Input products** (the laptop dashboard)
-and **Bag scanner** (the phone). So start on the checker and pick **Input products** from its title. Each page opens
+1. Open https://nsikak-joseph-ikpong.github.io/SAPA_mobile/inputs.html?here, or open the checker and pick **Scan and
+   check here** from its title (▾).
+2. Type the job in **Job on the line** and tap **Set job**.
+3. Load the SAP files on the device with **Load SAP files** (on a phone, from Files, OneDrive or an email attachment).
+   Files loaded on the checker on the same device are picked up too.
+4. Tap **Scan a bag**: the camera opens over the page, reads the label (both QR codes), takes the picture and closes.
+   The bag shows in the list with its label check (the printed product code and quantity against the QR codes) and
+   its SAP status, including **Already used on job …** (with the line and date) when the confirmation journal shows
+   another job consumed it; that is also said straight away, with a long buzz. A label already scanned this session
+   is refused. **No readable QR** takes a photo only.
+5. **Export CSV** keeps the list; reloading the page clears it.
+
+On a phone the scans show as cards and **Scan a bag** stays at the bottom of the screen. On a laptop it uses the
+webcam. The camera part is the bag scanner page itself, run inside this one (`scanner.html?embed`).
+
+## Label scanner demo (phone → laptop, linked)
+
+The first version: the phone scans and sends each label to a laptop dashboard over the internet (WebRTC). It needs
+the two to be able to link, which office networks often block (see *When the phone won't link* below); the one-device
+page above doesn't.
+
+**Moving between the pages.** Every page's title is a menu (click it, ▾) listing the pages: **Cheese variance
+check** (the checker, https://nsikak-joseph-ikpong.github.io/SAPA_mobile/), **Scan and check here** (one device),
+**Input products (linked)** (the laptop dashboard) and **Bag scanner (linked)** (the phone). So start on the checker and pick **Input products** from its title. Each page opens
 in a tab of its own, and picking a page that's already open brings its tab forward instead of loading it again: the
 scans on Input products and its phone link live only in that tab, so switching to the checker and back never loses
 them (the checker's links from a bag's SAP history open in the checker's tab too). If Input products is already open

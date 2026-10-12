@@ -6,8 +6,9 @@
   "use strict";
   const PAGES = [
     { id: "checker", href: "./", title: "Cheese variance check", sub: "Production orders, the cheese balance, stock trace" },
-    { id: "inputs", href: "inputs.html", title: "Input products", sub: "Bags scanned on the line, checked against SAP" },
-    { id: "scanner", href: "scanner.html", title: "Bag scanner", sub: "For the phone: pair it from Input products" },
+    { id: "here", href: "inputs.html?here", title: "Scan and check here", sub: "Book the job, scan bags and check them against SAP, all on this phone or laptop" },
+    { id: "inputs", href: "inputs.html", title: "Input products (linked)", sub: "The laptop dashboard a phone sends its scans to" },
+    { id: "scanner", href: "scanner.html", title: "Bag scanner (linked)", sub: "For the phone: pair it from Input products" },
   ];
   const CSS = `
   .navsw { position: relative; display: inline-block; max-width: 100%; }
@@ -88,6 +89,6 @@
     if (!t) { alert(msg); return; }
     t.textContent = msg; t.hidden = false; clearTimeout(tell.t); tell.t = setTimeout(() => (t.hidden = true), 6000);
   }
-  const start = () => { const h1 = document.querySelector("h1[data-nav]"); if (h1) mount(h1); };
+  const start = () => { const h1 = document.querySelector("h1[data-nav]"); if (h1 && window.top === window) mount(h1); };
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", start); else start();
 })();
