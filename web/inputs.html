@@ -105,6 +105,19 @@
   .sapsec a { color: var(--accent); }
   .sapsec tr.prod td { font-weight: 600; } .sapsec tr.neg td { color: var(--bad); } .sapsec tr.mine td { background: var(--accent-soft); }
   .pairnote { font-size: 13px; background: var(--bad-soft); border-radius: 6px; padding: 8px 10px; margin: 0; }
+  .conn { border-top: 1px solid var(--line); padding-top: 10px; font-size: 13px; }
+  .conn summary { cursor: pointer; font-weight: 600; color: var(--accent); }
+  .conn[open] summary { margin-bottom: 8px; }
+  .conn .body { display: grid; gap: 8px; }
+  .conn p { margin: 0; }
+  .conn ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+  .conn li { display: grid; grid-template-columns: 18px 1fr; gap: 4px; line-height: 1.35; }
+  .conn li .y { color: var(--ok); font-weight: 700; } .conn li .n { color: var(--bad); font-weight: 700; } .conn li .q { color: var(--muted); }
+  .conn .verdict { padding: 8px 10px; border-radius: 6px; background: var(--sunken); }
+  .conn .verdict.ok { background: var(--ok-soft); } .conn .verdict.bad { background: var(--bad-soft); }
+  .conn textarea { width: 100%; box-sizing: border-box; font: 12px/1.4 var(--mono); padding: 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--ink); resize: vertical; }
+  .conn .row { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; }
+  .conn a { color: var(--accent); }
   .chk { display: inline-flex; flex-wrap: wrap; gap: 4px; }
   .chk span { font-size: 11.5px; padding: 2px 7px; border-radius: 999px; background: var(--sunken); color: var(--muted); white-space: nowrap; }
   .chk .ok { background: var(--ok-soft); color: var(--ok); } .chk .bad { background: var(--bad-soft); color: var(--bad); } .chk .warn { background: var(--warn-soft); color: var(--warn); }
@@ -143,6 +156,19 @@
       <div class="code" id="code"></div>
       <p class="pairnote" id="pairNote" hidden></p>
       <p class="hint">Scan this code with the phone's camera to open the bag scanner, already paired. Or open <a id="scanLink" href="scanner.html" target="_blank" rel="noopener">the scanner page</a> on the phone and enter the code.</p>
+      <details class="conn" id="connBox">
+        <summary>Connection: phone won't link? <span id="relayTag" class="hint"></span></summary>
+        <div class="body">
+          <p class="hint">The phone links straight to this laptop where the network allows it. Office networks often block that (and PeerJS's free relay on port 3478); a relay on port 443, the port web pages use, gets through.</p>
+          <div class="row"><button type="button" class="quiet" id="netBtn">Check this network</button><span class="hint" id="netWhen"></span></div>
+          <ul id="netRes" hidden></ul>
+          <p class="verdict" id="netVerdict" hidden></p>
+          <label for="relayIn"><b>Relay (TURN) for this laptop and its phones</b></label>
+          <textarea id="relayIn" rows="4" spellcheck="false" placeholder="Paste the relay's servers as the relay service shows them (the iceServers list: urls, username, credential), or its credentials link (https://…/api/v1/turn/credentials?apiKey=…)"></textarea>
+          <div class="row"><button type="button" id="relaySave">Use this relay</button><button type="button" class="link" id="relayClear" hidden>Remove the relay</button><span class="hint" id="relayState"></span></div>
+          <p class="hint">A free one: sign up at <a href="https://www.metered.ca/tools/openrelay/" target="_blank" rel="noopener">Metered's Open Relay</a>, then copy the iceServers it shows. It's kept in this browser and goes to phones in the pairing code above: phones paired before need to scan it again.</p>
+        </div>
+      </details>
     </section>
 
     <section class="panel" aria-labelledby="sum-h">
@@ -224,7 +250,9 @@
       const failT = setTimeout(() => {
         if (c.open) return;
         $("pairNote").hidden = false;
-        $("pairNote").innerHTML = `${esc(who)} tried to connect at ${B.hms(tried)}, but the network wouldn't let it link up. Put the phone on the <b>same Wi-Fi as this laptop</b>, or on <b>mobile data</b>.`;
+        $("pairNote").innerHTML = `${esc(who)} tried to connect at ${B.hms(tried)}, but the network wouldn't let it link up. `
+          + (B.relay.get() ? "Even the relay didn't get through: open <b>Connection</b> below and check this network." : "The network is blocking the direct link: open <b>Connection</b> below to check it and set up a relay on port 443.");
+        $("connBox").open = true;
       }, 15000);
       c.on("open", () => { clearTimeout(failT); $("pairNote").hidden = true; phones.add(c); phoneStatus(); c.send({ t: "hello", job }); toast(`${who} connected`); });
       c.on("data", (d) => onScan(d, c));
@@ -244,8 +272,12 @@
   function showPairing(id) {
     const url = new URL("scanner.html", location.href);
     url.search = "?pair=" + encodeURIComponent(id) + B.signalQuery();
+    const own = B.relay.get();
+    if (own) url.hash = "relay=" + B.relay.pack(own);   // after #: not sent to any server
     const q = qrcode(0, "M"); q.addData(url.href); q.make();
     $("qr").innerHTML = q.createSvgTag({ cellSize: 4, margin: 2, scalable: true });
+    // a code carrying a relay is denser: drawn bigger, about 3.4 px a square, for a phone camera across the desk
+    $("qr").style.width = Math.min(280, Math.max(220, Math.round((q.getModuleCount() + 4) * 3.4))) + "px";
     $("code").textContent = id;
     $("scanLink").href = url.href;
   }
@@ -628,6 +660,67 @@
     }, "image/jpeg", 0.85);
   }
   $("sampleBtn").onclick = sampleBag;
+
+  // ------------------------------------------------------------ connection: what this network allows, and a relay
+  function showRelay() {
+    const own = B.relay.get();
+    $("relayTag").textContent = own ? "· relay set up" : "";
+    $("relayClear").hidden = !own;
+    $("relayState").textContent = own ? `Using ${own.reduce((n, x) => n + x.urls.length, 0)} relay address${own.reduce((n, x) => n + x.urls.length, 0) === 1 ? "" : "es"}: ${own[0].urls[0].replace(/^turns?:/, "").replace(/\?.*/, "")}` : "No relay set up";
+    if (own && !$("relayIn").value) $("relayIn").value = JSON.stringify(own, null, 1);
+    // new links use it from now on; the pairing code carries it to phones
+    if (peer && peer.options) peer.options.config = B.peerOptions().config;
+    if (peer && peer.open) showPairing(peer.id);
+  }
+  $("relaySave").onclick = async () => {
+    let text = $("relayIn").value.trim();
+    if (!text) { toast("Paste the relay's servers first"); return; }
+    try {
+      // a credentials link: fetched once here, the servers it gives are kept
+      if (/^https:\/\/\S+$/.test(text)) {
+        $("relayState").textContent = "Fetching the relay's servers…";
+        const res = await fetch(text, { cache: "no-store" });
+        if (!res.ok) throw new Error(`the link answered ${res.status}`);
+        text = JSON.stringify(await res.json());
+      }
+      const list = B.relay.parse(text);
+      if (!list.length) { toast("No relay (turn: or turns:) addresses found in that"); showRelay(); return; }
+      B.relay.set(list); $("relayIn").value = JSON.stringify(list, null, 1);
+      showRelay(); toast("Relay set up: phones scanning the pairing code now get it too");
+      runCheck();
+    } catch (e) { $("relayState").textContent = ""; toast("Couldn't use that: " + e.message); showRelay(); }
+  };
+  $("relayClear").onclick = () => { B.relay.set(null); $("relayIn").value = ""; showRelay(); toast("Relay removed"); };
+  let checking = false;
+  async function runCheck() {
+    if (checking) return;
+    checking = true; $("netBtn").disabled = true; $("netWhen").textContent = "Checking… (about 10 seconds)";
+    try {
+      const r = await B.netCheck(), own = B.relay.get();
+      const line = (ok, text) => `<li><span class="${ok === true ? "y" : ok === false ? "n" : "q"}">${ok === true ? "✓" : ok === false ? "✗" : "–"}</span><span>${text}</span></li>`;
+      const service = peer && peer.open;
+      $("netRes").innerHTML = [
+        line(service, service ? "Pairing service (0.peerjs.com) reached" : "Pairing service (0.peerjs.com) not reached: the network or a web filter blocks it"),
+        line(r.webrtc && r.host, r.webrtc ? (r.host ? "This browser allows direct links (WebRTC)" : "This browser limits direct links (WebRTC), likely a company setting: only a relay on TCP can work") : "This browser can't make direct links (no WebRTC)"),
+        line(r.stun, r.stun ? "Direct links to the internet (UDP) get out" : "Direct links to the internet (UDP) are blocked"),
+        line(r.peerjs, r.peerjs ? "PeerJS's free relay (port 3478) reached" : "PeerJS's free relay (port 3478) blocked or down"),
+        line(r.own, own ? (r.own ? `Your relay reached${r.ownHow.length ? " (" + r.ownHow.join(", ").toUpperCase() + ")" : ""}` : "Your relay not reached: check its settings, or the network blocks it too") : "No relay of your own set up"),
+      ].join("");
+      $("netRes").hidden = false;
+      const v = $("netVerdict");
+      if (!service) { v.className = "verdict bad"; v.innerHTML = "Phones can't find this laptop while the pairing service is blocked. Ask IT to allow <b>0.peerjs.com</b> (secure web sockets on port 443), or try another network for the laptop."; }
+      else if (r.own) { v.className = "verdict ok"; v.innerHTML = "Phones can link through your relay on this network. Phones paired before the relay was set up: scan the pairing code again."; }
+      else if (r.peerjs) { v.className = "verdict ok"; v.innerHTML = "Phones can link here, through PeerJS's free relay where a direct link fails. It's a shared free service, so for every day use set up a relay of your own."; }
+      else if (own) { v.className = "verdict bad"; v.innerHTML = "Your relay isn't reachable from here. Check it has a <b>turns:…:443</b> or <b>turn:…:443?transport=tcp</b> address (the ones offices let through), or ask IT to allow it."; }
+      else if (r.stun) { v.className = "verdict"; v.innerHTML = "Direct links get out, but no relay is reachable: a phone on mobile data or on another network may still fail to link. Set up a relay (below) to be sure."; }
+      else { v.className = "verdict bad"; v.innerHTML = "This network blocks the links phones need. Set up a relay on port 443 below: it goes out like a web page."; }
+      v.hidden = false;
+      $("netWhen").textContent = "Checked at " + B.hms(Date.now());
+    } catch (e) { $("netWhen").textContent = "The check failed: " + e.message; }
+    finally { checking = false; $("netBtn").disabled = false; }
+  }
+  $("netBtn").onclick = runCheck;
+  showRelay();
 
   // ------------------------------------------------------------ the job: set here, sent to every phone
   function showJob() {

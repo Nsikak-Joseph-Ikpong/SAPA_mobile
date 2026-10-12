@@ -119,10 +119,30 @@ confirmation journal posting with the running stock) and links to the full stock
 the job and load it to see which scanned bags SAP took.
 
 Nothing is stored anywhere: the phone sends to the laptop's browser directly (WebRTC, through PeerJS). PeerJS's
-free cloud server (0.peerjs.com) only introduces the two browsers to each other, and its relay servers carry the
-data when a network blocks direct connections. Reloading the laptop page clears the scans (the pairing code
-stays the same). If the phone can't connect on the office Wi-Fi, try it on mobile data. The camera needs `https`,
-so use the GitHub Pages address, not `serve.py`. Libraries are bundled in `web/vendor/`: PeerJS (MIT),
+free cloud server (0.peerjs.com) only introduces the two browsers to each other. Reloading the laptop page clears
+the scans (the pairing code stays the same). The camera needs `https`, so use the GitHub Pages address, not
+`serve.py`.
+
+**When the phone won't link (office networks).** The link goes straight from phone to laptop where the networks
+allow it, and through PeerJS's free relay (port 3478) where they don't. Office networks and company-managed browsers
+often block both: they let out only web traffic, on port 443. The phone then finds the laptop ("Laptop found ✓") but
+the link never opens, and the laptop says a phone tried to connect. To get through:
+
+1. On Input products, open **Connection: phone won't link?** under the pairing code and click **Check this
+   network**. It says what gets out: the pairing service, direct links (UDP), PeerJS's relay, and your own relay.
+2. If it says the network blocks the links, set up a relay on port 443. A free one: sign up at
+   [Metered's Open Relay](https://www.metered.ca/tools/openrelay/) and copy the iceServers it shows (the list with
+   `urls`, `username` and `credential`, including the `turns:…:443` entry); any TURN service works the same way.
+   Paste it into the box and click **Use this relay**, or paste its credentials link (`https://…/api/v1/turn/credentials?apiKey=…`).
+   The check runs again and should show **Your relay reached**.
+3. Scan the pairing code with the phone again: the code now carries the relay (after `#` in the link, so it isn't
+   sent to any server), and the phone keeps it.
+
+The relay is kept in that laptop's browser, so it's set up once per laptop. It only carries the data when a direct
+link isn't possible, and it passes it through without keeping it. Anyone who sees the pairing code could read the
+relay's login from it; for more than a demo, use a relay account of your own with a usage limit. If even the
+relay can't get through (the check shows "Your relay not reached"), ask IT to allow the relay's address on port
+443, or WebRTC for this site. Libraries are bundled in `web/vendor/`: PeerJS (MIT),
 qrcode-generator (MIT), zxing-wasm (MIT), Tesseract.js with its English data (Apache-2.0), jsQR (Apache-2.0).
 
 ## Variance checker

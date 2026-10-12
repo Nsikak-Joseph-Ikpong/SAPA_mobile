@@ -168,6 +168,8 @@
   const B = window.BagScan, O = window.BagOCR, $ = (id) => document.getElementById(id);
   const SCAN_SECONDS = 40;            // the camera turns itself off if no code is found by then
   let laptop = new URLSearchParams(location.search).get("pair");
+  // a relay set up on the laptop comes in the pairing link (after #): kept on this phone, then out of the address bar
+  if (B.relay.fromLink(location.href)) history.replaceState(null, "", location.pathname + location.search);
   let job = "";                       // set on the laptop
   let peer = null, conn = null, retryT = null, openT = null;
   // where the link got to, shown under the title: the pairing service, the laptop's code, the direct link
@@ -206,6 +208,7 @@
     if (conn) { try { conn.close(); } catch { /* closed */ } conn = null; }
     diag({ laptop: "", direct: "" }, ""); connect(); showJob();
   }
+  let usedConfig = "";
   function retry(ms) { clearTimeout(retryT); retryT = setTimeout(connect, ms); }
   function connect() {
     $("pairPanel").hidden = !!laptop;
@@ -234,6 +237,8 @@
   function openConn() {
     if (!laptop || (conn && conn.open)) return;
     status("warn", "Connecting…");
+    // the relay may have come with a pairing code since the page loaded
+    peer.options.config = B.peerOptions().config; usedConfig = JSON.stringify(peer.options.config);
     const c = conn = peer.connect(laptop, { reliable: true, metadata: { device: deviceName() } });
     // the laptop answering shows as the direct link starting to check routes (ICE); no answer at all leaves it "new"
     let ice = "new";
@@ -253,8 +258,12 @@
     openT = setTimeout(() => {
       if (c === conn && !c.open) {
         status("bad", "Couldn't connect");
-        if (ice === "new") diag({ laptop: "bad", direct: "" }, `No answer from the laptop with code <b>${B.esc(laptop)}</b>. Is its Inputs page open, in one tab only, and showing this code? Trying again…`);
-        else diag({ laptop: "ok", direct: "bad" }, "The laptop answered, but the network won't let the phone and laptop link up. Put the phone on the <b>same Wi-Fi as the laptop</b>, or try <b>mobile data</b>. Trying again…");
+        // the laptop's answer arrived when the link has its description, whether or not routes were tried
+        const answered = ice !== "new" || !!(c.peerConnection && c.peerConnection.remoteDescription);
+        if (!answered) diag({ laptop: "bad", direct: "" }, `No answer from the laptop with code <b>${B.esc(laptop)}</b>. Is its Inputs page open, in one tab only, and showing this code? Trying again…`);
+        else diag({ laptop: "ok", direct: "bad" }, B.relay.get()
+          ? "The laptop answered, but even the relay didn't get through. On the laptop, open <b>Connection</b> (under the pairing code) and check the network. Trying again…"
+          : "The laptop answered, but the network won't let the phone and laptop link up. On an office network the laptop needs a relay: open <b>Connection</b> under its pairing code, set one up, then scan the pairing code again. Trying again…");
         conn = null; try { c.close(); } catch { /* */ } retry(5000);
       }
     }, 15000);
@@ -295,6 +304,7 @@
   $("pairForm").addEventListener("submit", (e) => {
     e.preventDefault();
     const v = $("pairCode").value.trim();
+    if (v.includes("pair=")) B.relay.fromLink(v);
     if (v) setLaptop(v.includes("pair=") ? new URL(v).searchParams.get("pair") : v);
   });
 
@@ -457,7 +467,8 @@
       const text = c.text;
       const pairing = text.includes("pair=") ? (() => { try { return new URL(text).searchParams.get("pair"); } catch { return null; } })() : text.startsWith(B.PREFIX) ? text : null;
       if (pairing) {
-        if (pairing !== laptop) { setLaptop(pairing); hit(); stopCamera(); toast("Paired with the laptop"); }
+        const newRelay = B.relay.fromLink(text) && JSON.stringify(B.peerOptions().config) !== usedConfig;
+        if (pairing !== laptop || newRelay) { setLaptop(pairing); hit(); stopCamera(); toast(newRelay ? "Paired with the laptop, through its relay" : "Paired with the laptop"); }
         return;
       }
     }
