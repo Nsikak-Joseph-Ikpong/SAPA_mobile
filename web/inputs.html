@@ -135,12 +135,6 @@
     .scanbar .hint { display: none; } .scanbar button { max-width: none; box-shadow: 0 6px 18px rgba(0,0,0,.25); }
     body.here .wrap { padding-bottom: 104px; } body.here .toast { bottom: calc(env(safe-area-inset-bottom, 0px) + 88px); }
   }
-  .camlayer { position: fixed; inset: 0; z-index: 50; background: rgba(0, 0, 0, .6); display: grid; place-items: center; }
-  .camlayer .box { background: var(--ground); width: min(560px, 100vw); height: min(92vh, 940px); display: grid; grid-template-rows: auto minmax(0, 1fr); border-radius: 10px; overflow: hidden; }
-  @media (max-width: 600px) { .camlayer .box { width: 100vw; height: 100vh; height: 100dvh; border-radius: 0; } }
-  .camlayer .head { display: flex; align-items: center; gap: 10px; padding: 8px 12px; background: var(--surface); border-bottom: 1px solid var(--line); }
-  .camlayer .head b { font-family: var(--mono); }
-  .camlayer iframe { width: 100%; height: 100%; border: 0; background: var(--ground); display: block; }
   /* the scans as cards on a phone */
   @media (max-width: 720px) {
     #inTable thead { display: none; }
@@ -247,12 +241,7 @@
     <section class="sapsec" id="dlgSap" aria-label="SAP history of this bag"></section>
   </div>
 </dialog>
-<div class="camlayer" id="camLayer" hidden>
-  <div class="box" role="dialog" aria-modal="true" aria-label="Scan a bag">
-    <div class="head"><span>Scanning into job <b id="camJob"></b></span><span style="flex:1"></span><button type="button" class="quiet" id="camClose">Close</button></div>
-    <iframe id="camFrame" title="Camera" allow="camera; autoplay; fullscreen"></iframe>
-  </div>
-</div>
+<input type="file" id="herePhoto" accept="image/*" capture="environment" hidden>
 <p class="hint" style="text-align:center;margin:0 0 20px">Version __BUILD__</p>
 <div class="toast" id="toast" hidden></div>
 
@@ -266,6 +255,7 @@
 <script src="vendor/zxing/zxing-reader.js?v=__BUILD__"></script>
 <script src="bagscan.js?v=__BUILD__"></script>
 <script src="nav.js?v=__BUILD__"></script>
+<script src="camview.js?v=__BUILD__"></script>
 <script src="bagocr.js?v=__BUILD__"></script>
 <script>
 (function () {
@@ -860,9 +850,12 @@
   } catch { /* no BroadcastChannel: skip the check */ }
 
   // ------------------------------------------------------------ "Scan and check here": this device's own camera
-  // The bag scanner page runs inside this one (scanner.html?embed) for the camera and the reading; each scan comes
-  // back here and is checked as a phone's would be. No pairing, no link: nothing leaves this device.
-  let camReady = null, beep = null;
+  // The camera opens across the whole screen (CamView, as the checker's trace), reads the label as the bag scanner
+  // does (both QR codes, put together over a few frames; the one nearest the middle with several labels in view),
+  // and closes by itself once it has the picture. The scan is checked here as a phone's would be. No pairing, no
+  // link: nothing leaves this device.
+  const WAIT_FOR_BOTH_MS = 3000, SCAN_IDLE_MS = 40000;
+  let beep = null, usePhotoScan = false, passNo = 0;
   if (HERE) {
     document.body.classList.add("here");
     const h1 = document.querySelector("h1[data-nav]");
@@ -874,36 +867,110 @@
     $("devTh").textContent = "Device";
     $("empty").innerHTML = "No scans yet. Set the job and tap <b>Scan a bag</b>, or try <b>Add a sample label</b>.";
     $("hereScan").onclick = hereScan;
-    $("camClose").onclick = closeCam;
-    document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !$("camLayer").hidden) closeCam(); });
-    window.addEventListener("message", onCamMessage);
+    $("herePhoto").onchange = herePhoto;
   }
+  // the QR codes in a picture; where only one code of a label is read, the other is looked for where it should be
+  // (one way per live frame, in turn; all of them on a still picture)
+  async function codesOf(src, w, h, max, live) {
+    let codes = await BagOCR.codesIn(src, w, h, max).catch(() => []);
+    const passes = live ? [BagOCR.PASSES[passNo++ % BagOCR.PASSES.length]] : BagOCR.PASSES;
+    for (const q of codes.filter((c) => c.kind === "big" || c.kind === "small")) {
+      const mates = codes.filter((c) => c !== q && c.batch === q.batch && c.product === q.product);
+      if (!mates.some((c) => c.kind !== q.kind)) codes = [...codes, ...(await BagOCR.findPartner(src, [q], passes).catch(() => [q])).slice(1)];
+    }
+    return codes;
+  }
+  const grab = (src, w, h) => { const c = document.createElement("canvas"); c.width = w; c.height = h; c.getContext("2d").drawImage(src, 0, 0, w, h); return c; };
   function hereScan() {
     if (!job) { toast("Set the job first"); $("jobIn").focus(); return; }
+    if (usePhotoScan) { $("herePhoto").click(); return; }
     try { if (!beep) beep = new (window.AudioContext || window.webkitAudioContext)(); } catch { /* no sound */ }
-    $("camJob").textContent = job;
-    $("camLayer").hidden = false;
-    const f = $("camFrame");
-    if (!camReady) camReady = new Promise((ok) => { f.addEventListener("load", ok, { once: true }); f.src = "scanner.html?embed=1"; });
-    const seen = rows.filter((r) => r.job === job && r.raw).map((r) => [`${r.product}|${r.batch}`, r.at]);
-    camReady.then(() => f.contentWindow.postMessage({ t: "start", job, seen }, location.origin));
+    const pending = new Map();
+    CamView.start({
+      msg: `Job ${job}: point at the bag label`, idleMs: SCAN_IDLE_MS, idleMsg: "No label found, camera off. Tap Scan a bag to try again.", width: 3840, height: 2160,
+      buttons: [{ text: "No readable QR", title: "Take a photo of a label whose QR codes won't scan", onClick: (cam) => {
+        const v = document.querySelector(".camview video");
+        if (!v || !v.videoWidth) return;
+        const full = grab(v, v.videoWidth, v.videoHeight);
+        cam.finish(() => captureBag(null, [], full), 150);
+      } }],
+      onClose: (why) => { if (why) toast(why, 3500); },
+      read: async (v, cam) => onBagCodes(await codesOf(v, v.videoWidth, v.videoHeight, 1280, true), v, v.videoWidth, v.videoHeight, cam, pending, false),
+    }).catch((e) => {
+      usePhotoScan = true;
+      toast(e.name === "NotAllowedError" ? "Camera blocked: allow the camera for this site in the browser's settings. Until then, tap Scan a bag to take a photo instead." : "No live camera here: tap Scan a bag to take a photo instead.", 6000);
+    });
   }
-  function closeCam() {
-    const f = $("camFrame");
-    if (camReady && f.contentWindow) f.contentWindow.postMessage({ t: "stop" }, location.origin);
-    $("camLayer").hidden = true;
+  // what the codes in a picture say: the label nearest the middle, both its codes if they can be had
+  async function onBagCodes(codes, src, w, h, cam, pending, force) {
+    const bag = codes.filter((c) => c.kind === "big" || c.kind === "small");
+    if (!bag.length) { if (codes.length) cam.msg("That code isn't an SAP label"); return false; }
+    cam.alive();
+    const mid = { x: w / 2, y: h / 2 }, ctr = (q) => (q.tl ? { x: (q.tl.x + q.br.x) / 2, y: (q.tl.y + q.br.y) / 2 } : mid);
+    const near = bag.slice().sort((a, b) => Math.hypot(ctr(a).x - mid.x, ctr(a).y - mid.y) - Math.hypot(ctr(b).x - mid.x, ctr(b).y - mid.y))[0];
+    const lk = `${near.product}|${near.batch}`;
+    // a bag is scanned once per job (the list remembers it, also after visiting the checker)
+    const before = rows.find((r) => r.job === job && r.raw && `${r.product}|${r.batch}` === lk);
+    if (before) { cam.msg(`Already scanned at ${B.hms(before.at)}. Point at the next one`); return false; }
+    const mine = bag.filter((c) => c.batch === near.batch && c.product === near.product), now = Date.now();
+    let acc = pending.get(lk);
+    if (!acc || now - acc.last > 4000) { acc = { first: now, big: null, small: null }; pending.set(lk, acc); }
+    acc.last = now;
+    for (const c of mine) acc[c.kind] = acc[c.kind] || c;
+    if (!(acc.big && acc.small) && !force && now - acc.first < WAIT_FOR_BOTH_MS) {
+      cam.msg(acc.big ? "Big QR ✓ · looking for the small QR… hold steady, a little closer" : "Small QR ✓ · looking for the big QR… hold steady");
+      return false;
+    }
+    pending.delete(lk);
+    const lab = B.mergeCodes([acc.big, acc.small].filter(Boolean));
+    cam.msg(`✓ ${lab.product} · batch ${lab.batch}${lab.qty !== null ? ` · ${lab.qty} ${lab.unit}` : ""}`);
+    const full = grab(src, w, h);   // the picture now, at full resolution, before the camera closes
+    cam.finish(() => captureBag(lab, mine, full));
+    return true;
   }
-  function onCamMessage(e) {
-    const f = $("camFrame");
-    if (e.source !== f.contentWindow || e.origin !== location.origin || !e.data) return;
-    const d = e.data;
-    if (d.t === "toast") toast(d.msg, 3500);
-    if (d.t === "camera" && !d.on) $("camLayer").hidden = true;
-    if (d.t !== "scan") return;
+  // The picture at the moment the codes were read: a photo for the record (up to 1600 px), and the label cut out
+  // upright around its QR codes at full resolution, for the print to be read. Then it's checked like any scan.
+  async function captureBag(lab, hint, full) {
+    const w = full.width, h = full.height;
+    try {
+      const sc = Math.min(1, 1600 / Math.max(w, h)), ph = document.createElement("canvas");
+      ph.width = Math.round(w * sc); ph.height = Math.round(h * sc);
+      ph.getContext("2d").drawImage(full, 0, 0, ph.width, ph.height);
+      const photo = await new Promise((ok) => ph.toBlob(ok, "image/jpeg", 0.82));
+      let labelImg = null, labelFrame = null, labelCodes = null;
+      if (lab) {
+        let codes = (await codesOf(full, w, h, 2600)).filter((c) => c.batch === lab.batch && c.product === lab.product);
+        if (!codes.some((c) => c.tl)) codes = hint;
+        const f = BagOCR.frameOf(codes.filter((c) => c.tl));
+        if (f) {
+          const cutOut = BagOCR.labelCut(full, f), inCut = (p) => BagOCR.fromLU(cutOut.frame, BagOCR.toLU(f, p));
+          labelImg = await (await new Promise((ok) => cutOut.canvas.toBlob(ok, "image/jpeg", 0.9))).arrayBuffer();
+          labelFrame = cutOut.frame;
+          labelCodes = codes.filter((c) => c.tl).map((c) => ({ text: c.text, kind: c.kind, tl: inCut(c.tl), tr: inCut(c.tr), br: inCut(c.br), bl: inCut(c.bl) }));
+        }
+      }
+      localScan({ t: "scan", id: B.uid(), job, raw: lab ? lab.big || lab.small : "", big: lab ? lab.big : "", small: lab ? lab.small : "",
+        product: lab ? lab.product : "", batch: lab ? lab.batch : "", label: lab ? lab.label : "", qty: lab ? lab.qty : null, unit: lab ? lab.unit : "",
+        at: Date.now(), photo: await photo.arrayBuffer(), label_img: labelImg, label_frame: labelFrame, label_codes: labelCodes });
+    } catch (e) { toast("Couldn't keep that scan: " + e.message, 5000); }
+  }
+  // no live camera: a photo of the label, read the same way
+  async function herePhoto() {
+    const f = $("herePhoto").files[0]; $("herePhoto").value = "";
+    if (!f || !job) return;
+    const url = URL.createObjectURL(f), img = new Image(); img.src = url;
+    try { await img.decode(); } catch { toast("Couldn't open that photo"); URL.revokeObjectURL(url); return; }
+    const full = grab(img, img.naturalWidth, img.naturalHeight);
+    URL.revokeObjectURL(url);
+    const said = { msg: (t) => toast(t, 3500), alive() {}, finish: (fn) => fn() };
+    const codes = await codesOf(full, full.width, full.height, 2400);
+    if (!(await onBagCodes(codes, full, full.width, full.height, said, new Map(), true)) && !codes.some((c) => c.kind === "big" || c.kind === "small")) await captureBag(null, [], full);
+  }
+  // a scan from this device: into the list and checked; a bag SAP had already used on another job is said at once
+  function localScan(d) {
     onScan(d, null, "This device");
     if (navigator.vibrate) navigator.vibrate(70);
     if (beep) try { const o = beep.createOscillator(), g = beep.createGain(); o.frequency.value = 1320; g.gain.value = 0.08; o.connect(g).connect(beep.destination); o.start(); o.stop(beep.currentTime + 0.09); } catch { /* no sound */ }
-    // SAP had already used this bag on another job: said at once, not only in the list
     const r = rows.find((x) => x.id === d.id), used = r ? otherJobs(r).filter((x) => x.before) : [];
     if (used.length) {
       if (navigator.vibrate) setTimeout(() => navigator.vibrate([150, 90, 150, 90, 150]), 150);

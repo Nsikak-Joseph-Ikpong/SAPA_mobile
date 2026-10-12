@@ -45,23 +45,6 @@
     -webkit-appearance: none; appearance: none; background: var(--accent-soft); color: var(--accent); cursor: pointer; }
   .scanbtn svg { display: block; margin: 0 auto; }
   .scanbtn:hover, .scanbtn.on { background: var(--accent); color: var(--accent-ink); }
-  /* the live camera for the trace: the whole screen, the picture in a rounded frame with a margin round it, the
-     buttons under it; it closes by itself once a label is read */
-  .livecam[hidden] { display: none; }
-  .livecam { position: fixed; inset: 0; z-index: 55; background: #0c0f0e; display: grid; grid-template-rows: minmax(0, 1fr) auto; gap: 14px;
-    padding: calc(env(safe-area-inset-top, 0px) + 12px) calc(env(safe-area-inset-right, 0px) + 12px) calc(env(safe-area-inset-bottom, 0px) + 16px) calc(env(safe-area-inset-left, 0px) + 12px); }
-  .livecam .view { position: relative; display: grid; min-height: 0; width: 100%; max-width: 900px; justify-self: center; border-radius: 22px; overflow: hidden; background: #000; }
-  .livecam .view > * { grid-area: 1 / 1; position: relative; z-index: 1; }
-  .livecam .view > video { z-index: 0; width: 100%; height: 100%; object-fit: cover; }   /* video paints over its siblings otherwise */
-  .livecam .aim { place-self: center; width: min(72%, 360px); aspect-ratio: 1.5; border: 3px solid rgba(255, 255, 255, 0.9); border-radius: 16px; box-shadow: 0 0 0 100vmax rgba(0, 0, 0, 0.3); pointer-events: none; transition: border-color 0.15s; }
-  .livecam .aim.hit { border-color: #4ade80; border-width: 4px; }
-  .livecam .msg { align-self: start; justify-self: center; margin: 14px 14px 0; padding: 8px 14px; max-width: calc(100% - 28px); background: rgba(0, 0, 0, 0.6); color: #fff; border-radius: 999px; font: 600 14px/1.35 var(--sans); text-align: center; }
-  .livecam .bar { display: flex; justify-content: center; align-items: center; gap: 22px; }
-  .livecam .round { width: 58px; height: 58px; border-radius: 50%; padding: 0; line-height: 0; border: 0; cursor: pointer; -webkit-appearance: none; appearance: none; background: rgba(255, 255, 255, 0.16); color: #fff; }
-  .livecam .round svg { display: block; margin: 0 auto; }
-  .livecam .round.close { background: #fff; color: #111; }
-  .livecam .round.on { background: #ffd54a; color: #111; }
-  body.live { overflow: hidden; }
   .scanbtn.busy { opacity: 0.6; pointer-events: none; }
   .tstats { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px 16px; margin: 2px 0 6px; }
   .tstats div { background: var(--sunken); border-radius: 6px; padding: 8px 10px; }
@@ -285,17 +268,7 @@
       <span class="scanwrap"><input id="trBatch" type="text" autocomplete="off" placeholder="Batch / pallet, e.g. 47400">
         <button type="button" class="scanbtn" id="trScan" title="Live camera: point at labels to trace them" aria-label="Live camera: point at labels to trace them"><svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" d="M4 8.5A1.5 1.5 0 0 1 5.5 7h2.2l1.4-2h5.8l1.4 2h2.2A1.5 1.5 0 0 1 20 8.5v9a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 17.5z"/><circle cx="12" cy="13" r="3.4" fill="none" stroke="currentColor" stroke-width="1.8"/></svg></button></span>
       <input type="file" id="trCam" accept="image/*" capture="environment" hidden>
-      <div class="livecam" id="trLive" hidden role="dialog" aria-modal="true" aria-label="Scan a label to trace it">
-        <div class="view">
-          <video id="trVideo" playsinline muted></video>
-          <div class="aim" id="trAim"></div>
-          <div class="msg" id="trMsg" aria-live="polite">Point at a label's QR code</div>
-        </div>
-        <div class="bar">
-          <button type="button" class="round" id="trTorch" hidden aria-label="Light" title="Light"><svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round" d="M9 18h6M10 21h4M12 3a6 6 0 0 0-3.5 10.9c.6.5 1 1.2 1 2.1h5c0-.9.4-1.6 1-2.1A6 6 0 0 0 12 3z"/></svg></button>
-          <button type="button" class="round close" id="trStop" aria-label="Close camera" title="Close camera"><svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" d="M6 6l12 12M18 6L6 18"/></svg></button>
-        </div>
-      </div>
+
       <button type="submit">Trace</button>
     </form>
     <p class="hint">Every confirmation in the journal for that batch: receipts, moves, consumption, output, reversals and scrap, with the running stock and the order each one belongs to. Several batches can be separated with commas. The camera button opens the camera: point it at a label and, once it's read, the camera closes and the trace shows by itself.</p>
@@ -319,6 +292,7 @@
 <script>window.XLSX || document.write('<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"><\/script>');</script>
 <script src="reconcile.js?v=__BUILD__"></script>
 <script src="nav.js?v=__BUILD__"></script>
+<script src="camview.js?v=__BUILD__"></script>
 <script src="demo-workbook.js?v=__BUILD__"></script>
 <script>
 (function () {
@@ -1038,7 +1012,7 @@
   // the close button, after a minute with no label read, or when the page is left. Where there's no live camera
   // (plain http, or blocked) the button takes a photo instead, read as before.
   const LIVE_IDLE_MS = 60000;
-  let live = null, usePhoto = false;
+  let usePhoto = false;
   const labelOf = (text) => {
     const t = String(text || "").trim();
     const small = t.match(/^([A-Za-z0-9][\w-]*),([\w-]+),([\d.]*),([A-Za-z]{0,4})$/);
@@ -1066,87 +1040,42 @@
       };
     }
   }
-  const liveMsg = (t) => { $("trMsg").textContent = t; };
-  async function startLive() {
-    let stream;
-    try {
-      stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: { facingMode: { ideal: "environment" }, width: { ideal: 1920 }, height: { ideal: 1080 } } });
-    } catch (e) {
+  // one tap opens the camera (CamView, across the whole screen); the first label read closes it and the trace shows
+  function startLive() {
+    const reader = liveReader();
+    $("trScan").classList.add("on");
+    CamView.start({
+      msg: "Point at a label's QR code", idleMs: LIVE_IDLE_MS, idleMsg: "Camera off after a minute with no label read. Tap the camera button to try again.",
+      onClose: (why) => { $("trScan").classList.remove("on"); if (why) toast(why); },
+      read: async (v, cam) => {
+        const read = await reader;
+        const codes = await read(v);
+        const labs = codes.map((c) => ({ ...c, lab: labelOf(c.text) })).filter((c) => c.lab && c.lab.batch);
+        if (!labs.length) { if (codes.length) cam.msg("That code isn't a product label"); return; }
+        // several labels in view: the one nearest the middle
+        const mid = { x: v.videoWidth / 2, y: v.videoHeight / 2 }, d = (c) => (c.at ? Math.hypot(c.at.x - mid.x, c.at.y - mid.y) : 0);
+        const { lab } = labs.sort((a, b) => d(a) - d(b))[0];
+        const name = `${lab.product ? lab.product + " · " : ""}batch ${lab.batch}`;
+        cam.msg(`✓ ${name}`);
+        if (navigator.vibrate) navigator.vibrate(60);
+        cam.finish(async () => {
+          $("trProd").value = lab.product; $("trBatch").value = lab.batch;
+          await runTrace();
+          toast(`Traced ${name}`);
+          $("result").scrollIntoView({ behavior: "smooth", block: "start" });
+        });
+      },
+    }).catch((e) => {
       usePhoto = true;
       toast(e.name === "NotAllowedError" ? "Camera blocked: allow the camera for this site in the browser's settings. Until then, tap the camera button to take a photo instead." : "No live camera here: tap the camera button to take a photo instead.");
-      return;
-    }
-    live = { stream, last: "", idleAt: Date.now(), busy: false, read: null, timer: null };
-    const v = $("trVideo"); v.srcObject = stream; await v.play().catch(() => {});
-    $("trLive").hidden = false; document.body.classList.add("live"); $("trScan").classList.add("on");
-    liveMsg("Starting the QR reader…");
-    const track = stream.getVideoTracks()[0], caps = track.getCapabilities ? track.getCapabilities() : {};
-    $("trTorch").hidden = !caps.torch; $("trTorch").classList.remove("on");
-    if (caps.focusMode && caps.focusMode.includes("continuous")) track.applyConstraints({ advanced: [{ focusMode: "continuous" }] }).catch(() => {});
-    const read = await liveReader();
-    if (!live) return;
-    live.read = read;
-    liveMsg("Point at a label's QR code");
-    liveTick();
+    });
   }
-  function stopLive(msg) {
-    if (!live) return;
-    clearTimeout(live.timer);
-    live.stream.getTracks().forEach((t) => t.stop());
-    live = null;
-    $("trVideo").srcObject = null; $("trLive").hidden = true; document.body.classList.remove("live"); $("trScan").classList.remove("on"); $("trAim").classList.remove("hit");
-    if (msg) toast(msg);
-  }
-  async function liveTick() {
-    if (!live) return;
-    const v = $("trVideo");
-    if (v.readyState >= 2 && v.videoWidth && !live.busy) {
-      live.busy = true;
-      try {
-        const codes = await live.read(v);
-        const labs = codes.map((c) => ({ ...c, lab: labelOf(c.text) })).filter((c) => c.lab && c.lab.batch);
-        if (live && labs.length) {
-          // several labels in view: the one nearest the middle
-          const mid = { x: v.videoWidth / 2, y: v.videoHeight / 2 }, d = (c) => (c.at ? Math.hypot(c.at.x - mid.x, c.at.y - mid.y) : 0);
-          const { lab } = labs.sort((a, b) => d(a) - d(b))[0];
-          const name = `${lab.product ? lab.product + " · " : ""}batch ${lab.batch}`;
-          // the frame goes green for a moment, then the camera closes and the trace shows
-          $("trAim").classList.add("hit"); liveMsg(`✓ ${name}`);
-          if (navigator.vibrate) navigator.vibrate(60);
-          const done = live; done.timer = null;
-          setTimeout(async () => {
-            if (live !== done) return;
-            stopLive();
-            $("trProd").value = lab.product; $("trBatch").value = lab.batch;
-            await runTrace();
-            toast(`Traced ${name}`);
-            $("result").scrollIntoView({ behavior: "smooth", block: "start" });
-          }, 300);
-          return;
-        } else if (live && codes.length) liveMsg("That code isn't a product label");
-      } catch { /* this frame: the next one */ }
-      if (live) live.busy = false;
-    }
-    if (!live) return;
-    if (Date.now() - live.idleAt > LIVE_IDLE_MS) { stopLive("Camera off after a minute with no label read. Tap the camera button to try again."); return; }
-    live.timer = setTimeout(liveTick, 120);
-  }
-  // live where the browser allows it (https), else a photo; the button turns the live camera off again
+  // live where the browser allows it (https), else a photo
   $("trScan").onclick = () => {
-    if (live) { stopLive(); return; }
+    if (CamView.open) { CamView.stop(); return; }
     if (usePhoto || !window.isSecureContext || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { $("trCam").click(); return; }
     startLive();
   };
-  $("trStop").onclick = () => stopLive();
-  document.addEventListener("keydown", (e) => { if (e.key === "Escape" && live) stopLive(); });
-  $("trTorch").onclick = async () => {
-    const track = live && live.stream.getVideoTracks()[0];
-    if (!track) return;
-    const on = !$("trTorch").classList.contains("on");
-    try { await track.applyConstraints({ advanced: [{ torch: on }] }); $("trTorch").classList.toggle("on", on); } catch { toast("The light can't be switched from here"); }
-  };
-  document.addEventListener("visibilitychange", () => { if (document.hidden) stopLive(); });
-  window.addEventListener("pagehide", () => stopLive());
   $("trCam").onchange = async () => {
     const file = $("trCam").files[0];
     $("trCam").value = "";

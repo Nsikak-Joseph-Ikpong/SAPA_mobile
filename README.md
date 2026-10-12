@@ -40,7 +40,8 @@ nothing is linked or sent anywhere, so it works on any network.
 2. Type the job in **Job on the line** and tap **Set job**.
 3. Load the SAP files on the device with **Load SAP files** (on a phone, from Files, OneDrive or an email attachment).
    Files loaded on the checker on the same device are picked up too.
-4. Tap **Scan a bag**: the camera opens over the page, reads the label (both QR codes), takes the picture and closes.
+4. Tap **Scan a bag**: the camera opens across the whole screen (as for the stock trace), reads the label (both QR
+   codes), takes the picture and closes by itself.
    The bag shows in the list with its label check (the printed product code and quantity against the QR codes) and
    its SAP status, including **Already used on job …** (with the line and date) when the confirmation journal shows
    another job consumed it; that is also said straight away, with a long buzz. A label already scanned this session
@@ -48,7 +49,8 @@ nothing is linked or sent anywhere, so it works on any network.
 5. **Export CSV** keeps the list; reloading the page clears it.
 
 On a phone the scans show as cards and **Scan a bag** stays at the bottom of the screen. On a laptop it uses the
-webcam. The camera part is the bag scanner page itself, run inside this one (`scanner.html?embed`).
+webcam. The full-screen camera is shared with the checker's stock trace (`web/camview.js`); the label is read as the bag
+scanner reads it (zxing, both codes put together over a few frames).
 
 ## Label scanner demo (phone → laptop, linked)
 
