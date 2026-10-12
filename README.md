@@ -18,8 +18,8 @@ to be on the office network.
    screen: Safari *Share → Add to Home Screen*, Chrome *⋮ → Add to Home screen*).
 3. Tap **Load SAP files** and pick the exports. iPhone: *Browse → OneDrive / Drive / iCloud Drive*. Android:
    *☰ → OneDrive / Drive*, or the *Files* app. You can pick several at once.
-4. Type a job number, a batch for its history, or use the stock trace (the camera button scans a
-   pallet label's QR code).
+4. Type a job number, a batch for its history, or use the stock trace (the camera button opens a live camera:
+   point it at a label and its trace shows by itself).
 
 The files are read on the phone and kept in its browser, so they're still there next time. Nothing is
 uploaded to GitHub or anywhere else. When you save newer exports on the laptop, load them again on the
@@ -58,12 +58,12 @@ page above doesn't.
 
 **Moving between the pages.** Every page's title is a menu (click it, ▾) listing the pages: **Cheese variance
 check** (the checker, https://nsikak-joseph-ikpong.github.io/SAPA_mobile/), **Scan and check here** (one device),
-**Input products (linked)** (the laptop dashboard) and **Bag scanner (linked)** (the phone). So start on the checker and pick **Input products** from its title. Each page opens
-in a tab of its own, and picking a page that's already open brings its tab forward instead of loading it again: the
-scans on Input products and its phone link live only in that tab, so switching to the checker and back never loses
-them (the checker's links from a bag's SAP history open in the checker's tab too). If Input products is already open
-in a tab the menu can't reach (opened separately), it says so rather than opening a second copy, which would give
-phones a second pairing code.
+**Input products (linked)** (the laptop dashboard) and **Bag scanner (linked)** (the phone). A page opens in the same
+tab, like any web page, on a phone too. The scans on Scan and check here and Input products are kept for the tab (in
+the browser, on the device): go to the checker to trace a bag and come back, and they're still there; reloading the
+page or **Clear all** removes them. A page with a live link (Input products with phones connected, the bag scanner
+linked to a laptop) opens the other page in a new tab instead, so the link stays up; and if the linked Input products
+is already open in another tab, the menu says so rather than opening a second copy (a second pairing code).
 
 * **Laptop:** open https://nsikak-joseph-ikpong.github.io/SAPA_mobile/inputs.html, or pick **Input products** from the
   checker's title. It shows a pairing QR code.
@@ -412,11 +412,15 @@ restricted, external ID (e.g. PO569-01), production and expiry dates and days to
 running total, with a note when the two differ. A batch that is on hand but has no postings in the journal's dates
 is still found.
 
-**Scan a label (stock trace).** In the stock trace, the camera button next to the batch box opens the phone's
-camera (or a file picker on a computer). The photo's QR code gives the product and batch, as on the plant's labels:
-`(90)RCSL2061WF1856(10)50085` (GS1: 90 = product, 10 = batch, 97 = label ID); both boxes fill in and the trace runs.
-It works over the phone link (plain http) because it uses a photo, not live video. The QR reader is the browser's
-own where there is one, else jsQR (bundled in `web/vendor/`, Apache-2.0). The trace page shows the product name,
+**Scan a label (stock trace).** In the stock trace, the camera button in the batch box opens a live camera across
+the top of the screen. Point it at a label: as soon as a QR code is read (the big one, `(90)RCSL2061WF1856(10)50085`,
+GS1: 90 = product, 10 = batch, 97 = label ID, or the small one, `product,batch,quantity,unit`) both boxes fill in and
+the trace shows under the camera, with nothing to tap. The camera stays on: point at the next label and its trace
+replaces the last. **Close camera** (or the camera button again) turns it off, as do a minute with no new label and
+leaving the page; **Light** switches the phone's torch where it can. With several labels in view, the one nearest the
+middle is read. The QR reader is zxing, as in the bag scanner. Where there's no live camera (plain http, as over
+`serve.py --share`, or the camera blocked) the button takes a photo instead, read by the browser's own QR reader or
+jsQR (bundled in `web/vendor/`, Apache-2.0). The trace page shows the product name,
 totals (made, used, stock now, postings, restricted), where the batch sits by the journal and the stock overview,
 a table of the production orders that made or used it (booked to the line beforehand, used, what was left after
 and where; each order number opens that order's check), goods movements by document type, and every journal

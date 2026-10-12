@@ -617,11 +617,15 @@
       if (d.t === "start") {
         const j = String(d.job || "");
         if (j !== job) { job = j; seen.clear(); pending.clear(); }
+        for (const [k, t] of d.seen || []) if (!seen.has(k)) seen.set(k, t);   // already in the page's list
         if (!scanning) startCamera("scan");
       }
       if (d.t === "stop") { if (scanning) stopCamera(); else up({ t: "camera", on: false }); }
     });
   }
+
+  // the page switcher: leaving would cut the link to the laptop, so other pages open in a new tab meanwhile
+  window.sapaLive = () => !EMBED && !!(conn && conn.open);
 
   render(); showJob(); if (!EMBED) connect();
 })();

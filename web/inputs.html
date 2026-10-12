@@ -163,7 +163,7 @@
 <div class="wrap">
   <div>
     <h1 data-nav="inputs">Input products: label scans</h1>
-    <p class="sub">Labels scanned on the phone appear here as they're scanned, with the photo. Product, batch and quantity come from the label's QR codes; the large printed product code and quantity are read and checked against them, and everything is checked against SAP. Nothing is saved: the scans live in this browser tab only, and reloading the page clears them. Export to keep a copy.</p>
+    <p class="sub">Labels scanned on the phone appear here as they're scanned, with the photo. Product, batch and quantity come from the label's QR codes; the large printed product code and quantity are read and checked against them, and everything is checked against SAP. Nothing is sent anywhere: the scans stay in this browser tab (also while you visit the other pages in it), and reloading the page clears them. Export to keep a copy.</p>
   </div>
 
   <form class="jobbar unset" id="jobForm">
@@ -277,7 +277,66 @@
   // "Scan and check here" (inputs.html?here): this device scans with its own camera, nothing is linked
   const HERE = new URLSearchParams(location.search).has("here");
   const JOB_KEY = HERE ? "sapa-here-job" : "sapa-inputs-job";
+  const CK = HERE ? "" : ' target="sapa-checker"';   // where links to the checker open
   let job = B.store.get(JOB_KEY) || "";   // the job the phones scan into, set here
+
+  // The scans kept for this tab: going to another page in the tab (the checker, to trace a bag) and coming back
+  // keeps them. They're held in this browser (IndexedDB) under the tab's session and come back when the page opens
+  // again in the tab; reloading the page or Clear all removes them, and a closed tab's are cleared after a day.
+  // Nothing leaves the device.
+  const keep = (() => {
+    const KEY = "sapa-session-" + (HERE ? "here" : "inputs"), DAY = 864e5;
+    const FIELDS = ["id", "job", "raw", "big", "small", "product", "batch", "label", "qrQty", "qrUnit", "labelBlob", "labelFrame", "labelCodes", "at", "received",
+      "blob", "device", "qty", "unit", "qtyFrom", "ocr", "ocrState", "text", "batchFrom"];
+    let sid = null, seq = 0, dbp = null;
+    try { sid = sessionStorage.getItem(KEY); if (!sid) { sid = B.uid(); sessionStorage.setItem(KEY, sid); } } catch { sid = null; }
+    const db = () => dbp || (dbp = new Promise((ok, no) => {
+      const q = indexedDB.open("sapa-scans", 1);
+      q.onupgradeneeded = () => q.result.createObjectStore("rows", { keyPath: "key" });
+      q.onsuccess = () => ok(q.result); q.onerror = () => no(q.error);
+    }));
+    const tx = async (mode, fn) => {
+      const d = await db();
+      return new Promise((ok, no) => { const t = d.transaction("rows", mode), q = fn(t.objectStore("rows")); t.oncomplete = () => ok(q && q.result); t.onerror = () => no(t.error); });
+    };
+    const mine = () => IDBKeyRange.bound(sid + "|", sid + "|\uffff");
+    return {
+      put(r) {
+        if (!sid) return;
+        if (r.seq === undefined) r.seq = ++seq;
+        const v = { key: sid + "|" + r.id, sid, saved: Date.now(), seq: r.seq };
+        for (const k of FIELDS) v[k] = r[k] === undefined ? null : r[k];
+        tx("readwrite", (st) => st.put(v)).catch(() => { /* not kept: the page still works */ });
+      },
+      clear() { return sid ? tx("readwrite", (st) => st.delete(mine())).catch(() => {}) : Promise.resolve(); },
+      async load() {
+        if (!sid) return [];
+        try {
+          const all = await tx("readonly", (st) => st.getAll());
+          const old = all.filter((v) => v.sid !== sid && Date.now() - v.saved > DAY);
+          if (old.length) tx("readwrite", (st) => old.forEach((v) => st.delete(v.key))).catch(() => {});
+          const list = all.filter((v) => v.sid === sid).sort((a, b) => b.seq - a.seq);
+          seq = list.reduce((m, v) => Math.max(m, v.seq), 0);
+          return list;
+        } catch { return []; }
+      },
+    };
+  })();
+  // back on this page in the tab: its scans again (a reload starts afresh)
+  async function restore() {
+    const how = (performance.getEntriesByType && performance.getEntriesByType("navigation")[0]) || {};
+    if (how.type === "reload") { await keep.clear(); return; }
+    const saved = await keep.load();
+    for (const v of saved) {
+      const r = { ...v }; delete r.key; delete r.sid; delete r.saved;
+      r.url = URL.createObjectURL(r.blob); r.labelUrl = r.labelBlob ? URL.createObjectURL(r.labelBlob) : null;
+      if (r.ocrState === "reading") r.ocr = null;
+      rows.push(r);
+    }
+    if (!saved.length) return;
+    render(); toast(`${saved.length} scan${saved.length === 1 ? "" : "s"} from earlier in this tab`);
+    for (const r of rows) if (r.ocrState === "reading") readPrint(r);
+  }
 
   function toast(msg, ms = 2600) { const t = $("toast"); t.textContent = msg; t.hidden = false; clearTimeout(toast.t); toast.t = setTimeout(() => (t.hidden = true), ms); }
   function status(kind, text) { const s = $("status"); s.className = "pill " + kind; s.textContent = text; }
@@ -350,7 +409,7 @@
     // the label's quantity: from the small QR code; from the print when there's no QR to give it; or typed in
     r.qty = r.qrQty; r.unit = r.qrUnit; r.qtyFrom = r.qrQty !== null ? "qr" : "reading";
     r.ocr = null; r.ocrState = "reading"; r.text = "";
-    rows.unshift(r); fresh = r.id;
+    rows.unshift(r); fresh = r.id; keep.put(r);
     if ($("jobSel").value && $("jobSel").value !== r.job) $("jobSel").value = "";
     render();
     readPrint(r);
@@ -387,6 +446,7 @@
         r.ocrState = "error"; r.text = "Couldn't read the label: " + e.message;
         if (r.qtyFrom === "reading") r.qtyFrom = r.qty !== null ? "qr" : "none";
       }
+      keep.put(r);
       render();
     });
   }
@@ -557,10 +617,10 @@
     if (!sap || !sap.ctx) return `<h2>SAP history</h2><p class="hint">${sap && sap.error ? "The SAP files couldn't be used: " + esc(sap.error) : "Load the SAP files (above, or on the checker page) to see this bag's history in SAP."}</p>`;
     if (!r.batch) return `<h2>SAP history</h2><p class="hint">No QR code was read, so there's no batch to look up.</p>`;
     const { p } = traceOf(r), st = r.sap || sapStatus(r);
-    const link = `<a href="./?trace=${encodeURIComponent(r.batch)}&product=${encodeURIComponent(r.product || "")}" target="sapa-checker">Open the full stock trace in the checker</a>`;
+    const link = `<a href="./?trace=${encodeURIComponent(r.batch)}&product=${encodeURIComponent(r.product || "")}" ${CK}>Open the full stock trace in the checker</a>`;
     const head = `<h2>SAP history: ${esc(r.product)} batch ${esc(r.batch)}</h2><div>${st.elsewhere ? sapBadges({ ...r, sap: st }) : `<span class="sap ${st.cls}">${esc(st.text)}</span>`}</div>`;
     if (!p) return head + `<p class="hint">No journal postings for this batch in the loaded files. ${link}</p>`;
-    const ord = (o) => `<a href="./?order=${encodeURIComponent(o)}" target="sapa-checker">${esc(o)}</a>`;
+    const ord = (o) => `<a href="./?order=${encodeURIComponent(o)}"${CK}>${esc(o)}</a>`;
     const firstIn = p.rows.find((x) => x.qty > 0);
     const figs = `<div class="figs">${r.qty !== null ? `<span>On the label <b>${F.f(r.qty, 3)} ${esc(r.unit || "")}</b></span>` : ""}${firstIn ? `<span>First booked in SAP <b>${F.f(firstIn.qty, 3)}</b> (${esc(F.dmy(firstIn.time))})</span>` : ""}<span>Made <b>${F.f(p.made, 2)}</b></span><span>Used on orders <b>${F.f(p.consumed, 2)}</b></span><span>Stock now (journal) <b>${F.f(p.balance, 2)}</b></span>`
       + (sap.ctx.wb.stock && sap.ctx.wb.stock.length ? `<span>On hand (stock overview) <b>${F.f(p.stock_total, 2)}</b></span>` : "") + `<span>${p.rows.length} postings</span></div>`;
@@ -629,6 +689,7 @@
     if (!r) return;
     if (e.target.value.trim() === "") { r.qty = r.qrQty; r.qtyFrom = r.qrQty !== null ? "qr" : "none"; }
     else if (isFinite(v) && v >= 0) { r.qty = v; r.qtyFrom = "typed"; }
+    keep.put(r);
     render();
   });
   $("rows").addEventListener("click", (e) => { const id = e.target.dataset.open; if (id) openRow(rows.find((x) => x.id === id)); });
@@ -668,6 +729,7 @@
   $("clearBtn").onclick = () => {
     if (!rows.length || !confirm(`Clear all ${rows.length} scans from this page?`)) return;
     rows.splice(0).forEach((r) => { URL.revokeObjectURL(r.url); if (r.labelUrl) URL.revokeObjectURL(r.labelUrl); });
+    keep.clear();
     render();
   };
 
@@ -806,8 +868,9 @@
     const h1 = document.querySelector("h1[data-nav]");
     h1.dataset.nav = "here"; h1.textContent = "Scan and check here";
     document.title = "Scan and check here";
-    h1.nextElementSibling.textContent = "Book the job, scan each bag with this device's camera and see it checked: the label's print against its QR codes, and the bag against SAP once the SAP files are loaded on this device (here, or on the checker). Nothing is sent anywhere and nothing is saved: the scans live in this tab only, and reloading clears them. Export to keep a copy.";
+    h1.nextElementSibling.textContent = "Book the job, scan each bag with this device's camera and see it checked: the label's print against its QR codes, and the bag against SAP once the SAP files are loaded on this device (here, or on the checker). Nothing is sent anywhere: the scans stay in this browser tab (also while you visit the checker in it), and reloading the page clears them. Export to keep a copy.";
     $("scanBar").hidden = false;
+    document.querySelector('.sapbar a[href="./"]').removeAttribute("target");
     $("devTh").textContent = "Device";
     $("empty").innerHTML = "No scans yet. Set the job and tap <b>Scan a bag</b>, or try <b>Add a sample label</b>.";
     $("hereScan").onclick = hereScan;
@@ -822,7 +885,8 @@
     $("camLayer").hidden = false;
     const f = $("camFrame");
     if (!camReady) camReady = new Promise((ok) => { f.addEventListener("load", ok, { once: true }); f.src = "scanner.html?embed=1"; });
-    camReady.then(() => f.contentWindow.postMessage({ t: "start", job }, location.origin));
+    const seen = rows.filter((r) => r.job === job && r.raw).map((r) => [`${r.product}|${r.batch}`, r.at]);
+    camReady.then(() => f.contentWindow.postMessage({ t: "start", job, seen }, location.origin));
   }
   function closeCam() {
     const f = $("camFrame");
@@ -847,9 +911,12 @@
     } else toast(r && r.raw ? `${r.product} batch ${r.batch} scanned` : "Photo added (no QR read)");
   }
 
+  window.sapaLive = () => !HERE && phones.size > 0;
+
   showJob();
   render();
   refreshSap();
+  restore();
   if (!HERE) start(B.store.get("sapa-inputs-id") || newCode());
 })();
 </script>

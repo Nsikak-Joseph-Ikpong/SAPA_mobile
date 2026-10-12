@@ -1,7 +1,8 @@
-// The page switcher: each page's title opens a menu of the three pages (the cheese variance check, Input products,
-// the bag scanner). Each page keeps a tab of its own, and the menu brings that tab forward when it's already open
-// rather than loading the page again: Input products holds its scans and the phone link only while its tab stays
-// open, so switching must never reload it.
+// The page switcher: each page's title opens a menu of the pages (the cheese variance check, Scan and check here,
+// and the linked Input products and bag scanner). A page opens in the same tab, like any web page: the scans on
+// Scan and check here and Input products are kept for the tab and come back when you return (inputs.html). Only a
+// page with a live link (Input products with phones connected, the bag scanner linked to a laptop) opens the other
+// page in a new tab instead, so the link stays up.
 (function () {
   "use strict";
   const PAGES = [
@@ -42,7 +43,7 @@
 
   function mount(h1) {
     const here = h1.dataset.nav;
-    window.name = "sapa-" + here;   // so the other pages can find this tab
+    window.name = "sapa-" + here;   // links that name this page's tab (target="sapa-checker") reuse it
     const style = document.createElement("style"); style.textContent = CSS; document.head.appendChild(style);
     const wrap = document.createElement("span"); wrap.className = "navsw";
     const btn = document.createElement("button");
@@ -50,14 +51,17 @@
     btn.innerHTML = `<span></span><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M3.5 6l4.5 4.5L12.5 6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
     btn.firstChild.textContent = h1.textContent;
     const menu = document.createElement("nav"); menu.className = "navmenu"; menu.hidden = true; menu.setAttribute("aria-label", "Pages");
-    menu.innerHTML = PAGES.map((p) => `<a href="${p.href}" target="sapa-${p.id}" data-page="${p.id}"${p.id === here ? ' aria-current="page"' : ""}><b>${p.title}</b>${p.id === here ? "<em> \u00b7 this page</em>" : ""}<span>${p.sub}</span></a>`).join("")
-      + `<div class="navnote">Each page opens in its own tab; an open one is brought forward, not reloaded.</div>`;
+    menu.innerHTML = PAGES.map((p) => `<a href="${p.href}" data-page="${p.id}"${p.id === here ? ' aria-current="page"' : ""}><b>${p.title}</b>${p.id === here ? "<em> \u00b7 this page</em>" : ""}<span>${p.sub}</span></a>`).join("");
     h1.textContent = ""; wrap.append(btn, menu); h1.appendChild(wrap);
 
     const show = (on) => { menu.hidden = !on; btn.setAttribute("aria-expanded", String(on)); };
-    btn.addEventListener("click", () => { show(menu.hidden); if (!menu.hidden) (menu.querySelector("a:not([aria-current])") || menu.querySelector("a")).focus(); });
+    // opened from the keyboard (a click with no pointer): focus goes into the menu
+    btn.addEventListener("click", (e) => { show(menu.hidden); if (!menu.hidden && e.detail === 0) (menu.querySelector("a:not([aria-current])") || menu.querySelector("a")).focus(); });
     document.addEventListener("click", (e) => { if (!wrap.contains(e.target)) show(false); });
-    wrap.addEventListener("focusout", (e) => { if (!wrap.contains(e.relatedTarget)) show(false); });
+    // A tap on a phone doesn't give the link focus, so focus leaving the menu with nowhere to go (a tap) must not
+    // close it: the menu would be gone before the tap's click reached the link. Focus moving to something else
+    // (the keyboard) does.
+    wrap.addEventListener("focusout", (e) => { if (e.relatedTarget && !wrap.contains(e.relatedTarget)) show(false); });
     wrap.addEventListener("keydown", (e) => {
       if (e.key === "Escape" && !menu.hidden) { show(false); btn.focus(); }
       if ((e.key === "ArrowDown" || e.key === "ArrowUp") && !menu.hidden) {
@@ -65,23 +69,26 @@
         items[(i + (e.key === "ArrowDown" ? 1 : items.length - 1)) % items.length].focus(); e.preventDefault();
       }
     });
-    menu.addEventListener("click", async (e) => {
+    menu.addEventListener("click", (e) => {
       const a = e.target.closest("a[data-page]");
       if (!a || e.ctrlKey || e.metaKey || e.shiftKey || e.button) return;   // a new tab asked for: the browser's way
       e.preventDefault(); show(false);
-      if (a.dataset.page === here) return;
-      const url = new URL(a.getAttribute("href"), location.href).href, name = "sapa-" + a.dataset.page;
-      // Input products open in a tab this one can't reach (opened separately): a second copy would give phones a
-      // second pairing code, so it says where the open one is instead
-      const elsewhere = a.dataset.page === "inputs" ? await askInputs() : false;
-      let w = null;
-      try { w = window.open("", name); } catch { w = null; }
-      if (!w) { tell(`The browser blocked the new tab: allow pop-ups for this site, or open ${a.querySelector("b").textContent} from its address.`); return; }
-      let blank;
-      try { blank = w.location.href === "about:blank"; } catch { blank = false; }
-      if (blank && elsewhere) { w.close(); tell("Input products is already open in another tab or window of this browser: switch to it there (a second copy would give phones a second pairing code)."); return; }
-      if (blank) w.location.replace(url);
-      try { w.focus(); } catch { /* the browser decides */ }
+      const page = a.dataset.page;
+      if (page === here) return;
+      const url = new URL(a.getAttribute("href"), location.href).href;
+      // this page has a live link that leaving would cut: the other page in a new tab (opened right in the tap,
+      // which phones require)
+      if (typeof window.sapaLive === "function" && window.sapaLive()) {
+        if (!window.open(url, "_blank")) tell(`Leaving this page would cut its link, and the browser blocked a new tab. Allow pop-ups for this site, or open ${a.querySelector("b").textContent} from its address in another tab.`);
+        return;
+      }
+      // the linked Input products already open in another tab: a second copy would give phones a second pairing
+      // code, so it says where the open one is instead
+      if (page === "inputs") {
+        askInputs().then((open) => (open ? tell("Input products (linked) is already open in another tab or window of this browser: switch to it there (a second copy would give phones a second pairing code).") : location.assign(url)));
+        return;
+      }
+      location.assign(url);
     });
   }
   function tell(msg) {
