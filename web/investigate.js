@@ -384,6 +384,9 @@
     if (decisive) story.push(`${decisive.title}: ${decisive.text}`);
     else if (off) {
       for (const c of causes.filter((c) => c.conf !== "weak").slice(0, 4)) story.push(`${c.title} (${c.conf}, ${kg(c.counted ?? c.kg)}): ${c.items ? c.items.map((e) => `${e.batch} ${e.material}: ${e.text}`).join(" ") : c.text}`);
+      // only weak leads (e.g. a job off the other way on the same cheese, days apart, no batch between them): said as such
+      const weak = causes.filter((c) => c.conf === "weak");
+      if (weak.length && !causes.some((c) => c.conf !== "weak")) story.push(`Only a weak lead: ${weak[0].title}. ${weak[0].text} No batch ties them in the journal: check what moved on and off the lines between them.`);
       if (!causes.length) story.push(T.dir === "short"
         ? "No pallet of its cheese was moved to its line and left unbooked, nothing was left on the line by an earlier job, no other job is off the other way, and the offcut bags booked look normal: the cheese most likely went in without any record (blocks or bags taken without a move or a scan)."
         : "No pallet was booked in full straight away and no other job is off the other way: the cheese was most likely really used (waste, giveaway) or output wasn't posted.");
