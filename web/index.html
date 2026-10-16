@@ -765,7 +765,7 @@
         <thead><tr><th>Moved</th><th>Material</th><th>Batch</th><th>kg in</th><th>kg back</th><th>Back to</th><th>Could also be</th></tr></thead><tbody>${cheeseRows || `<tr><td colspan="7">None</td></tr>`}</tbody></table></div></details>`;
 
     return `<article class="card" data-v="${v}">
-      <div class="verdict"><span class="badge">${v}</span><div class="vt">Order <span class="mono">${esc(s.order_id)}</span>: ${esc(headline)}</div><div class="vs">${sub}</div></div>
+      <div class="verdict"><span class="badge">${v}</span><div class="vt">Order <span class="mono">${esc(s.order_id)}</span>: ${esc(headline)}</div><div class="vs">${sub} · <a href="investigate.html?order=${encodeURIComponent(s.order_id)}">Investigate this job</a></div></div>
       <div class="body">${s.narrative ? `<section class="story"><h3>Summary</h3><p>${esc(s.narrative)}</p></section>` : ""}${figs}${chartsHtml}${openHtml}${varHtml}${whyHtml}${massHtml}${note}${flags}${ev}</div></article>`;
   }
 

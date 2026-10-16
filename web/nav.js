@@ -7,6 +7,7 @@
   "use strict";
   const PAGES = [
     { id: "checker", href: "./", title: "Cheese variance check", sub: "Production orders, the cheese balance, stock trace" },
+    { id: "investigate", href: "investigate.html", title: "Variance investigator", sub: "Type a job: its variance, where it came from and the other jobs it touched, over 1 or 2 weeks" },
     { id: "here", href: "inputs.html?here", title: "Scan and check here", sub: "Book the job, scan bags and check them against SAP, all on this phone or laptop" },
     { id: "inputs", href: "inputs.html", title: "Input products (linked)", sub: "The laptop dashboard a phone sends its scans to" },
     { id: "scanner", href: "scanner.html", title: "Bag scanner (linked)", sub: "For the phone: pair it from Input products" },

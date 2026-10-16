@@ -1,0 +1,231 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:,">
+<title>Variance Investigator</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
+<style>
+  :root {
+    --ground: #f2f4f1; --surface: #ffffff; --sunken: #e9ece8; --ink: #17201d; --muted: #5b6661; --line: #d8ddd9;
+    --accent: #23615a; --accent-ink: #ffffff; --accent-soft: #dcebe8;
+    --bad: #b3261e; --bad-soft: #f8e1df; --warn: #9a6200; --warn-soft: #f6ead3; --ok: #2b7a4b; --ok-soft: #dff0e5;
+    --sans: "IBM Plex Sans", "Segoe UI", system-ui, -apple-system, sans-serif;
+    --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --ground: #111513; --surface: #192019; --sunken: #141a17; --ink: #e5eae7; --muted: #9aa59f; --line: #2c3531;
+      --accent: #62b5aa; --accent-ink: #0d1412; --accent-soft: #1c3531;
+      --bad: #f27b70; --bad-soft: #3a1f1c; --warn: #e2a846; --warn-soft: #372b16; --ok: #6dc690; --ok-soft: #183023;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --ground: #111513; --surface: #192019; --sunken: #141a17; --ink: #e5eae7; --muted: #9aa59f; --line: #2c3531;
+    --accent: #62b5aa; --accent-ink: #0d1412; --accent-soft: #1c3531;
+    --bad: #f27b70; --bad-soft: #3a1f1c; --warn: #e2a846; --warn-soft: #372b16; --ok: #6dc690; --ok-soft: #183023;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body { background: var(--ground); color: var(--ink); font: 14px/1.5 var(--sans); }
+  .wrap { max-width: 1240px; margin: 0 auto; padding: 20px 16px 48px; display: grid; gap: 16px; }
+  h1 { font-size: 21px; line-height: 1.2; margin: 0; letter-spacing: -0.01em; }
+  h2 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin: 0; font-weight: 600; }
+  .sub { color: var(--muted); margin: 4px 0 0; font-size: 13px; max-width: 90ch; }
+  .panel { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; display: grid; gap: 12px; align-content: start; min-width: 0; }
+  .hint { font-size: 12.5px; color: var(--muted); margin: 0; }
+  a { color: var(--accent); }
+  button { font: 600 13.5px var(--sans); border-radius: 6px; padding: 8px 14px; cursor: pointer; border: 1px solid var(--accent); background: var(--accent); color: var(--accent-ink); }
+  button.quiet { background: var(--surface); color: var(--ink); border-color: var(--line); font-weight: 500; }
+  button.link { border: 0; background: none; padding: 0; color: var(--accent); text-decoration: underline; font: inherit; font-family: var(--mono); font-weight: 500; cursor: pointer; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .ask { display: flex; flex-wrap: wrap; gap: 10px 12px; align-items: end; }
+  .ask label { display: grid; gap: 4px; font-weight: 600; font-size: 13px; }
+  .ask input, .ask select { font: 600 20px var(--mono); padding: 8px 12px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--ink); }
+  .ask input { width: 9em; } .ask select { font: 500 15px var(--sans); padding: 11px 10px; }
+  .ask button { padding: 12px 20px; font-size: 15px; }
+  .sapbar { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 10px 16px; font-size: 13px; }
+  .sapbar .grow { flex: 1 1 320px; min-width: 0; }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin: 0; }
+  .tiles div { background: var(--sunken); border-radius: 6px; padding: 8px 10px; }
+  .tiles dt { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); }
+  .tiles dd { margin: 2px 0 0; font: 600 20px var(--mono); font-variant-numeric: tabular-nums; }
+  .tiles dd small { display: block; font: 12px var(--sans); color: var(--muted); }
+  .tiles .bad dd { color: var(--bad); } .tiles .ok dd { color: var(--ok); }
+  .head { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; }
+  .head .grow { flex: 1 1 auto; }
+  .verdict { font: 600 12px var(--sans); padding: 3px 10px; border-radius: 999px; }
+  .verdict.bad { background: var(--bad-soft); color: var(--bad); } .verdict.ok { background: var(--ok-soft); color: var(--ok); } .verdict.warn { background: var(--warn-soft); color: var(--warn); }
+  ol.story { margin: 0; padding-left: 20px; display: grid; gap: 6px; font-size: 14.5px; line-height: 1.5; max-width: 110ch; }
+  .scroll { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; }
+  th, td { text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { font-size: 12px; font-weight: 600; background: var(--sunken); white-space: nowrap; }
+  td.n, th.n { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  td.m { font-family: var(--mono); white-space: nowrap; }
+  tr.me td { background: var(--accent-soft); }
+  .pos { color: var(--bad); } .neg { color: var(--bad); } .zero { color: var(--muted); }
+  .tag { display: inline-block; font-size: 11.5px; font-weight: 600; padding: 2px 8px; border-radius: 999px; white-space: nowrap; background: var(--sunken); color: var(--muted); }
+  .tag.strong, .tag.bad { background: var(--bad-soft); color: var(--bad); } .tag.linked, .tag.likely, .tag.warn { background: var(--warn-soft); color: var(--warn); } .tag.ok { background: var(--ok-soft); color: var(--ok); }
+  ul.why { margin: 0; padding-left: 16px; }
+  .note { padding: 10px 12px; border-radius: 6px; background: var(--sunken); font-size: 13.5px; }
+  .note.ok { background: var(--ok-soft); } .note.bad { background: var(--bad-soft); }
+  .empty { border: 1px dashed var(--line); border-radius: 8px; padding: 26px; text-align: center; color: var(--muted); background: var(--surface); }
+  .toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); background: var(--ink); color: var(--ground); padding: 8px 14px; border-radius: 6px; font-size: 13px; z-index: 60; max-width: calc(100vw - 32px); }
+  [hidden] { display: none !important; }
+  @media print { .sapbar, .ask, .navsw button svg, #copyBtn { display: none !important; } body { background: #fff; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div>
+    <h1 data-nav="investigate">Variance investigator</h1>
+    <p class="sub">Type a production order: its variance, where it came from (batch by batch, from the confirmation journal), the other jobs it touched, and whether the jobs on the same cheese net out over the week or two weeks around it. It uses the SAP files loaded on the checker.</p>
+  </div>
+
+  <section class="sapbar" aria-label="SAP data">
+    <div class="grow"><b>SAP data:</b> <span id="sapText">looking for the SAP files…</span></div>
+    <a href="./">Load or update them on the checker</a>
+  </section>
+
+  <form class="ask panel" id="ask">
+    <label>Production order<input id="oid" type="text" inputmode="numeric" autocomplete="off" placeholder="e.g. 3001"></label>
+    <label>Look at<select id="days"><option value="7">2 weeks (7 days either side)</option><option value="3.5">1 week (3½ days either side)</option></select></label>
+    <button type="submit">Investigate</button>
+  </form>
+
+  <main id="out" aria-live="polite"><div class="empty">Type a production order and click <b>Investigate</b>.</div></main>
+</div>
+<p class="hint" style="text-align:center;margin:0 0 20px">Version __BUILD__</p>
+<div class="toast" id="toast" hidden></div>
+
+<script src="vendor/xlsx.full.min.js?v=__BUILD__"></script>
+<script>window.XLSX || document.write('<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"><\/script>');</script>
+<script src="reconcile.js?v=__BUILD__"></script>
+<script src="investigate.js?v=__BUILD__"></script>
+<script src="nav.js?v=__BUILD__"></script>
+<script>
+(function () {
+  "use strict";
+  const R = window.OrderCheck, I = window.Investigate, $ = (id) => document.getElementById(id);
+  const { f, fs, dm, dmy } = R.fmt;
+  const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const kg = (v, d = 1) => `${f(v, d)} kg`;
+  function toast(msg, ms = 2600) { const t = $("toast"); t.textContent = msg; t.hidden = false; clearTimeout(toast.t); toast.t = setTimeout(() => (t.hidden = true), ms); }
+
+  // ------------------------------------------------------------ the SAP files the checker keeps in this browser
+  let ctx = null, saved = undefined;
+  const loadSaved = () => new Promise((resolve) => {
+    try {
+      const q = indexedDB.open("cheese-variance", 1);
+      q.onupgradeneeded = () => q.result.createObjectStore("files");
+      q.onerror = () => resolve(null);
+      q.onsuccess = () => { try { const g = q.result.transaction("files").objectStore("files").get("workbook"); g.onsuccess = () => resolve(g.result || null); g.onerror = () => resolve(null); } catch { resolve(null); } };
+    } catch { resolve(null); }
+  });
+  async function refresh() {
+    const rec = await loadSaved();
+    if (rec && rec.saved === saved && ctx) return;
+    saved = rec ? rec.saved : null;
+    const files = rec ? rec.files || (rec.buf ? [{ name: rec.name, buf: rec.buf }] : []) : [];
+    if (!files.length) { ctx = null; $("sapText").textContent = "no SAP files yet: load the workbook and the confirmation journal on the checker."; return; }
+    $("sapText").textContent = "reading the SAP files…";
+    await new Promise((r) => setTimeout(r, 30));
+    try {
+      const sheets = files.flatMap((x) => { const wb = XLSX.read(x.buf, { type: "array", dense: true }); return wb.SheetNames.map((sn) => ({ file: x.name, sheet: sn, rows: XLSX.utils.sheet_to_json(wb.Sheets[sn], { header: 1, raw: true, defval: null, blankrows: true }) })); });
+      ctx = R.prepare(R.readWorkbook(sheets));
+      const r = ctx.journalRange;
+      $("sapText").textContent = `${files.map((x) => x.name).join(", ")} · journal ${r ? dmy(r[0]).slice(0, 10) + " to " + dmy(r[1]) : "empty"} · ${ctx.orders.length} orders`;
+    } catch (e) { ctx = null; $("sapText").textContent = "the SAP files couldn't be read: " + e.message; }
+  }
+
+  // ------------------------------------------------------------ the investigation
+  const sign = (v) => (Math.abs(v) < 0.05 ? "zero" : v > 0 ? "pos" : "neg");
+  // red only beyond tolerance
+  const vtxt = (m) => (m ? `<span class="${Math.abs(m.v) > m.tol ? sign(m.v) : "zero"}">${fs(m.v, 1)}</span>` : "–");
+  const dirTag = (j) => j.dir === "over" ? `<span class="tag bad">cheese with no output</span>` : j.dir === "short" ? `<span class="tag bad">output with no cheese</span>` : j.dir === "ok" ? `<span class="tag ok">within tolerance</span>` : `<span class="tag">can't tell</span>`;
+  const jobBtn = (id) => `<button type="button" class="link" data-job="${esc(id)}">${esc(id)}</button>`;
+  const trace = (e) => `<a href="./?trace=${encodeURIComponent(e.batch)}&product=${encodeURIComponent(e.material)}">${esc(e.batch)}</a>`;
+  const TYPES = { not_booked: "Moved to the line for this job, not booked to it", from_elsewhere: "Booked to this job, moved to the line for another job or outside the run", over_consumed: "SAP consumed more of it than it had" };
+  let last = null;
+  function show(x) {
+    const T = x.target, s = T.s, m = T.m;
+    const off = m && T.dir !== "ok";
+    const tiles = [
+      ["Output needs", s.cheese_needed_kg ? kg(s.cheese_needed_kg) : "–", "cheese, by the recipe"],
+      ["Cheese booked", kg(s.cheese_consumed_kg || 0), "consumed in the journal"],
+      ["Variance", m ? `${fs(m.v, 1)} kg` : "–", m ? (m.v > 0 ? "booked with no output" : m.v < 0 ? "output with no cheese" : "balanced") + ` · tolerance ±${f(m.tol, 0)}` : "", off ? "bad" : m ? "ok" : ""],
+      ["Explained by batches", off ? kg(Math.min(x.explained, Math.abs(m.v))) : "–", off ? `of ${kg(Math.abs(m.v))}` : ""],
+      ["Looked at", `${dm(x.from).slice(0, 5)}–${dm(x.to).slice(0, 5)}`, `${x.jobs.length} jobs${x.clipped ? " · the journal ends sooner" : ""}`],
+    ];
+    const verdict = !m ? `<span class="verdict warn">can't be worked out</span>` : off ? `<span class="verdict bad">${T.dir === "short" ? "Output with no cheese booked" : "Cheese booked with no output"}</span>` : `<span class="verdict ok">Within tolerance</span>`;
+    const ev = x.evidence.length ? `<div class="scroll"><table><thead><tr><th>Batch</th><th>Cheese</th><th>What happened</th><th class="n">kg</th><th>Details</th><th>Where it went / came from</th></tr></thead><tbody>`
+      + x.evidence.map((e) => `<tr><td class="m">${trace(e)}</td><td class="m">${esc(e.material)}</td><td>${esc(TYPES[e.type])}</td><td class="n">${f(e.kg, 1)}</td><td>${esc(e.text)}</td><td>${esc(e.where)}</td></tr>`).join("")
+      + `</tbody></table></div>` : `<p class="hint">No batch moved to ${esc(x.area || "its line")} during the run was left unbooked, and every batch booked to it was moved there for it.${T.dir === "short" ? " The cheese it used without booking may have gone to the line without a move in SAP (straight from store, or left on the line from an earlier job): see the stock SAP still shows on the lines below." : ""}</p>`;
+    const sus = x.suspects.length ? `<div class="scroll"><table><thead><tr><th>Job</th><th>Line</th><th>Ran</th><th class="n">Its variance</th><th>Link</th><th>Why</th><th></th></tr></thead><tbody>`
+      + x.suspects.map((u) => `<tr><td class="m">${jobBtn(u.job.id)}<br><span class="hint">${esc(u.job.fg)}</span></td><td class="m">${esc(u.job.line || u.job.area || "")}</td><td class="m">${dm(u.job.start)}</td><td class="n">${vtxt(u.job.m)} kg<br>${dirTag(u.job)}</td><td><span class="tag ${u.strength}">${u.strength}</span></td><td><ul class="why">${u.why.map((w) => `<li>${esc(w)}</li>`).join("")}</ul></td><td><a href="./?order=${encodeURIComponent(u.job.id)}">Open in the checker</a></td></tr>`).join("")
+      + `</tbody></table></div>` + (x.combo ? `<p class="note ${Math.abs(x.combo.net) <= Math.max(50, 0.1 * Math.abs(m.v)) ? "ok" : ""}">This job${x.combo.set.map((u) => " and " + u.job.id).join("")} together: ${fs(x.combo.net, 1)} kg.</p>` : "")
+      : `<p class="hint">No other job in the window shares a batch with this one, or is off the other way on the same cheese.</p>`;
+    const b = x.balance;
+    const bal = b.jobs ? `<div class="scroll"><table><thead><tr><th>Line</th><th class="n">Jobs</th><th class="n">Off tolerance</th><th class="n">Net kg</th><th class="n">Off, both ways</th></tr></thead><tbody>`
+      + b.lines.map((l) => `<tr><td class="m">${esc(l.line)}</td><td class="n">${l.jobs}</td><td class="n">${l.off}</td><td class="n"><span class="${sign(l.net)}">${fs(l.net, 1)}</span></td><td class="n">${f(l.gross, 1)}</td></tr>`).join("")
+      + `<tr><td><b>All</b></td><td class="n"><b>${b.jobs}</b></td><td class="n"></td><td class="n"><b class="${sign(b.net)}">${fs(b.net, 1)}</b></td><td class="n"><b>${f(b.gross, 1)}</b></td></tr></tbody></table></div>`
+      + (b.gross ? `<p class="note ${b.nets ? "ok" : "bad"}">${b.nets ? `The jobs off tolerance on this cheese cancel out to ${fs(b.net, 1)} kg: the cheese was booked to the wrong jobs rather than lost.` : `They don't cancel out (${fs(b.net, 1)} kg): ${b.net > 0 ? "more cheese booked than the output needs (waste, giveaway, or output not posted)" : "more output than the booked cheese explains (cheese used without being booked)"}.`}</p>` : "")
+      : `<p class="hint">No other job used this cheese in the window.</p>`;
+    const jobsT = `<div class="scroll"><table><thead><tr><th>Started</th><th>Job</th><th>Line</th><th>Product</th><th>Cheese</th><th class="n">Needs</th><th class="n">Booked</th><th class="n">Variance</th><th></th></tr></thead><tbody>`
+      + x.jobs.map((j) => `<tr class="${j.id === x.order ? "me" : ""}"><td class="m">${dm(j.start)}</td><td class="m">${j.id === x.order ? `<b>${esc(j.id)}</b>` : jobBtn(j.id)}</td><td class="m">${esc(j.line || j.area || "")}</td><td>${esc(j.fg)}</td><td class="m">${esc(j.mats.blocks.join(", "))}</td><td class="n">${j.s.cheese_needed_kg ? f(j.s.cheese_needed_kg, 1) : "–"}</td><td class="n">${f(j.s.cheese_consumed_kg || 0, 1)}</td><td class="n">${vtxt(j.m)}</td><td>${dirTag(j)}${x.suspects.some((u) => u.job === j) ? ` <span class="tag ${x.suspects.find((u) => u.job === j).strength}">linked</span>` : ""}</td></tr>`).join("")
+      + `</tbody></table></div>`;
+    const stock = (x.phantom.length ? `<h3 style="margin:0;font-size:14px">On the lines in SAP, untouched for over 12 hours</h3><div class="scroll"><table><thead><tr><th>Batch</th><th>Cheese</th><th>Line area</th><th class="n">kg</th><th>Last moved</th><th>Moved in for</th></tr></thead><tbody>`
+        + x.phantom.map((p) => `<tr><td class="m">${trace(p)}</td><td class="m">${esc(p.material)}</td><td class="m">${esc(p.area)}</td><td class="n">${f(p.kg, 1)}</td><td class="m">${dm(p.since)}</td><td class="m">${p.owner ? jobBtn(p.owner) : "–"}</td></tr>`).join("") + `</tbody></table></div><p class="hint">If it isn't physically there, it was used without being booked: the job it was moved in for (or the next on the line) is where to look.</p>` : "")
+      + (x.negative.length ? `<h3 style="margin:0;font-size:14px">Consumed more than SAP had</h3><div class="scroll"><table><thead><tr><th>Batch</th><th>Cheese</th><th class="n">kg below zero</th><th>Booked to</th></tr></thead><tbody>`
+        + x.negative.map((n) => `<tr><td class="m">${trace(n)}</td><td class="m">${esc(n.material)}</td><td class="n">${f(n.kg, 1)}</td><td class="m">${n.jobs.map(jobBtn).join(", ")}</td></tr>`).join("") + `</tbody></table></div>` : "")
+      || `<p class="hint">No stock of this cheese left on the lines, and none consumed below zero.</p>`;
+    $("out").innerHTML = `
+      <section class="panel"><div class="head"><h2 class="grow">Job ${esc(x.order)} · ${esc(s.fg)}${s.fg_text ? " · " + esc(s.fg_text) : ""} · ${esc(T.line || x.area || "")}</h2>${verdict}
+        <a href="./?order=${encodeURIComponent(x.order)}">Open in the checker</a><button type="button" class="quiet" id="copyBtn">Copy the summary</button></div>
+        <dl class="tiles">${tiles.map(([k, v, sm, c]) => `<div class="${c || ""}"><dt>${esc(k)}</dt><dd>${esc(v)}<small>${esc(sm)}</small></dd></div>`).join("")}</dl>
+        <ol class="story">${x.story.map((t) => `<li>${esc(t)}</li>`).join("")}</ol></section>
+      <section class="panel"><h2>Where it came from: the batches</h2>${ev}</section>
+      <section class="panel"><h2>Other jobs it touched</h2>${sus}</section>
+      <section class="panel"><h2>Jobs on ${esc(T.mats.blocks.join(", ") || "this cheese")} over the ${x.days >= 7 ? "two weeks" : "week"}: do they net out?</h2>${bal}</section>
+      <section class="panel"><h2>Stock SAP still shows on the lines</h2>${stock}</section>
+      <section class="panel"><h2>Every job in the window</h2>${jobsT}<p class="hint">Click a job to investigate it.</p></section>`;
+    $("copyBtn").onclick = () => copy(x);
+  }
+  function copy(x) {
+    const lines = [`Variance investigation: job ${x.order} (${dm(x.from)} to ${dm(x.to)})`, "", ...x.story.map((t, i) => `${i + 1}. ${t}`)];
+    if (x.evidence.length) lines.push("", "Batches:", ...x.evidence.map((e) => `- ${e.batch} ${e.material} ${f(e.kg, 1)} kg: ${TYPES[e.type]}. ${e.text}. ${e.where}.`));
+    if (x.suspects.length) lines.push("", "Other jobs:", ...x.suspects.map((u) => `- ${u.job.id} (${u.strength}): ${u.job.m ? fs(u.job.m.v, 1) + " kg" : ""}; ${u.why.join("; ")}`));
+    const text = lines.join("\n");
+    (navigator.clipboard ? navigator.clipboard.writeText(text) : Promise.reject()).then(() => toast("Summary copied: paste it into an email or report"), () => toast("Couldn't copy here"));
+  }
+  async function investigate(id, days) {
+    if (!id) { $("oid").focus(); return; }
+    await refresh();
+    if (!ctx) { $("out").innerHTML = `<div class="empty">Load the SAP files on the <a href="./">checker</a> first (the workbook and the confirmation journal).</div>`; return; }
+    $("out").innerHTML = `<div class="empty">Investigating job ${esc(id)}…</div>`;
+    await new Promise((r) => setTimeout(r, 30));
+    let x;
+    try { x = I.run(ctx, id, days); } catch (e) { $("out").innerHTML = `<div class="empty">Couldn't investigate job ${esc(id)}: ${esc(e.message)}</div>`; return; }
+    if (x.error) { $("out").innerHTML = `<div class="empty">${esc(x.error)}</div>`; return; }
+    last = x; show(x);
+    history.replaceState(null, "", `?order=${encodeURIComponent(id)}&days=${days}`);
+  }
+  const go = (id) => { $("oid").value = id; investigate(id, Number($("days").value)); window.scrollTo({ top: 0, behavior: "smooth" }); };
+  $("ask").addEventListener("submit", (e) => { e.preventDefault(); go($("oid").value.trim()); });
+  $("days").onchange = () => { if (last) go(last.order); };
+  document.addEventListener("click", (e) => { const b = e.target.closest("button[data-job]"); if (b) go(b.dataset.job); });
+  window.addEventListener("focus", () => refresh());
+
+  const q = new URLSearchParams(location.search);
+  if (q.get("days") && [...$("days").options].some((o) => o.value === q.get("days"))) $("days").value = q.get("days");
+  if (q.get("order")) go(q.get("order")); else refresh();
+})();
+</script>
+</body>
+</html>

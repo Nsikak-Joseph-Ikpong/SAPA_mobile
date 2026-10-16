@@ -29,6 +29,33 @@ The phone can't open files straight off the laptop's disk; they have to go throu
 (step 1), email, or a USB cable. If you'd rather the files never leave the laptop, use
 `python serve.py --share` on the office Wi-Fi instead (see *Use it from your phone (office Wi-Fi)*).
 
+## Variance investigator
+
+https://nsikak-joseph-ikpong.github.io/SAPA_mobile/investigate.html (or **Variance investigator** from any page's title
+menu, or **Investigate this job** on an order in the checker). It uses the SAP files loaded on the checker: keep loading
+the month's confirmation journal there each day. Type a production order, pick **2 weeks** (7 days either side of the
+job) or **1 week** (3½ days either side), and click **Investigate**.
+
+Cheese can't appear or vanish: when a job's output has no cheese booked for it, the blocks it used are still in SAP and
+turn up somewhere else (booked to another job, left on the line as stock SAP thinks is there, moved back, or written
+off). So the investigation follows the batches:
+
+* **The job:** its variance (the mass balance, else the cheese balance: + is cheese booked with no output for it, − is
+  output with no cheese booked for it), what its output needs, what was booked, and how much of the gap the batches
+  explain, with a summary in plain words (**Copy the summary** for an email or report).
+* **Where it came from: the batches.** Batches moved to its line during its run but not booked to it, and where each
+  went (booked to job …, still on the line in SAP, moved back, adjusted); batches booked to it that were moved to the
+  line for another job or outside its run; batches SAP consumed more of than it ever had. A move to a line belongs to
+  the job whose run it falls in (counting the 2 hours before a start; a move after a job's last output is for the next).
+* **Other jobs it touched**, strongest first: *strong* (a batch ties them and they're off in opposite directions),
+  *linked* (a batch ties them), *likely* (same cheese, same line, within a day, cancelling to within half), *possible*
+  (same cheese, off the other way); and the one to three jobs that together cancel it best.
+* **Do the jobs on this cheese net out?** Per line and in all, over the window: if the jobs off tolerance cancel out,
+  the cheese was booked to the wrong jobs rather than lost; if not, it's really missing (or extra).
+* **Stock SAP still shows on the lines** (untouched for over 12 hours, and which job it was moved in for) and batches
+  consumed below zero.
+* **Every job in the window**, with its variance; click any job to investigate it.
+
 ## Scan and check on one device (phone or laptop)
 
 Scanning inputs (offcut bags, cheese blocks, packaging) with a phone instead of the QR gun, so there's a record of
