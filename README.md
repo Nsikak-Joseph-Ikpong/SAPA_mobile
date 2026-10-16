@@ -37,24 +37,29 @@ the month's confirmation journal there each day. Type a production order, pick *
 job) or **1 week** (3½ days either side), and click **Investigate**.
 
 Cheese can't appear or vanish: when a job's output has no cheese booked for it, the blocks it used are still in SAP and
-turn up somewhere else (booked to another job, left on the line as stock SAP thinks is there, moved back, or written
-off). So the investigation follows the batches:
+turn up somewhere else. The investigation works through it in the order an analyst would:
 
-* **The job:** its variance (the mass balance, else the cheese balance: + is cheese booked with no output for it, − is
-  output with no cheese booked for it), what its output needs, what was booked, and how much of the gap the batches
-  explain, with a summary in plain words (**Copy the summary** for an email or report).
-* **Where it came from: the batches.** Batches moved to its line during its run but not booked to it, and where each
-  went (booked to job …, still on the line in SAP, moved back, adjusted); batches booked to it that were moved to the
-  line for another job or outside its run; batches SAP consumed more of than it ever had. A move to a line belongs to
-  the job whose run it falls in (counting the 2 hours before a start; a move after a job's last output is for the next).
-* **Other jobs it touched**, strongest first: *strong* (a batch ties them and they're off in opposite directions),
-  *linked* (a batch ties them), *likely* (same cheese, same line, within a day, cancelling to within half), *possible*
-  (same cheese, off the other way); and the one to three jobs that together cancel it best.
-* **Do the jobs on this cheese net out?** Per line and in all, over the window: if the jobs off tolerance cancel out,
-  the cheese was booked to the wrong jobs rather than lost; if not, it's really missing (or extra).
-* **Stock SAP still shows on the lines** (untouched for over 12 hours, and which job it was moved in for) and batches
-  consumed below zero.
-* **Every job in the window**, with its variance; click any job to investigate it.
+1. **The gap in plain words:** what the output needs, what was booked (blocks and offcut bags apart) and the variance,
+   also as blocks (≈ 20 kg) or offcut bags (7–13 kg).
+2. **Checked first** (things that aren't lost cheese): the job was still running when the journal was exported (then
+   nothing else is reported); it started before the journal begins; pallets booked to the wrong order (same product,
+   same line, after its own cheese stopped while the other job was still consuming); a pallet booked twice; the recipe
+   case weight.
+3. **Most likely causes**, each marked *strong*, *medium* or *weak* with the kg it explains (never more than the gap in
+   all; **Explained** shows how much): a pallet moved to the line during the run but never booked (and whether it was
+   written off or is still on the line); a whole pallet booked minutes after it was moved once the job already had
+   what it needed; pallets moved in for another job; pallets booked to a job that's over. Only this cheese counts,
+   offcut bags are handled as bags, batches that started before the journal aren't called over-consumed, and the
+   shared grating area (L4/L5) is marked *medium* when a pallet could belong to either job.
+4. **Offcut bags:** how much of the cheese should be bags (from at least 3 other jobs on the product, else the recipe),
+   and how many bags look unscanned.
+5. **Other jobs it touched** and **do the jobs on this cheese net out?** over the week: if they cancel, the cheese was
+   booked to the wrong jobs; if not, it's really missing (or extra).
+6. **Where the cheese is now:** stock SAP still shows on the lines, write-offs, part pallets from the **Stock
+   Overview** export (load it on the checker), and batches booked below zero.
+
+**Copy the summary** gives it all in plain words for an email or report. **Every job in the window** (folded away)
+lists the week's jobs; click any to investigate it.
 
 ## Scan and check on one device (phone or laptop)
 

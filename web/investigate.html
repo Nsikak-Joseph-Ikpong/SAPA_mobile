@@ -78,6 +78,17 @@
   .empty { border: 1px dashed var(--line); border-radius: 8px; padding: 26px; text-align: center; color: var(--muted); background: var(--surface); }
   .toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); background: var(--ink); color: var(--ground); padding: 8px 14px; border-radius: 6px; font-size: 13px; z-index: 60; max-width: calc(100vw - 32px); }
   [hidden] { display: none !important; }
+  ol.clist { margin: 0; padding: 0; list-style: none; display: grid; gap: 10px; }
+  li.cause { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; display: grid; gap: 6px; }
+  li.cause p { margin: 0; }
+  .ch { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: baseline; }
+  .ch b { flex: 1 1 260px; }
+  .ckg { font: 600 15px var(--mono); white-space: nowrap; } .ckg small { font: 12px var(--sans); color: var(--muted); }
+  ul.causes { margin: 0; padding-left: 18px; display: grid; gap: 6px; }
+  ul.why li { margin: 2px 0; }
+  .h3 { margin: 6px 0 0; font-size: 14px; }
+  .m { font-family: var(--mono); }
+  details > summary { cursor: pointer; }
   @media print { .sapbar, .ask, .navsw button svg, #copyBtn { display: none !important; } body { background: #fff; } }
 </style>
 </head>
@@ -139,6 +150,7 @@
     try {
       const sheets = files.flatMap((x) => { const wb = XLSX.read(x.buf, { type: "array", dense: true }); return wb.SheetNames.map((sn) => ({ file: x.name, sheet: sn, rows: XLSX.utils.sheet_to_json(wb.Sheets[sn], { header: 1, raw: true, defval: null, blankrows: true }) })); });
       ctx = R.prepare(R.readWorkbook(sheets));
+      window.__stockLoaded = (ctx.wb.stock || []).length > 0;
       const r = ctx.journalRange;
       $("sapText").textContent = `${files.map((x) => x.name).join(", ")} · journal ${r ? dmy(r[0]).slice(0, 10) + " to " + dmy(r[1]) : "empty"} · ${ctx.orders.length} orders`;
     } catch (e) { ctx = null; $("sapText").textContent = "the SAP files couldn't be read: " + e.message; }
@@ -151,56 +163,86 @@
   const dirTag = (j) => j.dir === "over" ? `<span class="tag bad">cheese with no output</span>` : j.dir === "short" ? `<span class="tag bad">output with no cheese</span>` : j.dir === "ok" ? `<span class="tag ok">within tolerance</span>` : `<span class="tag">can't tell</span>`;
   const jobBtn = (id) => `<button type="button" class="link" data-job="${esc(id)}">${esc(id)}</button>`;
   const trace = (e) => `<a href="./?trace=${encodeURIComponent(e.batch)}&product=${encodeURIComponent(e.material)}">${esc(e.batch)}</a>`;
-  const TYPES = { not_booked: "Moved to the line for this job, not booked to it", from_elsewhere: "Booked to this job, moved to the line for another job or outside the run", over_consumed: "SAP consumed more of it than it had" };
+  const CONF = { strong: "bad", medium: "warn", weak: "" };
+  const CHECK_TEXT = { running: "still running", early: "journal starts during it", wrong_order: "pallets on the wrong order", double: "pallets double booked", recipe: "case weight from the recipe" };
   let last = null;
+  const sec = (title, body, open = true) => `<section class="panel"><h2>${esc(title)}</h2>${body}</section>`;
   function show(x) {
     const T = x.target, s = T.s, m = T.m;
-    const off = m && T.dir !== "ok";
+    const off = m && T.dir !== "ok", decisive = x.checks.find((c) => c.decisive);
+    const blocksKg = (T.cons || []).filter((c) => !/^MB.*OFF$/i.test(c.material)).reduce((a, c) => a + c.consumed, 0);
+    const bagsKg = (s.cheese_consumed_kg || 0) - blocksKg;
     const tiles = [
-      ["Output needs", s.cheese_needed_kg ? kg(s.cheese_needed_kg) : "–", "cheese, by the recipe"],
-      ["Cheese booked", kg(s.cheese_consumed_kg || 0), "consumed in the journal"],
+      ["Output needs", s.cheese_est_needed_kg ? kg(s.cheese_est_needed_kg) : "–", "cheese, by the recipe"],
+      ["Cheese booked", kg(s.cheese_consumed_kg || 0), `blocks ${kg(blocksKg)} · bags ${kg(bagsKg)}`],
       ["Variance", m ? `${fs(m.v, 1)} kg` : "–", m ? (m.v > 0 ? "booked with no output" : m.v < 0 ? "output with no cheese" : "balanced") + ` · tolerance ±${f(m.tol, 0)}` : "", off ? "bad" : m ? "ok" : ""],
-      ["Explained by batches", off ? kg(Math.min(x.explained, Math.abs(m.v))) : "–", off ? `of ${kg(Math.abs(m.v))}` : ""],
-      ["Looked at", `${dm(x.from).slice(0, 5)}–${dm(x.to).slice(0, 5)}`, `${x.jobs.length} jobs${x.clipped ? " · the journal ends sooner" : ""}`],
+      ["Explained", off && !decisive ? kg(x.explained) : "–", off && !decisive ? (x.unexplained > 1 ? `${kg(x.unexplained)} without a trace` : "all of it") : ""],
+      ["Looked at", `${dm(x.from).slice(0, 5)}–${dm(x.to).slice(0, 5)}`, `${x.jobs.length} jobs${x.clipped ? " · all the loaded journal covers" : ""}`],
     ];
-    const verdict = !m ? `<span class="verdict warn">can't be worked out</span>` : off ? `<span class="verdict bad">${T.dir === "short" ? "Output with no cheese booked" : "Cheese booked with no output"}</span>` : `<span class="verdict ok">Within tolerance</span>`;
-    const ev = x.evidence.length ? `<div class="scroll"><table><thead><tr><th>Batch</th><th>Cheese</th><th>What happened</th><th class="n">kg</th><th>Details</th><th>Where it went / came from</th></tr></thead><tbody>`
-      + x.evidence.map((e) => `<tr><td class="m">${trace(e)}</td><td class="m">${esc(e.material)}</td><td>${esc(TYPES[e.type])}</td><td class="n">${f(e.kg, 1)}</td><td>${esc(e.text)}</td><td>${esc(e.where)}</td></tr>`).join("")
-      + `</tbody></table></div>` : `<p class="hint">No batch moved to ${esc(x.area || "its line")} during the run was left unbooked, and every batch booked to it was moved there for it.${T.dir === "short" ? " The cheese it used without booking may have gone to the line without a move in SAP (straight from store, or left on the line from an earlier job): see the stock SAP still shows on the lines below." : ""}</p>`;
-    const sus = x.suspects.length ? `<div class="scroll"><table><thead><tr><th>Job</th><th>Line</th><th>Ran</th><th class="n">Its variance</th><th>Link</th><th>Why</th><th></th></tr></thead><tbody>`
-      + x.suspects.map((u) => `<tr><td class="m">${jobBtn(u.job.id)}<br><span class="hint">${esc(u.job.fg)}</span></td><td class="m">${esc(u.job.line || u.job.area || "")}</td><td class="m">${dm(u.job.start)}</td><td class="n">${vtxt(u.job.m)} kg<br>${dirTag(u.job)}</td><td><span class="tag ${u.strength}">${u.strength}</span></td><td><ul class="why">${u.why.map((w) => `<li>${esc(w)}</li>`).join("")}</ul></td><td><a href="./?order=${encodeURIComponent(u.job.id)}">Open in the checker</a></td></tr>`).join("")
-      + `</tbody></table></div>` + (x.combo ? `<p class="note ${Math.abs(x.combo.net) <= Math.max(50, 0.1 * Math.abs(m.v)) ? "ok" : ""}">This job${x.combo.set.map((u) => " and " + u.job.id).join("")} together: ${fs(x.combo.net, 1)} kg.</p>` : "")
-      : `<p class="hint">No other job in the window shares a batch with this one, or is off the other way on the same cheese.</p>`;
-    const b = x.balance;
-    const bal = b.jobs ? `<div class="scroll"><table><thead><tr><th>Line</th><th class="n">Jobs</th><th class="n">Off tolerance</th><th class="n">Net kg</th><th class="n">Off, both ways</th></tr></thead><tbody>`
-      + b.lines.map((l) => `<tr><td class="m">${esc(l.line)}</td><td class="n">${l.jobs}</td><td class="n">${l.off}</td><td class="n"><span class="${sign(l.net)}">${fs(l.net, 1)}</span></td><td class="n">${f(l.gross, 1)}</td></tr>`).join("")
-      + `<tr><td><b>All</b></td><td class="n"><b>${b.jobs}</b></td><td class="n"></td><td class="n"><b class="${sign(b.net)}">${fs(b.net, 1)}</b></td><td class="n"><b>${f(b.gross, 1)}</b></td></tr></tbody></table></div>`
-      + (b.gross ? `<p class="note ${b.nets ? "ok" : "bad"}">${b.nets ? `The jobs off tolerance on this cheese cancel out to ${fs(b.net, 1)} kg: the cheese was booked to the wrong jobs rather than lost.` : `They don't cancel out (${fs(b.net, 1)} kg): ${b.net > 0 ? "more cheese booked than the output needs (waste, giveaway, or output not posted)" : "more output than the booked cheese explains (cheese used without being booked)"}.`}</p>` : "")
-      : `<p class="hint">No other job used this cheese in the window.</p>`;
-    const jobsT = `<div class="scroll"><table><thead><tr><th>Started</th><th>Job</th><th>Line</th><th>Product</th><th>Cheese</th><th class="n">Needs</th><th class="n">Booked</th><th class="n">Variance</th><th></th></tr></thead><tbody>`
-      + x.jobs.map((j) => `<tr class="${j.id === x.order ? "me" : ""}"><td class="m">${dm(j.start)}</td><td class="m">${j.id === x.order ? `<b>${esc(j.id)}</b>` : jobBtn(j.id)}</td><td class="m">${esc(j.line || j.area || "")}</td><td>${esc(j.fg)}</td><td class="m">${esc(j.mats.blocks.join(", "))}</td><td class="n">${j.s.cheese_needed_kg ? f(j.s.cheese_needed_kg, 1) : "–"}</td><td class="n">${f(j.s.cheese_consumed_kg || 0, 1)}</td><td class="n">${vtxt(j.m)}</td><td>${dirTag(j)}${x.suspects.some((u) => u.job === j) ? ` <span class="tag ${x.suspects.find((u) => u.job === j).strength}">linked</span>` : ""}</td></tr>`).join("")
-      + `</tbody></table></div>`;
-    const stock = (x.phantom.length ? `<h3 style="margin:0;font-size:14px">On the lines in SAP, untouched for over 12 hours</h3><div class="scroll"><table><thead><tr><th>Batch</th><th>Cheese</th><th>Line area</th><th class="n">kg</th><th>Last moved</th><th>Moved in for</th></tr></thead><tbody>`
-        + x.phantom.map((p) => `<tr><td class="m">${trace(p)}</td><td class="m">${esc(p.material)}</td><td class="m">${esc(p.area)}</td><td class="n">${f(p.kg, 1)}</td><td class="m">${dm(p.since)}</td><td class="m">${p.owner ? jobBtn(p.owner) : "–"}</td></tr>`).join("") + `</tbody></table></div><p class="hint">If it isn't physically there, it was used without being booked: the job it was moved in for (or the next on the line) is where to look.</p>` : "")
-      + (x.negative.length ? `<h3 style="margin:0;font-size:14px">Consumed more than SAP had</h3><div class="scroll"><table><thead><tr><th>Batch</th><th>Cheese</th><th class="n">kg below zero</th><th>Booked to</th></tr></thead><tbody>`
+    const verdict = decisive ? `<span class="verdict warn">${esc(decisive.title)}</span>` : !m ? `<span class="verdict warn">can't be worked out</span>` : off ? `<span class="verdict bad">${T.dir === "short" ? "Output with no cheese booked" : "Cheese booked with no output"}</span>` : `<span class="verdict ok">Within tolerance</span>`;
+    // 1. checked first
+    const ruled = ["running", "wrong_order", "double"].filter((k) => !x.checks.some((c) => c.kind === k)).map((k) => CHECK_TEXT[k]);
+    const checks = (x.checks.length ? `<ul class="causes">${x.checks.filter((c) => c.kind !== "wrong_order").map((c) => `<li><span class="tag ${c.decisive ? "bad" : "warn"}">${esc(CHECK_TEXT[c.kind] || c.kind)}</span> <b>${esc(c.title)}.</b> ${esc(c.text)}</li>`).join("")}</ul>` : "")
+      + `<p class="hint">Ruled out: ${ruled.length ? esc(ruled.join(", ")) : "nothing"}.${x.checks.some((c) => c.kind === "wrong_order") ? " Pallets were confirmed on the wrong order: see the causes below." : ""}</p>`;
+    // 2. the causes
+    const item = (e) => `<li><span class="m">${trace(e)}</span> ${esc(e.material)} · <b>${kg(e.kg)}</b>: ${esc(e.text)}${(e.jobs || []).length ? ` ${e.jobs.map(jobBtn).join(" ")}` : ""}</li>`;
+    const causes = decisive ? `<p class="hint">Not investigated further: ${esc(decisive.text)}</p>`
+      : !off ? `<p class="hint">Within tolerance: nothing to explain.</p>`
+      : x.causes.length ? `<ol class="clist">${x.causes.map((c) => `<li class="cause"><div class="ch"><span class="tag ${CONF[c.conf]}">${c.conf}</span><b>${esc(c.title)}</b><span class="ckg">${kg(c.counted ?? Math.min(c.kg, Math.abs(x.gap)))}${c.counted !== undefined && c.counted < c.kg - 1 ? ` <small>(of ${kg(c.kg)})</small>` : ""}</span></div>`
+          + (c.items ? `<p class="hint">${esc(c.text)}</p><ul class="why">${c.items.map(item).join("")}</ul>` : `<p>${esc(c.text)}</p>`)
+          + ((c.jobs || []).length && !c.items ? `<p class="hint">Jobs: ${c.jobs.map(jobBtn).join(", ")}</p>` : "") + `</li>`).join("")}</ol>`
+          + (x.unexplained > 1 ? `<p class="note">The other ${kg(x.unexplained)} (${esc(x.unexplainedShape || "")}) leaves no trace in the journal: blocks or bags put in without a move or a scan. Only scanning what goes onto the line can catch that.</p>` : "")
+      : `<p class="note bad">No cause found in the journal: no pallet of its cheese left unbooked or left on the line, no pallets on the wrong order, no other job off the other way, and the offcut bags look normal. The ${kg(Math.abs(x.gap))} (${esc(x.shape || "")}) most likely went in without any record: blocks or bags taken without a move or a scan.</p>`;
+    // 3. offcut bags
+    const b = x.bags;
+    const bags = b ? `<dl class="tiles"><div><dt>Bags booked</dt><dd>${f(b.n)}<small>${kg(b.booked)}</small></dd></div><div><dt>Its output takes</dt><dd>${b.expect !== null ? kg(b.expect) : "–"}<small>going by ${esc(b.basis)}</small></dd></div>`
+      + `<div class="${b.expect !== null && b.expect - b.booked > 39 && T.dir === "short" ? "bad" : ""}"><dt>Difference</dt><dd>${b.expect !== null ? `${fs(b.booked - b.expect, 1)} kg` : "–"}<small>${b.expect !== null && b.expect > b.booked ? `about ${f(Math.round((b.expect - b.booked) / 13))} to ${f(Math.round((b.expect - b.booked) / 7))} bags` : ""}</small></dd></div>`
+      + (b.recipeShare ? `<div><dt>Recipe</dt><dd>${f(Math.round(b.recipeShare * 100))}% bags<small>blocks booked ${kg(b.blocks)} of ${kg((1 - b.recipeShare) * b.need)}</small></dd></div>` : "") + `</dl>`
+      : `<p class="hint">This job uses no offcut bags.</p>`;
+    // 4. other jobs
+    const sus = x.suspects.length ? `<div class="scroll"><table><thead><tr><th>Job</th><th>Line</th><th>Ran</th><th class="n">Its variance</th><th>Link</th><th>Why</th></tr></thead><tbody>`
+      + x.suspects.map((u) => `<tr><td class="m">${jobBtn(u.job.id)}<br><span class="hint">${esc(u.job.fg)}</span></td><td class="m">${esc(u.job.line || u.job.area || "")}</td><td class="m">${dm(u.job.start)}</td><td class="n">${vtxt(u.job.m)} kg<br>${dirTag(u.job)}</td><td><span class="tag ${u.strength}">${u.strength}</span></td><td><ul class="why">${u.why.map((w) => `<li>${esc(w)}</li>`).join("")}</ul></td></tr>`).join("")
+      + `</tbody></table></div>` + (x.combo ? `<p class="note ${Math.abs(x.combo.net) <= Math.max(50, 0.1 * Math.abs(x.gap)) ? "ok" : ""}">This job${x.combo.set.map((u) => " and " + u.job.id).join("")} together: ${fs(x.combo.net, 1)} kg.</p>` : "")
+      : `<p class="hint">No other job shares a batch with this one, or is off the other way on the same cheese.</p>`;
+    // 5. the week
+    const bl = x.balance;
+    const bal = bl.jobs ? `<div class="scroll"><table><thead><tr><th>Line</th><th class="n">Jobs</th><th class="n">Off tolerance</th><th class="n">Net kg</th><th class="n">Off, both ways</th></tr></thead><tbody>`
+      + bl.lines.map((l) => `<tr><td class="m">${esc(l.line)}</td><td class="n">${l.jobs}</td><td class="n">${l.off}</td><td class="n"><span class="${sign(l.net)}">${fs(l.net, 1)}</span></td><td class="n">${f(l.gross, 1)}</td></tr>`).join("")
+      + `<tr><td><b>All</b></td><td class="n"><b>${bl.jobs}</b></td><td class="n"></td><td class="n"><b class="${sign(bl.net)}">${fs(bl.net, 1)}</b></td><td class="n"><b>${f(bl.gross, 1)}</b></td></tr></tbody></table></div>`
+      + (bl.gross ? `<p class="note ${bl.nets ? "ok" : "bad"}">${bl.nets ? `The finished jobs off tolerance on this cheese cancel out to ${fs(bl.net, 1)} kg: the cheese was booked to the wrong jobs rather than lost.` : `They don't cancel out (${fs(bl.net, 1)} kg): ${bl.net > 0 ? "more cheese booked than the output needs (waste, giveaway, or output not posted)" : "more output than the booked cheese explains (cheese used without being booked)"}.`}</p>` : "")
+      : `<p class="hint">No other finished job used this cheese in the window.</p>`;
+    // 6. where the cheese is now
+    const wo = x.evidence.filter((e) => e.written_off);
+    const stock = (x.phantom.length ? `<h3 class="h3">On the lines in SAP, untouched for over 12 hours</h3><div class="scroll"><table><thead><tr><th>Batch</th><th>Cheese</th><th>Line area</th><th class="n">kg</th><th>Last moved</th><th>Moved in for</th></tr></thead><tbody>`
+        + x.phantom.map((p) => `<tr><td class="m">${trace(p)}</td><td class="m">${esc(p.material)}</td><td class="m">${esc(p.area)}</td><td class="n">${f(p.kg, 1)}</td><td class="m">${dm(p.since)}</td><td class="m">${p.owner ? jobBtn(p.owner) : "–"}</td></tr>`).join("") + `</tbody></table></div><p class="hint">If it isn't physically there, it was used without being booked.</p>` : "")
+      + (wo.length ? `<h3 class="h3">Written off the line later (no destination)</h3><div class="scroll"><table><thead><tr><th>Batch</th><th>Cheese</th><th>When</th><th class="n">kg</th><th>Confirmation</th></tr></thead><tbody>`
+        + wo.flatMap((e) => e.written_off.map((w) => `<tr><td class="m">${trace(e)}</td><td class="m">${esc(e.material)}</td><td class="m">${dm(w.time)}</td><td class="n">${f(w.kg, 1)}</td><td>${esc(w.doc)} ${esc(w.conf)}</td></tr>`)).join("") + `</tbody></table></div>` : "")
+      + (x.partial.length ? `<h3 class="h3">Part pallets of this cheese (stock overview)</h3><div class="scroll"><table><thead><tr><th>Batch</th><th>Cheese</th><th>Where</th><th class="n">kg left</th><th class="n">Full pallet</th><th>Restricted</th></tr></thead><tbody>`
+        + x.partial.map((p) => `<tr><td class="m">${trace(p)}</td><td class="m">${esc(p.material)}</td><td class="m">${esc(p.area)}</td><td class="n">${f(p.kg, 1)}</td><td class="n">${f(p.full, 0)}</td><td>${p.restricted ? "X" : ""}</td></tr>`).join("") + `</tbody></table></div><p class="hint">Blocks have been taken off these pallets: a count tells whether what's left matches SAP.</p>` : "")
+      + (x.negative.length ? `<h3 class="h3">Booked more than SAP had</h3><div class="scroll"><table><thead><tr><th>Batch</th><th>Cheese</th><th class="n">kg below zero</th><th>Booked to</th></tr></thead><tbody>`
         + x.negative.map((n) => `<tr><td class="m">${trace(n)}</td><td class="m">${esc(n.material)}</td><td class="n">${f(n.kg, 1)}</td><td class="m">${n.jobs.map(jobBtn).join(", ")}</td></tr>`).join("") + `</tbody></table></div>` : "")
-      || `<p class="hint">No stock of this cheese left on the lines, and none consumed below zero.</p>`;
+      || `<p class="hint">No stock of this cheese left on the lines, no part pallets in the stock overview${(window.__stockLoaded ? "" : " (load a Stock Overview on the checker to see these)")}, and none booked below zero.</p>`;
+    const jobsT = `<div class="scroll"><table><thead><tr><th>Started</th><th>Job</th><th>Line</th><th>Product</th><th>Cheese</th><th class="n">Needs</th><th class="n">Booked</th><th class="n">Variance</th><th></th></tr></thead><tbody>`
+      + x.jobs.map((j) => `<tr class="${j.id === x.order ? "me" : ""}"><td class="m">${dm(j.start)}</td><td class="m">${j.id === x.order ? `<b>${esc(j.id)}</b>` : jobBtn(j.id)}</td><td class="m">${esc(j.line || j.area || "")}</td><td>${esc(j.fg)}</td><td class="m">${esc(j.mats.blocks.join(", "))}</td><td class="n">${j.s.cheese_est_needed_kg ? f(j.s.cheese_est_needed_kg, 1) : "–"}</td><td class="n">${f(j.s.cheese_consumed_kg || 0, 1)}</td><td class="n">${vtxt(j.m)}</td><td>${j.running ? `<span class="tag warn">running</span>` : dirTag(j)}</td></tr>`).join("")
+      + `</tbody></table></div>`;
     $("out").innerHTML = `
       <section class="panel"><div class="head"><h2 class="grow">Job ${esc(x.order)} · ${esc(s.fg)}${s.fg_text ? " · " + esc(s.fg_text) : ""} · ${esc(T.line || x.area || "")}</h2>${verdict}
         <a href="./?order=${encodeURIComponent(x.order)}">Open in the checker</a><button type="button" class="quiet" id="copyBtn">Copy the summary</button></div>
         <dl class="tiles">${tiles.map(([k, v, sm, c]) => `<div class="${c || ""}"><dt>${esc(k)}</dt><dd>${esc(v)}<small>${esc(sm)}</small></dd></div>`).join("")}</dl>
         <ol class="story">${x.story.map((t) => `<li>${esc(t)}</li>`).join("")}</ol></section>
-      <section class="panel"><h2>Where it came from: the batches</h2>${ev}</section>
-      <section class="panel"><h2>Other jobs it touched</h2>${sus}</section>
-      <section class="panel"><h2>Jobs on ${esc(T.mats.blocks.join(", ") || "this cheese")} over the ${x.days >= 7 ? "two weeks" : "week"}: do they net out?</h2>${bal}</section>
-      <section class="panel"><h2>Stock SAP still shows on the lines</h2>${stock}</section>
-      <section class="panel"><h2>Every job in the window</h2>${jobsT}<p class="hint">Click a job to investigate it.</p></section>`;
+      ${sec("1. Checked first: is it a cheese problem at all?", checks)}
+      ${sec("2. Most likely causes", causes)}
+      ${sec("3. Offcut bags", bags)}
+      ${sec("4. Other jobs it touched", sus)}
+      ${sec(`5. Jobs on ${T.mats.blocks.join(", ") || "this cheese"} over the ${x.days >= 7 ? "two weeks" : "week"}: do they net out?`, bal)}
+      ${sec("6. Where the cheese is now", stock)}
+      <section class="panel"><details><summary><h2 style="display:inline">Every job in the window (${x.jobs.length})</h2></summary>${jobsT}<p class="hint">Click a job to investigate it.</p></details></section>`;
     $("copyBtn").onclick = () => copy(x);
   }
   function copy(x) {
     const lines = [`Variance investigation: job ${x.order} (${dm(x.from)} to ${dm(x.to)})`, "", ...x.story.map((t, i) => `${i + 1}. ${t}`)];
-    if (x.evidence.length) lines.push("", "Batches:", ...x.evidence.map((e) => `- ${e.batch} ${e.material} ${f(e.kg, 1)} kg: ${TYPES[e.type]}. ${e.text}. ${e.where}.`));
-    if (x.suspects.length) lines.push("", "Other jobs:", ...x.suspects.map((u) => `- ${u.job.id} (${u.strength}): ${u.job.m ? fs(u.job.m.v, 1) + " kg" : ""}; ${u.why.join("; ")}`));
+    if (x.causes.length) lines.push("", "Causes:", ...x.causes.map((c) => `- [${c.conf}] ${c.title}: ${f(c.counted ?? c.kg, 1)} kg.${c.items ? " " + c.items.map((e) => `${e.batch} ${e.material}: ${e.text}`).join(" ") : " " + c.text}`));
+    if (x.suspects.length) lines.push("", "Other jobs:", ...x.suspects.slice(0, 6).map((u) => `- ${u.job.id} (${u.strength}): ${u.job.m ? fs(u.job.m.v, 1) + " kg" : ""}; ${u.why.join("; ")}`));
     const text = lines.join("\n");
     (navigator.clipboard ? navigator.clipboard.writeText(text) : Promise.reject()).then(() => toast("Summary copied: paste it into an email or report"), () => toast("Couldn't copy here"));
   }
