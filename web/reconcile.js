@@ -877,7 +877,8 @@
       const pCh = sum(cheeseComps.map((c) => c.planned)), pSt = sum(stC.map((c) => c.planned)), pOf = sum(offC.map((b) => (isNaN(b.planned) ? 0 : b.planned)));
       const [cwO] = caseWeight(o.fg_text, (pCh + pSt - pOf) / planned_out, o.fg, ctx.codeWeights);
       rec = recipePerCase(pCh, pSt, pOf, planned_out, cwO);
-      perCase = rec.cheese_pc;
+      // cheese a case needs: the case (less its starch) and the offcuts, no giveaway; the recipe's without a case weight
+      perCase = rec.case_weight && rec.case_weight > rec.starch_pc ? rec.case_weight - rec.starch_pc + rec.off_pc : rec.cheese_pc;
     }
     const issued = sum(cheeseComps.map((c) => (isNaN(c.fulfilled) ? 0 : c.fulfilled)));
     const cheeseOpen = sum(cheeseComps.map((c) => (isNaN(c.open) ? 0 : c.open)));

@@ -639,7 +639,7 @@
       const bad = s.cheese_consumed_kg === 0 || (s.cheese_diff_kg !== null && Math.abs(s.cheese_diff_kg) > s.cheese_tolerance_kg);
       const starchUsed = s.mass ? s.mass.starch_in : 0;
       cheeseLine = `<div class="fig"><dt>Cheese needed for cases made</dt><dd>${kg(s.cheese_est_needed_kg)}<small>${perCaseText(s)} × ${n0(s.cheese_est_output)} cases</small></dd></div>
-         <div class="fig"><dt>Cheese consumed</dt><dd class="${bad ? "bad" : "good"}">${kg(s.cheese_consumed_kg)}<small>${esc(srcShort(s.consumption_from))} ·${s.consumption.length} posting${s.consumption.length === 1 ? "" : "s"}${starchUsed ? ` · starch ${kg(starchUsed)} not included` : ""}${pc ? ` · ${fs(s.cheese_consumed_kg - pc, 1)} kg vs the full plan` : ""}</small></dd></div>`;
+         <div class="fig"><dt>Input cheese</dt><dd class="${bad ? "bad" : "good"}">${kg(s.cheese_consumed_kg)}<small>${esc(srcShort(s.consumption_from))} ·${s.consumption.length} posting${s.consumption.length === 1 ? "" : "s"}${starchUsed ? ` · starch ${kg(starchUsed)} not included` : ""}${pc ? ` · ${fs(s.cheese_consumed_kg - pc, 1)} kg vs the full plan` : ""}</small></dd></div>`;
     } else if (s.cheese_kg_per_case && s.cheese_source === "journal") {
       const bad = s.cheese_diff_kg !== null && Math.abs(s.cheese_diff_kg) > s.cheese_tolerance_kg;
       cheeseLine = `<div class="fig"><dt>Cheese used (journal estimate)</dt><dd class="${bad ? "bad" : s.cheese_sent_kg ? "good" : ""}">${kg(s.cheese_used_kg)}<small>moved to line ${kg(s.cheese_sent_kg)}, away ${kg(s.cheese_returned_kg)}</small></dd></div>
@@ -662,7 +662,7 @@
       return `<figure class="chart" role="img" aria-label="${esc(title)}: ${esc(bars.map((b) => `${b.label} ${f(tot(b), 1)} ${unit}`).join(", "))}"><figcaption>${esc(title)} (${esc(unit)})</figcaption>${rows}</figure>`;
     };
     const cheeseBars = !s.cheese_kg_per_case ? null
-      : s.cheese_source === "consumed" ? [["Needed", s.cheese_est_needed_kg], ["Consumed", s.cheese_consumed_kg]]
+      : s.cheese_source === "consumed" ? [["Needed", s.cheese_est_needed_kg], ["Input", s.cheese_consumed_kg]]
       : s.cheese_source === "journal" ? [["Needed", s.cheese_est_needed_kg], ["Used (estimate)", s.cheese_used_kg]]
       : [["Needed", s.cheese_needed_kg], ["Issued", s.cheese_issued_kg]];
     // offcuts (by-products) planned on the order vs made; expected is the plan scaled to the cases made

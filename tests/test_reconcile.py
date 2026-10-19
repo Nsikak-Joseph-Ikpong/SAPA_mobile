@@ -103,7 +103,7 @@ def test_inputs_judged_on_order_quantities(result):
 
 def test_cheese_issued_on_order_is_the_truth(result):
     a = next(s for s in result.summaries if s["order_id"] == "A1")
-    assert a["cheese_issued_kg"] == pytest.approx(1970) and a["cheese_needed_kg"] == pytest.approx(1970)
+    assert a["cheese_issued_kg"] == pytest.approx(1970) and a["cheese_needed_kg"] == pytest.approx(2000)
     c = codes(result, "A1")
     assert "CHEESE_BALANCES" in c
     assert "RMCHED 0% vs 30% planned" in c["BLEND_SPLIT_OFF"].message
@@ -117,7 +117,7 @@ def test_no_cheese_on_order_sheet_falls_back_to_journal_estimate(result):
     assert b["cheese_source"] == "journal" and b["cheese_used_kg"] == pytest.approx(2000)
     c = codes(result, "B2")
     assert "CHEESE_NOT_ON_ORDER_SHEET" in c and "CHEESE_BALANCES_EST" in c
-    assert "400 cases in the journal need 1,970.0 kg" in c["CHEESE_BALANCES_EST"].message
+    assert "400 cases in the journal need 2,000.0 kg" in c["CHEESE_BALANCES_EST"].message
     assert c["OUTPUT_OVER_PLAN"].severity == "MEDIUM" and "+50" in c["OUTPUT_OVER_PLAN"].message
 
 
@@ -166,8 +166,8 @@ def test_cheese_consumption_from_full_journal(full):
     a = next(s for s in full.summaries if s["order_id"] == "A1")
     assert a["cheese_source"] == "consumed" and a["cheese_consumed_kg"] == pytest.approx(1925)
     c = codes(full, "A1")
-    # needed for the 1,000 cases in the journal is 4,925 kg
-    assert c["CHEESE_UNDER_USED"].severity == "HIGH" and "RMCHED 400.0 of 1,477.5 kg" in c["CHEESE_UNDER_USED"].message
+    # needed for the 1,000 cases in the journal is 5,000 kg: the 5 kg case, no giveaway
+    assert c["CHEESE_UNDER_USED"].severity == "HIGH" and "RMCHED 400.0 of 1,500.0 kg" in c["CHEESE_UNDER_USED"].message
     assert "RMCHED 21% vs 30% planned" in c["BLEND_SPLIT_OFF"].message
     # outputs from the workbook's journal are not double counted by the second export
     assert a["journal_out"] == 1000
@@ -496,6 +496,8 @@ def test_more_out_than_in_is_flagged_within_tolerance(tmp_path):
     res = run(read_workbook([str(path)]))
     s = next(x for x in res.summaries if x["order_id"] == "2571")
     assert s["mass"]["kg_per_case"] == pytest.approx(6.0)
+    # cheese needed is the case and the offcuts, no giveaway: 6 + 0.6 kg a case
+    assert s["cheese_kg_per_case"] == pytest.approx(6.6) and s["cheese_est_needed_kg"] == pytest.approx(1141 * 6.6)
     assert s["mass"]["unaccounted"] == pytest.approx(7502 - 1141 * 6 - 760.12)
     assert s["variance"]["variance_kg"] == pytest.approx(s["variance"]["ga_actual"])
     f = codes(res, "2571")

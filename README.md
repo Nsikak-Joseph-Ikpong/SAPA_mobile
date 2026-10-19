@@ -498,7 +498,8 @@ planned output):
   is owned by a job more than 15 minutes after its last pallet; a posting made after an order's last
   output and within 30 minutes of the next job's start on the same line goes to the next job; a cheese
   in no running job's recipe goes to a job using the same type of cheese (first four letters, e.g.
-  RMMA20GB for RMMA20GR) as a substitute. Consumption vs needed (recipe × cases), the split between the
+  RMMA20GB for RMMA20GR) as a substitute. Consumption (shown as input cheese) vs needed: cases × (the case weight, less any starch, plus the
+  offcuts per case), with no giveaway; the recipe's cheese per case only without a case weight. The split between the
   block cheeses, no consumption at all (`CHEESE_NOT_CONSUMED`) and batches consumed for more than the
   pallet held (`BATCH_OVER_CONSUMED`) are checked;
 * **mass balance** (with consumption): everything in (cheese blocks and offcuts consumed, plus starch

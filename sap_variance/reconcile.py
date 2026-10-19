@@ -1256,7 +1256,9 @@ def check_order(oid: str, wb: Workbook, windows: pd.DataFrame, outputs: pd.DataF
         p_ch, p_st, p_of = float(cheese_comps["planned"].sum()), float(st_c["planned"].sum()), float(off_c["planned"].fillna(0).sum())
         cw_o, _ = case_weight(o.get("fg_text"), (p_ch + p_st - p_of) / planned_out, o["fg"], (info or {}).get("code_weights"))
         rec = recipe_per_case(p_ch, p_st, p_of, planned_out, cw_o)
-        per_case = rec["cheese_pc"]
+        # cheese a case needs: the case (less its starch) and the offcuts, no giveaway; the recipe's without a case weight
+        cw_r = rec.get("case_weight")
+        per_case = cw_r - rec["starch_pc"] + rec["off_pc"] if cw_r and cw_r > rec["starch_pc"] else rec["cheese_pc"]
     issued = float(cheese_comps["fulfilled"].fillna(0).sum()) if not cheese_comps.empty else 0.0
     cheese_open = float(cheese_comps["open"].fillna(0).sum()) if not cheese_comps.empty else 0.0
     needed = per_case * order_out if per_case else None
