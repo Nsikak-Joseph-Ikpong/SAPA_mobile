@@ -12,6 +12,7 @@
   };
   const SEV = { HIGH: 0, MEDIUM: 1, LOW: 2, INFO: 3 };
   const H = 3600000;
+  const OUT_EXCEEDS_KG = 5;   // more out than in by more than this is flagged whatever the tolerance
 
   // ------------------------------------------------------------ values
   const isNil = (v) => v === null || v === undefined || (typeof v === "number" && isNaN(v)) || (typeof v === "string" && v.trim() === "");
@@ -685,7 +686,9 @@
       nominal_output: nominalOut, starch_in_output: starchOut, nominal_cheese_output: nominalCheese, expected_cheese: expected, actual_cheese: actualCheese, actual_cheese_from: cheeseFrom, cheese_input_kg: cheeseOnly, repack_kg: repackKg,
       expected_offcuts: expOff, actual_offcuts: madeOff, ga_expected: gaExp, ga_actual: gaAct, output_plus_offcuts: outOff,
       difference: diff, diff_pct: actualCheese ? diff / actualCheese : null, planned_input_pct: nominalCheese ? expected / nominalCheese : null,
-      variance_kg: gaAct - gaExp, tolerance: Math.max(RULES.tolerance_pct * expected, RULES.tolerance_kg), recipe_kg_per_case: recipeNet };
+      // the variance is against the pack weight: cheese in, less the cheese in the cases at their case weight and the
+      // offcuts made (GA actual). The giveaway the recipe allows (GA expected) is shown, not counted.
+      variance_kg: gaAct, tolerance: Math.max(RULES.tolerance_pct * expected, RULES.tolerance_kg), recipe_kg_per_case: recipeNet };
   }
 
   const cmpStr = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
@@ -700,7 +703,8 @@
     const out = [], v0 = v.variance_kg;
     const rn = v.recipe_kg_per_case, cwv = v.case_weight;
     if (rn && cwv && Math.abs(rn - cwv) / cwv > 0.05) out.push({ kg: null, text: `The recipe plans ${f(rn, 3)} kg of cheese and starch per case (less offcuts) for a ${f(cwv, 3)} kg case (${pct(rn / cwv - 1, 0, true)}), so expected cheese uses the case weight instead: check the recipe (BOM).` });
-    if (Math.abs(v0) <= v.tolerance) return out.concat([{ kg: null, text: `Cheese is within tolerance of the plan (${fs(v0, 1)} kg against the giveaway the recipe allows), so there's nothing to explain.` }]);
+    // within tolerance there's nothing to explain, unless more came out than went in (that's never fine)
+    if (Math.abs(v0) <= v.tolerance && v0 >= -OUT_EXCEEDS_KG) return out.concat([{ kg: null, text: `Cheese is within tolerance (${fs(v0, 1)} kg: cheese in, less the cases at their pack weight and the offcuts made), so there's nothing to explain.` }]);
     const area = w.area, types = new Set([...recipe].map(ctype));
     const lineAreas = new Set(Object.values(RULES.line_areas));
     if (v0 < 0) {
@@ -1023,7 +1027,9 @@
           // the extra (or missing) cheese came out as more (or fewer) offcuts than planned
           flag("LOW", cheese_diff > 0 ? "CHEESE_OVER_USED" : "CHEESE_UNDER_USED", msg + ` Difference ${fs(cheese_diff, 1)} kg (${pct(cheese_diff / needIn, 1, true)}). Everything that went in came out as product or offcuts (offcuts made ${f(madeOff, 1)} kg against ${f(pOff * offScale, 1)} planned for these cases), so this is offcut yield, not missing cheese.`);
         } else flag(Math.abs(cheese_diff) > Math.max(3 * tol, 500) ? "HIGH" : "MEDIUM", cheese_diff > 0 ? "CHEESE_OVER_USED" : "CHEESE_UNDER_USED", msg + ` Difference ${fs(cheese_diff, 1)} kg (${pct(cheese_diff / needIn, 1, true)}).`);
-        if (Math.abs(unacc) <= massTol) flag("INFO", "MASS_BALANCES", massText + ` Unaccounted ${fs(unacc, 1)} kg is within tolerance.`);
+        // more out than in can't happen, whatever the tolerance: flagged from OUT_EXCEEDS_KG (below that, rounding)
+        if (unacc < -OUT_EXCEEDS_KG && Math.abs(unacc) <= massTol) flag("MEDIUM", "MASS_OUT_EXCEEDS_IN", massText + ` ${f(-unacc, 1)} kg more came out than went in. That's within the ${pct(RULES.tolerance_pct, 0)} tolerance, but more can't come out than went in: inputs used but not consumed in SAP, offcuts weighed heavy, or output overstated (cases under weight).`);
+        else if (Math.abs(unacc) <= massTol) flag("INFO", "MASS_BALANCES", massText + ` Unaccounted ${fs(unacc, 1)} kg is within tolerance.`);
         else {
           const same = cheeseOff && (cheese_diff > 0) === (unacc > 0);
           const sev = same ? "INFO" : Math.abs(unacc) > Math.max(3 * massTol, 500) ? "HIGH" : "MEDIUM";
@@ -1160,7 +1166,7 @@
       } else if (v.variance_kg < -v.tolerance) out.push(`That's ${tt(-v.variance_kg)} kg less cheese than ${made} need.`);
       else if (v.variance_kg > v.tolerance) out.push(`That's ${tt(v.variance_kg)} kg more cheese than ${made} need.`);
       if (Math.abs(v.variance_kg) > v.tolerance) {
-        out.push(`On cheese alone (no starch), giveaway is ${tt(v.ga_actual, 1)} kg against ${tt(v.ga_expected, 1)} kg planned (${fs(v.variance_kg, 1)} kg).`);
+        out.push(`On cheese alone (no starch), cheese in less the cases at their pack weight and the offcuts made is ${fs(v.variance_kg, 1)} kg.`);
         const lead = (s.variance_reasons || []).filter((x) => x.kg);
         if (lead.length) out.push("The journal points to: " + lead[0].text);
       }

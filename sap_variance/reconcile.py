@@ -39,6 +39,7 @@ import pandas as pd
 from .config import alias_key
 
 SEVERITY_ORDER = {"HIGH": 0, "MEDIUM": 1, "LOW": 2, "INFO": 3}
+OUT_EXCEEDS_KG = 5   # more out than in by more than this is flagged whatever the tolerance
 
 
 @dataclass
@@ -894,7 +895,9 @@ def variance_view(o, comps, cheese_comps, offc, order_out, journal_out, cheese_s
             "actual_offcuts": made_off, "ga_expected": ga_exp, "ga_actual": ga_act, "output_plus_offcuts": out_off,
             "difference": diff, "diff_pct": diff / actual_cheese if actual_cheese else None,
             "planned_input_pct": expected / nominal_cheese if nominal_cheese else None,
-            "variance_kg": ga_act - ga_exp, "tolerance": max(rules.tolerance_pct * expected, rules.tolerance_kg),
+            # against the pack weight: cheese in, less the cheese in the cases at their case weight and the offcuts
+            # made (GA actual); the giveaway the recipe allows (GA expected) is shown, not counted
+            "variance_kg": ga_act, "tolerance": max(rules.tolerance_pct * expected, rules.tolerance_kg),
             "recipe_kg_per_case": recipe_net}
 
 
@@ -907,9 +910,10 @@ def variance_reasons(oid, v, cons, sends_o, window, consumption, codes, recipe_b
         out.append({"kg": None, "text": f"The recipe plans {rn:,.3f} kg of cheese and starch per case (less offcuts) "
                     f"for a {cw:,.3f} kg case ({rn / cw - 1:+.0%}), so expected cheese uses the case weight instead: "
                     f"check the recipe (BOM)."})
-    if abs(var) <= v["tolerance"]:
-        return out + [{"kg": None, "text": f"Cheese is within tolerance of the plan ({var:+,.1f} kg against the "
-                                           f"giveaway the recipe allows), so there's nothing to explain."}]
+    # within tolerance there's nothing to explain, unless more came out than went in (that's never fine)
+    if abs(var) <= v["tolerance"] and var >= -OUT_EXCEEDS_KG:
+        return out + [{"kg": None, "text": f"Cheese is within tolerance ({var:+,.1f} kg: cheese in, less the cases at "
+                                           f"their pack weight and the offcuts made), so there's nothing to explain."}]
     area, begin, end = window["area"], window["begin"], window["end"]
     ctype = info["ctype"]
     types = {ctype(m) for m in info["recipe"]}
@@ -1078,8 +1082,8 @@ def narrative(s: dict, findings: list) -> str:
         elif v["variance_kg"] > v["tolerance"]:
             out.append(f"That's {_t(v['variance_kg'])} kg more cheese than {made} need.")
         if abs(v["variance_kg"]) > v["tolerance"]:
-            out.append(f"On cheese alone (no starch), giveaway is {_t(v['ga_actual'], 1)} kg against "
-                       f"{_t(v['ga_expected'], 1)} kg planned ({v['variance_kg']:+,.1f} kg).")
+            out.append(f"On cheese alone (no starch), cheese in less the cases at their pack weight and the offcuts "
+                       f"made is {v['variance_kg']:+,.1f} kg.")
             lead = [x for x in s.get("variance_reasons") or [] if x["kg"]]
             if lead:
                 out.append("The journal points to: " + lead[0]["text"])
@@ -1450,7 +1454,12 @@ def check_order(oid: str, wb: Workbook, windows: pd.DataFrame, outputs: pd.DataF
                 sev = "HIGH" if abs(cheese_diff) > max(3 * tol, 500) else "MEDIUM"
                 flag(sev, "CHEESE_OVER_USED" if cheese_diff > 0 else "CHEESE_UNDER_USED",
                      msg + f" Difference {cheese_diff:+,.1f} kg ({cheese_diff / est_needed:+.1%}).")
-            if abs(unacc) <= mass_tol:
+            # more out than in can't happen, whatever the tolerance: flagged from OUT_EXCEEDS_KG (below that, rounding)
+            if unacc < -OUT_EXCEEDS_KG and abs(unacc) <= mass_tol:
+                flag("MEDIUM", "MASS_OUT_EXCEEDS_IN", mass_text + f" {-unacc:,.1f} kg more came out than went in. That's "
+                     f"within the {rules.tolerance_pct:.0%} tolerance, but more can't come out than went in: inputs used but "
+                     f"not consumed in SAP, offcuts weighed heavy, or output overstated (cases under weight).")
+            elif abs(unacc) <= mass_tol:
                 flag("INFO", "MASS_BALANCES", mass_text + f" Unaccounted {unacc:+,.1f} kg is within tolerance.")
             else:
                 same = cheese_off and (cheese_diff > 0) == (unacc > 0)

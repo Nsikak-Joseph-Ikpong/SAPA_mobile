@@ -688,7 +688,8 @@
       ${plannedCheese}${cheeseLine}${repackLine}</dl>`;
 
     const m = s.mass;
-    const massBad = m && Math.abs(m.unaccounted) > m.tolerance;
+    // off beyond tolerance, or more out than in at all (the checker flags that whatever the tolerance)
+    const massBad = m && (Math.abs(m.unaccounted) > m.tolerance || r.findings.some((x) => x.code === "MASS_OUT_EXCEEDS_IN"));
     const massHtml = m ? `<div class="mass">
         <table><caption>In</caption><tbody>
           <tr><td>Cheese blocks</td><td class="n">${kg(m.blocks_in)}</td></tr>
@@ -708,7 +709,7 @@
     const varHtml = va ? `<div class="var"><h3>Variance</h3><div class="scroll"><table>
         <thead><tr><th>Case weight</th><th>Planned FG qty</th><th>Actual FG qty</th><th>Nominal weight planned</th><th>Nominal weight of output</th><th>Starch in output</th><th>Nominal cheese of output</th><th>Expected cheese</th>${va.repack_kg ? "<th>Cheese consumed</th><th>Repacks in</th>" : ""}<th>Actual cheese issued</th><th>Expected offcuts output</th><th>Actual offcuts output</th><th>GA expected</th><th>GA actual</th><th>Output cheese + offcuts</th><th>Difference to cheese issued</th><th>Diff %</th><th>Cheese planned input %</th></tr></thead>
         <tbody><tr><td class="n">${f(va.case_weight, 3)}</td><td class="n">${f(va.planned_fg, 1)}</td><td class="n">${f(va.actual_fg, 1)}</td><td class="n">${f(va.nominal_planned, 1)}</td><td class="n">${f(va.nominal_output, 1)}</td><td class="n">${va.starch_in_output ? f(va.starch_in_output, 1) : "-"}</td><td class="n">${f(va.nominal_cheese_output, 1)}</td><td class="n">${f(va.expected_cheese, 1)}</td>${va.repack_kg ? `<td class="n">${f(va.cheese_input_kg, 1)}</td><td class="n">${f(va.repack_kg, 1)}</td>` : ""}<td class="n">${f(va.actual_cheese, 1)}</td><td class="n">${va.expected_offcuts ? f(va.expected_offcuts, 1) : "-"}</td><td class="n">${va.actual_offcuts ? f(va.actual_offcuts, 1) : "-"}</td><td class="n">${f(va.ga_expected, 1)}</td><td class="n hl">${f(va.ga_actual, 1)}</td><td class="n">${f(va.output_plus_offcuts, 1)}</td><td class="n hl">${f(va.difference, 1)}</td><td class="n hl">${pctTxt(va.diff_pct)}</td><td class="n">${va.planned_input_pct ? Math.round(100 * va.planned_input_pct) + "%" : ""}</td></tr></tbody></table></div>
-        <p class="src">Case weight from the ${esc(va.case_weight_from)}; actual cheese is ${esc(va.actual_cheese_from)}. Cheese only, no starch: GA = giveaway = cheese in, less the cheese in the nominal output (case weight less planned starch) and offcuts. Against the plan, GA is ${fs(va.variance_kg, 1)} kg.${va.repack_kg ? ` Actual cheese issued includes ${f(va.repack_kg, 1)} kg of repacked finished goods (cases × their case weight) on top of the ${f(va.cheese_input_kg, 1)} kg of cheese consumed.` : ""}</p></div>` : "";
+        <p class="src">Case weight from the ${esc(va.case_weight_from)}; actual cheese is ${esc(va.actual_cheese_from)}. Cheese only, no starch: GA = giveaway = cheese in, less the cheese in the nominal output (case weight less planned starch) and offcuts. The variance is GA actual, against the pack weight: the ${f(va.ga_expected, 1)} kg of giveaway the recipe allows (GA expected) isn't counted.${va.repack_kg ? ` Actual cheese issued includes ${f(va.repack_kg, 1)} kg of repacked finished goods (cases × their case weight) on top of the ${f(va.cheese_input_kg, 1)} kg of cheese consumed.` : ""}</p></div>` : "";
     const os = s.open_status || [];
     const q1 = (x) => (x === null || x === undefined ? "-" : f(x, 1));
     const openHtml = os.length ? `<div class="var"><h3>Planned, actual and open</h3><div class="scroll"><table>

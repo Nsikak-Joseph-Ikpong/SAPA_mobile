@@ -509,7 +509,8 @@ planned output):
   starch planned, less offcuts planned, over the planned cases).
   Offcut bins are made by slicing orders and consumed like any cheese by the orders whose recipe lists
   them. Flags: more went in than came out (`MASS_UNACCOUNTED`), more came out than went in
-  (`MASS_OUT_EXCEEDS_IN`), offcut rate more than 3 points over plan (`OFFCUTS_OVER_PLAN`), no offcuts
+  (`MASS_OUT_EXCEEDS_IN`: beyond tolerance as before, and MEDIUM for anything over 5 kg inside it, since
+  more can't come out than went in), offcut rate more than 3 points over plan (`OFFCUTS_OVER_PLAN`), no offcuts
   declared (`OFFCUTS_NOT_DECLARED`). When cheese is over or under the recipe but the balance closes, the
   difference is offcut yield and the cheese flag drops to LOW;
 * **variance**, in the layout of the plant's variance report: case weight, planned and actual FG
@@ -523,7 +524,9 @@ planned output):
   starch, and the output side is the cheese in the nominal output (case weight less the planned starch:
   197 kg in a 200 kg dolav), so GA measures cheese giveaway only. When the recipe's weight per case is more than 5% off the case weight (e.g. two
   alternative cheeses both planned for the full case), the cheese is scaled to the case weight and the
-  reasons say to check the BOM. Each order gets a list of possible reasons with the
+  reasons say to check the BOM. The variance the reasons explain is GA actual, against the pack weight
+  (cheese in, less the cases at their pack weight and the offcuts made); the giveaway the recipe allows (GA
+  expected) isn't counted. Each order gets a list of possible reasons with the
   journal evidence: cheese moved to the line but never consumed, consumption on the line tied to no job
   or given to a neighbouring job, a recipe cheese not consumed at all, cheese moved back off the line
   without the consumption being reversed, offcuts above or below expected, output findings. The page can

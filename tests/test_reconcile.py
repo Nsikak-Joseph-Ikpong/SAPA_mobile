@@ -463,3 +463,44 @@ def test_offsetting_variances_on_the_same_line_are_paired():
                            "job 567.3 kg went in with no output; on 2443 502.7 kg more came out than went in. Together they're "
                            "off by only +64.5 kg, so cheese booked to one job was probably used by the other: compare the two.")
     assert a["linked"]["order_id"] == "2443" and b["linked"]["order_id"] == "2484" and "linked" not in c
+
+
+def test_more_out_than_in_is_flagged_within_tolerance(tmp_path):
+    # job 2571: 1,141 cases of 6x1kg (6,846 kg at pack weight) and 760.12 kg of offcuts from 7,502 kg of cheese: 104.1 kg
+    # more out than in. The cases count at the pack weight (no recipe giveaway), and more out than in is flagged even
+    # though it's within the 5% tolerance.
+    t = lambda h: f"10.10.2026 {h:02d}:00:00 GMTUK"
+    comp_head = ["Production Order ID", "Production Order Status", "Earliest Start Date Time", "Requested Start Date",
+                 "Requested Start Date Time", "Output Product ID", "Resource ID", "Input Material ID", "Output Material ID",
+                 "Output Material ID (Text)", "Planned Quantity", "Open Quantity", "Fulfilled Quantity", "Counter",
+                 "Open Quantity", "Fulfilled Quantity"]
+    comp = [["2571", "Finished", t(6), None, t(6), "MASL2061EX", "SLICING_L2", "RMMA20BF", "MASL2061EX", None, 7465.9, 0, 7502, 1, 0, 1141]]
+    out_head = ["Production Order", "Production Order (Output Product)", "Production Order (Output Product Text)", "Product",
+                "Product (Text)", "Production Order Creation Date", "Production Order Latest End Date Time",
+                "Production Start Date Time", "Planned Quantity", "Open Quantity", "Fulfilled Quantity"]
+    outs = [["2571", "MASL2061EX", "Mature Sliced Cheddar 6x1kg", "MASL2061EX", "Mature Sliced Cheddar 6x1kg", None, t(23), t(6), 1120, 0, 1141],
+            [None, None, None, "MBSLOFF", "Slicing offcuts", None, None, None, 672, 0, 760.12]]
+    j_head = ["Site", "Product", "Identified Stock (Identified Stock ID)", "Logistics Area (Logistics Area ID)", "Created On",
+              "Conf.Document Type", "Conf.ID", "Reference Document ID", "Restricted", "Effective Qty"]
+    J = [["EXTHQ1", "RMMA20BF", "X1", "SL_2", t(5), GA, "1", "#", "#", 7502],
+         ["EXTHQ1", "RMMA20BF", "X1", "SL_2", t(20), PC, "2", "2571", "#", -7502]]
+    left, i = 1141, 0
+    while left > 0:
+        q = min(104, left); left -= q
+        J.append(["EXTHQ1", "MASL2061EX", f"P{i}", "FG_STAGING", t(7 + i), PC, str(10 + i), "2571", "#", q]); i += 1
+    J.append(["EXTHQ1", "MBSLOFF", "OFF1", "SL_2", t(20), PC, "99", "2571", "#", 760.12])
+    path = tmp_path / "job2571.xlsx"
+    with pd.ExcelWriter(path) as xw:
+        for name, head, rows in [("OUT+IN", comp_head, comp), ("output", out_head, outs), ("Confirmation Journal", j_head, J)]:
+            pd.DataFrame([[name] + [None] * (len(head) - 1), head, *rows]).to_excel(xw, sheet_name=name, header=False, index=False)
+    res = run(read_workbook([str(path)]))
+    s = next(x for x in res.summaries if x["order_id"] == "2571")
+    assert s["mass"]["kg_per_case"] == pytest.approx(6.0)
+    assert s["mass"]["unaccounted"] == pytest.approx(7502 - 1141 * 6 - 760.12)
+    assert s["variance"]["variance_kg"] == pytest.approx(s["variance"]["ga_actual"])
+    f = codes(res, "2571")
+    assert "MASS_OUT_EXCEEDS_IN" in f and f["MASS_OUT_EXCEEDS_IN"].severity == "MEDIUM" and "MASS_BALANCES" not in f
+    assert "within the 5% tolerance" in f["MASS_OUT_EXCEEDS_IN"].message
+    # and the possible reasons look for a cause rather than calling it within tolerance
+    texts = " ".join(x["text"] for x in s["variance_reasons"])
+    assert "nothing to explain" not in texts and "Offcuts declared are 75.5 kg above expected" in texts
