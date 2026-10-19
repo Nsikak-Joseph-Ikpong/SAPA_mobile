@@ -1394,13 +1394,15 @@ def check_order(oid: str, wb: Workbook, windows: pd.DataFrame, outputs: pd.DataF
         other_out = (f" (the order shows {order_out:,.0f} cases, which need {in_pc * order_out:,.1f} kg)"
                      if journal_out and order_out != journal_out else "")
         # ---- mass balance: everything in (cheese blocks, offcuts, starch) vs everything out
-        # (product, offcuts made). Product weight per case comes from the recipe: cheese + starch
-        # planned, less the offcuts planned, over the planned cases.
+        # (product, offcuts made). Product weight per case is the case weight (the pack size, e.g.
+        # 6 kg): no giveaway added, so whatever went in beyond the cases and the offcuts shows as
+        # unaccounted. Without a case weight, the recipe's (cheese + starch planned, less the offcuts
+        # planned, over the planned cases).
         starch_comps = comps[comps["material"].str.upper().str.startswith(rules.not_cheese_prefixes)]
         p_cheese, p_starch = float(cheese_comps["planned"].sum()), float(starch_comps["planned"].sum())
         offc = wb.byproducts[wb.byproducts["order_id"] == oid]
         p_off, made_off = float(offc["planned"].fillna(0).sum()), float(offc["fulfilled"].fillna(0).sum())
-        net_pc = rec["net_pc"]
+        net_pc = rec.get("case_weight") or rec["net_pc"]
         starch_in = float((starch_used or {}).get(oid, 0.0))
         offcut_in = float(sum(v for m, v in by_mat.items() if re.match(rules.offcut_pattern, m.upper())))
         mass_in = consumed + starch_in + repack_kg

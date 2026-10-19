@@ -503,8 +503,10 @@ planned output):
   pallet held (`BATCH_OVER_CONSUMED`) are checked;
 * **mass balance** (with consumption): everything in (cheese blocks and offcuts consumed, plus starch
   backflushed on the order's output confirmations) against everything out (cases × product weight, plus
-  offcuts made as booked on the order's by-products). Product weight per case comes from the recipe:
-  cheese + starch planned, less offcuts planned, over the planned cases (e.g. 6.068 kg for a 6×1 kg case).
+  offcuts made as booked on the order's by-products). Product weight per case is the case weight (the
+  pack size, e.g. 6 kg for a 6×1 kg case), with no giveaway added, so whatever went in beyond the cases
+  and the offcuts shows as unaccounted; only without a case weight does it come from the recipe (cheese +
+  starch planned, less offcuts planned, over the planned cases).
   Offcut bins are made by slicing orders and consumed like any cheese by the orders whose recipe lists
   them. Flags: more went in than came out (`MASS_UNACCOUNTED`), more came out than went in
   (`MASS_OUT_EXCEEDS_IN`), offcut rate more than 3 points over plan (`OFFCUTS_OVER_PLAN`), no offcuts

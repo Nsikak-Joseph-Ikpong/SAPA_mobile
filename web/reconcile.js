@@ -990,12 +990,14 @@
       const sheet = issued ? ` The order sheet shows ${f(issued, 1)} kg of cheese issued.` : " None of the cheese shows on the order sheet.";
       const otherOut = journal_out && order_out !== journal_out ? ` (the order shows ${f(order_out)} cases, which need ${f(inPc * order_out, 1)} kg)` : "";
       // mass balance: everything in (cheese blocks, offcuts, starch) vs everything out (product, offcuts made).
-      // Product weight per case comes from the recipe: cheese + starch planned, less the offcuts planned, over the planned cases.
+      // Product weight per case is the case weight (the pack size, e.g. 6 kg): no giveaway added, so whatever went in
+      // beyond the cases and the offcuts shows as unaccounted. Without a case weight, the recipe's (cheese + starch
+      // planned, less the offcuts planned, over the planned cases).
       const starchComps = comps.filter((c) => RULES.not_cheese_prefixes.some((p) => c.material.toUpperCase().startsWith(p)));
       const pCheese = sum(cheeseComps.map((c) => c.planned)), pStarch = sum(starchComps.map((c) => c.planned));
       const offc = idx.byp.get(oid) || [];
       const pOff = sum(offc.map((b) => (isNaN(b.planned) ? 0 : b.planned))), madeOff = sum(offc.map((b) => (isNaN(b.fulfilled) ? 0 : b.fulfilled)));
-      const netPc = rec.net_pc;
+      const netPc = rec.case_weight || rec.net_pc;
       const starchIn = ctx.starchUsed.get(oid) || 0;
       const offcutIn = sum([...byMat.keys()].sort().filter((m) => RULES.offcut_pattern.test(m.toUpperCase())).map((m) => byMat.get(m)));
       const massIn = consumed + starchIn + repackKg, productKg = estOut * netPc, massOut = productKg + madeOff, unacc = massIn - massOut;

@@ -182,9 +182,10 @@ def test_batch_consumed_twice(full):
 def test_mass_balance_with_offcuts(full):
     c = next(s for s in full.summaries if s["order_id"] == "C3")
     m = c["mass"]
-    # product weight per case = (700 cheese - 70 offcuts planned) / 100 cases
-    assert m["kg_per_case"] == pytest.approx(6.3) and m["in"] == pytest.approx(720)
-    assert m["out"] == pytest.approx(630 + 110) and m["unaccounted"] == pytest.approx(-20)
+    # product weight per case = the case weight, 6 kg ("Slices 6x1kg"), no giveaway added
+    # (the recipe would make it (700 cheese - 70 offcuts planned) / 100 cases = 6.3)
+    assert m["kg_per_case"] == pytest.approx(6.0) and m["in"] == pytest.approx(720)
+    assert m["out"] == pytest.approx(600 + 110) and m["unaccounted"] == pytest.approx(10)
     f = codes(full, "C3")
     assert "MASS_BALANCES" in f and "CHEESE_BALANCES" in f
     assert "15.3% of what went in against 10.0% planned" in f["OFFCUTS_OVER_PLAN"].message
