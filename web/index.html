@@ -215,6 +215,10 @@
   td.m { font-family: var(--mono); }
   tr.neg td { color: var(--high); }
   tr.lineRow td { background: var(--medium-soft); }
+  td.seen { width: 1%; padding: 2px 8px; }
+  input.seen { width: 22px; height: 22px; margin: 0; vertical-align: middle; accent-color: var(--ok); cursor: pointer; }
+  tr.seenRow td { background: var(--ok-soft); }
+  .seencount { color: var(--ok); }
   tr.tot td { border-top: 1.5px solid var(--ink); }
   button.hist { font: inherit; font-family: var(--mono); color: var(--accent); }
   tr.histrow > td { background: var(--sunken); padding: 8px 10px 12px; white-space: normal; }
@@ -301,6 +305,15 @@
   const $ = (id) => document.getElementById(id);
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   const { f, fs, dm, dmy } = R.fmt;
+  // pallets ticked as seen on the floor (order | pallet -> when), kept in this browser; a month and a half at most
+  const SEEN = "sapa-seen-pallets";
+  const seenGet = () => { try { return JSON.parse(localStorage.getItem(SEEN)) || {}; } catch { return {}; } };
+  const seenSet = (o) => {
+    const old = Date.now() - 45 * 86400000;
+    for (const k of Object.keys(o)) if (!(o[k] > old)) delete o[k];
+    try { localStorage.setItem(SEEN, JSON.stringify(o)); } catch { /* private window: ticks last until the page closes */ }
+  };
+  const seenTitle = (t) => (t ? `Seen ${dm(t)}: untick if not` : "Tick when you've seen this pallet");
   const n0 = (v) => (v === null || v === undefined || isNaN(v) ? "n/a" : f(v));
   const kg = (v) => (v === null || v === undefined || isNaN(v) ? "n/a" : f(v, 1) + " kg");
 
@@ -726,7 +739,16 @@
     const dbl = new Set(s.double_booked_pallets || []), irr = new Set(s.irregular_pallets || []);
     const lineAreas = new Set(Object.values(R.RULES.line_areas));
     const batchBtn = (m, b) => (b === null || b === undefined || b === "" ? "" : `<button type="button" class="link hist" data-m="${esc(m)}" data-b="${esc(b)}" title="Show every confirmation of this batch">${esc(b)}</button>`);
-    const outRows = s.outputs.map((o) => `<tr class="${[o.qty < 0 || dbl.has(o.batch) || irr.has(o.batch) ? "neg" : "", lineAreas.has(o.area) ? "lineRow" : ""].join(" ").trim()}"><td class="m">${esc(o.conf)}</td><td class="m">${esc(dm(o.time))}</td><td class="m">${batchBtn(o.material, o.batch)}</td><td class="n">${f(o.qty)}</td><td>${esc(o.area)}</td></tr>`).join("");
+    // a tick box per pallet for the walk round the floor; a reversal isn't a pallet to find
+    const seen = seenGet(), seenKey = (b) => s.order_id + "|" + b;
+    const pallets = [...new Set(s.outputs.filter((o) => o.qty > 0 && o.batch !== null && o.batch !== undefined && o.batch !== "").map((o) => String(o.batch)))];
+    const seenN = pallets.filter((b) => seen[seenKey(b)]).length;
+    const seenCell = (o) => {
+      if (!(o.qty > 0) || !pallets.includes(String(o.batch))) return "<td></td>";
+      const k = seenKey(o.batch), t = seen[k];
+      return `<td class="seen"><input type="checkbox" class="seen" data-k="${esc(k)}"${t ? " checked" : ""} title="${esc(seenTitle(t))}" aria-label="Seen pallet ${esc(o.batch)}"></td>`;
+    };
+    const outRows = s.outputs.map((o) => `<tr class="${[o.qty < 0 || dbl.has(o.batch) || irr.has(o.batch) ? "neg" : "", lineAreas.has(o.area) ? "lineRow" : "", o.qty > 0 && seen[seenKey(o.batch)] ? "seenRow" : ""].join(" ").trim()}">${seenCell(o)}<td class="m">${esc(o.conf)}</td><td class="m">${esc(dm(o.time))}</td><td class="m">${batchBtn(o.material, o.batch)}</td><td class="n">${f(o.qty)}</td><td>${esc(o.area)}</td></tr>`).join("");
     const cheeseRows = s.cheese_moves.map((c) => `<tr><td class="m">${esc(dm(c.time))}</td><td class="m">${esc(c.material)}</td><td class="m">${batchBtn(c.material, c.batch)}</td><td class="n">${f(c.sent, 2)}</td><td class="n">${c.returned ? f(c.returned, 2) : ""}</td><td>${esc(c.returned_to || "")}</td><td>${esc(c.other_orders || "")}</td></tr>`).join("");
     const q = (v) => (v === null || v === undefined || isNaN(v) ? "" : f(v, 2));
     const consumedCol = s.cheese_source === "consumed";
@@ -759,8 +781,8 @@
         ${consRows ? `<input type="search" class="tfilter" placeholder="Filter by stock ID, Conf.ID, product…" aria-label="Filter cheese consumed">` : ""}<div class="scroll"><table class="sortable">
         <thead><tr><th>Product</th><th>Identified Stock ID</th><th>Logistics Area ID</th><th>Created On</th><th>Conf.Document Type</th><th>Conf.ID</th><th>Effective Qty</th><th>Tied to the order by</th><th>Could also be</th></tr></thead><tbody>${consRows || `<tr><td colspan="9">None</td></tr>`}</tbody>${consFoot}</table></div></details>` : ""}
       ${rpHtml}
-      <details class="ev"${dbl.size || irr.size || s.outputs.some((o) => lineAreas.has(o.area)) ? " open" : ""}><summary>Output postings in the journal (${s.outputs.length}) · click a pallet for its history${dbl.size ? ` · double-booked pallet${dbl.size > 1 ? "s" : ""} ${[...dbl].join(", ")} in red` : ""}${irr.size ? ` · pallets off the usual count (${[...irr].join(", ")}) in red` : ""}${s.outputs.some((o) => lineAreas.has(o.area)) ? " · posted on a line area shaded" : ""}</summary><div class="scroll"><table>
-        <thead><tr><th>Conf.ID</th><th>Posted</th><th>Pallet</th><th>Cases</th><th>Area</th></tr></thead><tbody>${outRows || `<tr><td colspan="5">None</td></tr>`}</tbody></table></div></details>
+      <details class="ev"${dbl.size || irr.size || s.outputs.some((o) => lineAreas.has(o.area)) ? " open" : ""}><summary>Output postings in the journal (${s.outputs.length})${pallets.length ? ` · <span class="seencount">${seenN} of ${pallets.length} pallet${pallets.length === 1 ? "" : "s"} seen</span>` : ""} · tick a pallet when you've seen it, click its number for its history${dbl.size ? ` · double-booked pallet${dbl.size > 1 ? "s" : ""} ${[...dbl].join(", ")} in red` : ""}${irr.size ? ` · pallets off the usual count (${[...irr].join(", ")}) in red` : ""}${s.outputs.some((o) => lineAreas.has(o.area)) ? " · posted on a line area shaded" : ""}</summary><div class="scroll"><table>
+        <thead><tr><th>Seen</th><th>Conf.ID</th><th>Posted</th><th>Pallet</th><th>Cases</th><th>Area</th></tr></thead><tbody>${outRows || `<tr><td colspan="6">None</td></tr>`}</tbody></table></div></details>
       <details class="ev"><summary>Cheese moved to the line during the run (${s.cheese_moves.length})</summary>
         <p class="hint">${consumedCol ? "Moves only make cheese available on the line; the consumption above is what counts." : "The journal has no cheese consumption lines, so when the order sheet shows no cheese issued, these moves (less what went away again) are the estimate. Cheese issued straight from store, or left on the line from the job before, doesn't show here."}</p><div class="scroll"><table>
         <thead><tr><th>Moved</th><th>Material</th><th>Batch</th><th>kg in</th><th>kg back</th><th>Back to</th><th>Could also be</th></tr></thead><tbody>${cheeseRows || `<tr><td colspan="7">None</td></tr>`}</tbody></table></div></details>`;
@@ -865,6 +887,27 @@
     if (sumTd) {
       sumTd.querySelector(".ftSum").textContent = f(total, 2);
       table.querySelector("tfoot .ftLabel").textContent = q ? `Total of ${shown} shown` : "Total";
+    }
+  });
+  // a pallet ticked as seen (or unticked): saved, and every copy of it on the page (a card open side by side too) follows
+  document.addEventListener("change", (e) => {
+    const cb = e.target.closest("input.seen");
+    if (!cb) return;
+    const k = cb.dataset.k, o = seenGet(), t = cb.checked ? Date.now() : 0;
+    if (t) o[k] = t; else delete o[k];
+    seenSet(o);
+    const cards = new Set();
+    for (const x of document.querySelectorAll("input.seen")) {
+      if (x.dataset.k !== k) continue;
+      x.checked = !!t; x.title = seenTitle(t); x.closest("tr").classList.toggle("seenRow", !!t);
+      cards.add(x.closest("details"));
+    }
+    for (const d of cards) {
+      const c = d && d.querySelector(".seencount");
+      if (!c) continue;
+      const ks = new Set([...d.querySelectorAll("input.seen")].map((x) => x.dataset.k));
+      const n = new Set([...d.querySelectorAll("input.seen:checked")].map((x) => x.dataset.k)).size;
+      c.textContent = `${n} of ${ks.size} pallet${ks.size === 1 ? "" : "s"} seen`;
     }
   });
   // click a pallet or batch number: its full confirmation history from the journal, under the row

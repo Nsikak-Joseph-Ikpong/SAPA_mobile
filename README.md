@@ -577,6 +577,10 @@ The Excel report lists the order's inputs, the output postings and the cheese mo
 On the web page, clicking a pallet or batch number (in the output postings or the cheese consumed table)
 opens that batch's full confirmation history from the journal: every confirmation in time order with its
 type, Conf.ID, logistics area, Effective Qty and the running stock after each row.
+Each pallet in the output postings has a *Seen* tick box for walking the floor: tick it when you've found
+the pallet, and the table's heading counts how many of the order's pallets have been seen (e.g. "8 of 11
+pallets seen"); a pallet booked twice is one tick. Ticks are kept in that browser (on that phone or laptop)
+for 45 days, so they're still there after a reload or after loading newer SAP files.
 
 ## Hosting the web tool on GitHub Pages
 
