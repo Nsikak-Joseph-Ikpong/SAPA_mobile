@@ -219,6 +219,9 @@
   input.seen { width: 22px; height: 22px; margin: 0; vertical-align: middle; accent-color: var(--ok); cursor: pointer; }
   tr.seenRow td { background: var(--ok-soft); }
   .seencount { color: var(--ok); }
+  .seenbar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; margin-top: 8px; }
+  .seenbar button { display: inline-flex; align-items: center; gap: 8px; }
+  .seenbar .hint { margin: 0; }
   tr.tot td { border-top: 1.5px solid var(--ink); }
   button.hist { font: inherit; font-family: var(--mono); color: var(--accent); }
   tr.histrow > td { background: var(--sunken); padding: 8px 10px 12px; white-space: normal; }
@@ -782,6 +785,7 @@
         <thead><tr><th>Product</th><th>Identified Stock ID</th><th>Logistics Area ID</th><th>Created On</th><th>Conf.Document Type</th><th>Conf.ID</th><th>Effective Qty</th><th>Tied to the order by</th><th>Could also be</th></tr></thead><tbody>${consRows || `<tr><td colspan="9">None</td></tr>`}</tbody>${consFoot}</table></div></details>` : ""}
       ${rpHtml}
       <details class="ev"${dbl.size || irr.size || s.outputs.some((o) => lineAreas.has(o.area)) ? " open" : ""}><summary>Output postings in the journal (${s.outputs.length})${pallets.length ? ` · <span class="seencount">${seenN} of ${pallets.length} pallet${pallets.length === 1 ? "" : "s"} seen</span>` : ""} · tick a pallet when you've seen it, click its number for its history${dbl.size ? ` · double-booked pallet${dbl.size > 1 ? "s" : ""} ${[...dbl].join(", ")} in red` : ""}${irr.size ? ` · pallets off the usual count (${[...irr].join(", ")}) in red` : ""}${s.outputs.some((o) => lineAreas.has(o.area)) ? " · posted on a line area shaded" : ""}</summary><div class="scroll"><table>
+        ${pallets.length ? `<div class="seenbar"><button type="button" class="scanpallets" data-o="${esc(s.order_id)}"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" d="M4 8.5A1.5 1.5 0 0 1 5.5 7h2.2l1.4-2h5.8l1.4 2h2.2A1.5 1.5 0 0 1 20 8.5v9a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 17.5z"/><circle cx="12" cy="13" r="3.4" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>Scan pallet labels</button><span class="hint">The camera stays open: each of this job's pallets it reads is ticked, one after another.</span></div>` : ""}
         <thead><tr><th>Seen</th><th>Conf.ID</th><th>Posted</th><th>Pallet</th><th>Cases</th><th>Area</th></tr></thead><tbody>${outRows || `<tr><td colspan="6">None</td></tr>`}</tbody></table></div></details>
       <details class="ev"><summary>Cheese moved to the line during the run (${s.cheese_moves.length})</summary>
         <p class="hint">${consumedCol ? "Moves only make cheese available on the line; the consumption above is what counts." : "The journal has no cheese consumption lines, so when the order sheet shows no cheese issued, these moves (less what went away again) are the estimate. Cheese issued straight from store, or left on the line from the job before, doesn't show here."}</p><div class="scroll"><table>
@@ -892,8 +896,10 @@
   // a pallet ticked as seen (or unticked): saved, and every copy of it on the page (a card open side by side too) follows
   document.addEventListener("change", (e) => {
     const cb = e.target.closest("input.seen");
-    if (!cb) return;
-    const k = cb.dataset.k, o = seenGet(), t = cb.checked ? Date.now() : 0;
+    if (cb) setSeen(cb.dataset.k, cb.checked);
+  });
+  function setSeen(k, on) {
+    const o = seenGet(), t = on ? Date.now() : 0;
     if (t) o[k] = t; else delete o[k];
     seenSet(o);
     const cards = new Set();
@@ -909,7 +915,7 @@
       const n = new Set([...d.querySelectorAll("input.seen:checked")].map((x) => x.dataset.k)).size;
       c.textContent = `${n} of ${ks.size} pallet${ks.size === 1 ? "" : "s"} seen`;
     }
-  });
+  }
   // click a pallet or batch number: its full confirmation history from the journal, under the row
   document.addEventListener("click", async (e) => {
     const btn = e.target.closest("button.hist");
@@ -1114,6 +1120,58 @@
       toast(e.name === "NotAllowedError" ? "Camera blocked: allow the camera for this site in the browser's settings. Until then, tap the camera button to take a photo instead." : "No live camera here: tap the camera button to take a photo instead.");
     });
   }
+  // Scan pallet labels (a job's output postings): the camera stays open while you walk the floor, and each of the
+  // job's pallets it reads is ticked as seen; a pallet already ticked, or not this job's, is said on the picture
+  const otherJob = (pallet, oid) => {
+    const outs = state.ctx && state.ctx.idx && state.ctx.idx.outputs;
+    if (!outs) return null;
+    for (const [o, rows] of outs) if (o !== oid && rows.some((r) => r.qty > 0 && String(r.batch) === pallet)) return o;
+    return null;
+  };
+  document.addEventListener("click", (e) => {
+    const btn = e.target.closest("button.scanpallets");
+    if (!btn) return;
+    const oid = btn.dataset.o, box = btn.closest("details");
+    // this job's pallets, from its tick boxes
+    const keyOf = new Map([...box.querySelectorAll("input.seen")].map((x) => [x.dataset.k.slice(oid.length + 1), x.dataset.k]));
+    const left = () => [...keyOf.values()].filter((k) => !seenGet()[k]).length;
+    if (!window.isSecureContext || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { toast("The camera needs the page opened over https (the GitHub Pages address)."); return; }
+    const reader = liveReader();
+    let last = "", lastAt = 0;
+    const leftMsg = () => { const n = left(); return n ? `${n} pallet${n === 1 ? "" : "s"} still to find` : "All this job's pallets are seen"; };
+    CamView.start({
+      msg: `Point at a pallet label · ${leftMsg()}`, idleMs: 180000, idleMsg: "Camera off after three minutes with no label read.",
+      onClose: (why) => { if (why) toast(why); box.querySelector(".seencount")?.scrollIntoView({ behavior: "smooth", block: "center" }); },
+      read: async (v, cam) => {
+        const codes = await (await reader)(v);
+        if (!codes.length) return;
+        cam.alive();
+        // the pallet number: the label's batch, else any word on the code that's one of this job's pallets
+        let pallet = null, any = null;
+        for (const c of codes) {
+          const lab = labelOf(c.text), words = [lab && lab.batch, ...String(c.text).split(/[^A-Za-z0-9-]+/)].filter(Boolean).map(String);
+          pallet = words.find((w) => keyOf.has(w)) || null;
+          if (pallet) break;
+          if (!any && lab && lab.batch) any = String(lab.batch);
+        }
+        const seenAs = pallet || any || "";
+        if (seenAs && seenAs === last && Date.now() - lastAt < 4000) return;   // the same label still in view
+        if (seenAs) { last = seenAs; lastAt = Date.now(); }
+        if (!pallet) {
+          if (any) { const o = otherJob(any, oid); cam.msg(`✗ ${any} isn't one of job ${oid}'s pallets${o ? `: it's on job ${o}` : ""}`); if (navigator.vibrate) navigator.vibrate([40, 60, 40]); }
+          else cam.msg("That code isn't a pallet label");
+          return;
+        }
+        const k = keyOf.get(pallet);
+        if (seenGet()[k]) { cam.msg(`${pallet} was already ticked · ${leftMsg()}`); return; }
+        setSeen(k, true);
+        cam.flash();
+        if (navigator.vibrate) navigator.vibrate(60);
+        if (!left()) { cam.msg(`✓ ${pallet} seen · all ${keyOf.size} of job ${oid}'s pallets are seen`); cam.finish(() => toast(`All ${keyOf.size} of job ${oid}'s pallets are seen`), 1500); return; }
+        cam.msg(`✓ ${pallet} seen · ${leftMsg()}`);
+      },
+    }).catch((e) => toast(e.name === "NotAllowedError" ? "Camera blocked: allow the camera for this site in the browser's settings." : "No camera here to scan with."));
+  });
   // live where the browser allows it (https), else a photo
   $("trScan").onclick = () => {
     if (CamView.open) { CamView.stop(); return; }

@@ -580,7 +580,12 @@ type, Conf.ID, logistics area, Effective Qty and the running stock after each ro
 Each pallet in the output postings has a *Seen* tick box for walking the floor: tick it when you've found
 the pallet, and the table's heading counts how many of the order's pallets have been seen (e.g. "8 of 11
 pallets seen"); a pallet booked twice is one tick. Ticks are kept in that browser (on that phone or laptop)
-for 45 days, so they're still there after a reload or after loading newer SAP files.
+for 45 days, so they're still there after a reload or after loading newer SAP files. *Scan pallet labels*
+above the table opens the camera across the screen and keeps it open: each pallet label it reads that's one of
+the job's pallets is ticked (the pallet number is the label's batch, or any word on the QR code that matches one
+of the job's pallets), and the picture says how many are still to find. A pallet already ticked, or one on another
+job ("it's on job 2572"), is said on the picture and not ticked; the camera closes when every pallet is seen, or
+after three minutes with no label read.
 
 ## Hosting the web tool on GitHub Pages
 

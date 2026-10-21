@@ -112,6 +112,13 @@
     msg(text) { if (cur) ui.msg.textContent = text; },
     // a code was seen: not idle
     alive() { if (cur) cur.idleAt = Date.now(); },
+    // a code was taken and the camera stays open for the next: the frame goes green for a moment
+    flash(ms = 500) {
+      const me = cur;
+      if (!me) return;
+      ui.aim.classList.add("cv-hit"); clearTimeout(me.flashT);
+      me.flashT = setTimeout(() => { if (cur === me && !me.done) ui.aim.classList.remove("cv-hit"); }, ms);
+    },
     // got it: the frame goes green, then the camera closes and fn runs
     finish(fn, ms = 300) {
       const me = cur;
