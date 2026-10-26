@@ -577,6 +577,13 @@ The Excel report lists the order's inputs, the output postings and the cheese mo
 On the web page, clicking a pallet or batch number (in the output postings or the cheese consumed table)
 opens that batch's full confirmation history from the journal: every confirmation in time order with its
 type, Conf.ID, logistics area, Effective Qty and the running stock after each row.
+*Offcuts made* lists each offcut bin the job made: the journal's production confirmations for an offcut bin
+(a positive offcut row that isn't a reversal of the bin's consumption), tied to the job by its order reference,
+else by the line and time while the job was running and booking those offcuts. It shows the bins' total against
+the offcuts made on the order's by-products and says when the two differ. The offcuts made, output postings,
+cheese consumed and cheese moved tables each have a filter box (type a batch, bin, pallet or Conf.ID to show
+just those rows; the total follows) and sort by any column when its heading is clicked (the *Seen* column sorts
+ticked pallets together). These tables are on the web page only; the Python checker's report doesn't list the bins.
 Each pallet in the output postings has a *Seen* tick box for walking the floor: tick it when you've found
 the pallet, and the table's heading counts how many of the order's pallets have been seen (e.g. "8 of 11
 pallets seen"); a pallet booked twice is one tick. Ticks are kept in that browser (on that phone or laptop)
