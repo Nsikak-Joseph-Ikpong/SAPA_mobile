@@ -93,16 +93,19 @@ the camera's full resolution.
 
 ## Aisle manager
 
-`aisle.html` (*Aisle manager* in the page menu) assigns stock to aisles. Tap *Scan the aisle barcode* and point at
-the aisle's barcode (a QR code, DataMatrix or 1D barcode: Code 128, Code 39, EAN…); the camera stays open, and each
-plant label scanned after it (its big or small QR code) is assigned to that aisle with its quantity: the label's
-(the small QR's), else SAP's, and it can be changed in the list. Scan the next aisle's barcode to move on (a code
-shaped like the aisle codes scanned before, so a supplier's barcode on a pallet doesn't change the aisle), or tap
-*Another aisle*. A batch scanned again in another aisle moves there. An aisle code can also be typed (*Set aisle*)
-and a batch added by its number. Each aisle lists its batches with the product, the quantity, SAP's quantity (the
-difference in red) and SAP's area, or "not in SAP" when the stock overview doesn't have it. The aisles are kept on
-the device; *Export to Excel* saves every batch with its aisle, and a sheet with each aisle's batches and quantity
-per unit.
+`aisle.html` (*Aisle manager* in the page menu) records which pallet is on which rack. The racks are labelled on
+the beam with a strip of Code 128 barcodes, one per level: 7E06A1 is aisle 7E, bay 06, level A, position 1 (A white,
+B red, C yellow, D blue). *Scan the rack barcodes* and hold the camera on the strip: the barcodes are set at an angle,
+alternately one way and the other, so each frame is read upright and turned 30° each way in turn, and the racks
+read are kept (the camera closes by itself at four, or with *Done*). Each rack gets a button, coloured as on the
+strip. Tap one, scan the label on its pallet (big or small QR code), and the check shows the product, the batch,
+SAP's quantity and area from the stock overview, and the label's quantity: the quantity starts at SAP's (the
+label's when SAP doesn't have the batch) and can be changed; *OK* saves it. A batch already on another rack moves.
+Racks left empty stay empty (*Leave empty* on the camera), a rack that isn't in use can be removed (✕), and *Edit*
+changes a pallet's quantity, scans a different label or empties the rack. Then scan the next bay's strip; every bay
+is listed to go back to. Rack codes can also be typed. Kept on the device; *Export to Excel* gives one row per rack
+(empty racks blank): location, aisle, bay, level, position, product, description, batch, quantity, SAP's quantity,
+the difference, SAP's area, the label's quantity and when it was scanned.
 
 ## Scan and check on one device (phone or laptop)
 

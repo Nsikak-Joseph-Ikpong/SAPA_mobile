@@ -34,58 +34,72 @@
   html, body { margin: 0; }
   html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
   body { background: var(--ground); color: var(--ink); font: 14px/1.5 var(--sans); }
-  .wrap { max-width: 1240px; margin: 0 auto; padding: 20px 16px 48px; display: grid; gap: 16px; }
+  .wrap { max-width: 900px; margin: 0 auto; padding: 20px 16px 48px; display: grid; gap: 16px; }
   h1 { font-size: 21px; line-height: 1.2; margin: 0; letter-spacing: -0.01em; }
   h2 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin: 0; font-weight: 600; }
   .sub { color: var(--muted); margin: 4px 0 0; font-size: 13px; max-width: 90ch; }
   .panel { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; display: grid; gap: 12px; align-content: start; min-width: 0; }
   .hint { font-size: 12.5px; color: var(--muted); margin: 0; }
   a { color: var(--accent); }
+  .m { font-family: var(--mono); }
   button { font: 600 13.5px var(--sans); border-radius: 6px; padding: 8px 14px; cursor: pointer; border: 1px solid var(--accent); background: var(--accent); color: var(--accent-ink); }
   button.quiet { background: var(--surface); color: var(--ink); border-color: var(--line); font-weight: 500; }
-  button:disabled { opacity: .5; cursor: default; }
+  button.danger { background: var(--surface); color: var(--bad); border-color: var(--line); font-weight: 500; }
   :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   .sapbar { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 10px 16px; font-size: 13px; }
   .sapbar .grow { flex: 1 1 320px; min-width: 0; }
-  .now { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; }
-  .now .aisle { flex: 1 1 200px; }
-  .now .aisle small { display: block; font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: 600; }
-  .now .aisle b { font: 600 26px var(--mono); }
-  .now .aisle b.none { color: var(--muted); font: 500 18px var(--sans); }
-  .scan { display: inline-flex; align-items: center; gap: 8px; padding: 12px 20px; font-size: 15px; }
+  .bayhead small { display: block; font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: 600; }
+  .bayhead b { font: 600 22px var(--sans); }
+  .bayhead b.none { color: var(--muted); font-weight: 500; font-size: 17px; }
+  .scan { display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 12px 20px; font-size: 15px; }
   .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-  .row input { font: 600 15px var(--mono); padding: 9px 11px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--ink); width: 11em; min-width: 0; }
-  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; margin: 0; }
+  .row input { font: 600 15px var(--mono); padding: 9px 11px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--ink); flex: 1 1 10em; min-width: 0; }
+  /* the racks of the bay: one tap target each, coloured as the strip on the beam (A white, B red, C yellow, D blue) */
+  ol.racks { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+  ol.racks li { display: flex; align-items: stretch; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--surface); }
+  ol.racks li.next { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent); }
+  ol.racks button.rack { flex: 1; display: flex; align-items: center; gap: 12px; text-align: left; background: none; color: var(--ink); border: 0; border-radius: 0; padding: 10px 12px; font: inherit; min-width: 0; }
+  .chip { flex: none; width: 74px; padding: 6px 4px; border-radius: 6px; text-align: center; font: 600 13px var(--mono); border: 1px solid rgba(0, 0, 0, .25); }
+  .chip.lA { background: #fff; color: #111; } .chip.lB { background: #e0261b; color: #fff; } .chip.lC { background: #f5e400; color: #111; } .chip.lD { background: #1d3fbf; color: #fff; }
+  .chip.lX { background: var(--sunken); color: var(--ink); }
+  .what { min-width: 0; flex: 1; }
+  .what b { font: 600 14px var(--mono); }
+  .what small { display: block; color: var(--muted); font-size: 12.5px; line-height: 1.35; }
+  .what .qty { font: 600 15px var(--mono); }
+  .what .empty { color: var(--muted); font-size: 13.5px; }
+  ol.racks button.drop { color: var(--muted); background: var(--surface); font-size: 15px; }
+  ol.racks button.edit { flex: none; border: 0; border-left: 1px solid var(--line); border-radius: 0; background: var(--sunken); color: var(--ink); font-weight: 500; padding: 0 14px; }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; margin: 0; }
   .tiles div { background: var(--sunken); border-radius: 6px; padding: 8px 10px; }
   .tiles dt { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); }
-  .tiles dd { margin: 2px 0 0; font: 600 20px var(--mono); font-variant-numeric: tabular-nums; }
-  .tiles dd small { display: block; font: 12px var(--sans); color: var(--muted); }
+  .tiles dd { margin: 2px 0 0; font: 600 20px var(--mono); }
   .actions { display: flex; flex-wrap: wrap; gap: 10px; }
-  input.tfilter { width: 100%; max-width: 320px; font: inherit; font-size: 13px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--ink); }
-  section.aisle { border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
-  section.aisle.cur { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
-  section.aisle header { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: baseline; padding: 8px 12px; background: var(--sunken); }
-  section.aisle header b { font: 600 16px var(--mono); }
-  section.aisle header span { font-size: 12.5px; color: var(--muted); flex: 1; }
-  section.aisle header button { font-size: 12.5px; padding: 4px 10px; }
-  .scroll { overflow-x: auto; }
-  table { border-collapse: collapse; width: 100%; font-size: 13px; }
-  th, td { text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--line); vertical-align: middle; white-space: nowrap; }
-  tr:last-child td { border-bottom: 0; }
-  th { font-size: 12px; font-weight: 600; }
-  td.n { text-align: right; font-variant-numeric: tabular-nums; font-family: var(--mono); }
-  td.m { font-family: var(--mono); }
-  td small { display: block; color: var(--muted); font: 12px/1.35 var(--sans); white-space: normal; margin-top: 1px; }
-  td.wrap { white-space: normal; }
-  td small.m { font-family: var(--mono); color: var(--ink); }
-  td.q input { width: 5.5em; }
-  td.n small { text-align: right; }
-  td.x { width: 1%; padding-left: 0; }
-  th, td { padding: 6px 8px; }
-  td.q input { width: 6.5em; font: 500 13px var(--mono); padding: 4px 6px; border: 1px solid var(--line); border-radius: 5px; background: var(--surface); color: var(--ink); text-align: right; }
-  td.x button { padding: 2px 9px; background: none; color: var(--muted); border: 1px solid var(--line); font-size: 13px; }
+  ul.bays { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+  ul.bays li { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; }
+  ul.bays li.cur { border-color: var(--accent); background: var(--accent-soft); }
+  ul.bays li div { flex: 1; min-width: 0; }
+  ul.bays li small { display: block; color: var(--muted); font-size: 12.5px; }
+  ul.bays li button { padding: 6px 12px; }
   .bad { color: var(--bad); } .ok { color: var(--ok); } .warn { color: var(--warn); } .muted { color: var(--muted); }
-  .empty { border: 1px dashed var(--line); border-radius: 8px; padding: 26px; text-align: center; color: var(--muted); background: var(--surface); }
+  /* the check before a pallet goes on a rack */
+  .sheet { position: fixed; inset: 0; z-index: 50; background: rgba(0, 0, 0, .45); display: flex; align-items: flex-end; justify-content: center; }
+  .sheet-card { background: var(--surface); color: var(--ink); width: min(560px, 100%); max-height: 90vh; overflow-y: auto; border-radius: 14px 14px 0 0; padding: 16px 16px calc(env(safe-area-inset-bottom, 0px) + 18px); box-shadow: 0 -8px 30px rgba(0, 0, 0, .25); display: grid; gap: 12px; }
+  @media (min-width: 640px) { .sheet { align-items: center; } .sheet-card { border-radius: 14px; } }
+  .sheet-card header { display: flex; align-items: center; gap: 12px; }
+  .sheet-card header div { flex: 1; }
+  .sheet-card header small { display: block; color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .05em; font-weight: 600; }
+  .sheet-card header b { font-size: 18px; }
+  .sheet-card dl { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; font-size: 14px; }
+  .sheet-card dt { color: var(--muted); }
+  .sheet-card dd { margin: 0; font-family: var(--mono); }
+  .sheet-card dd small { display: block; font-family: var(--sans); color: var(--muted); font-size: 12.5px; }
+  .sheet-card label.q { display: grid; gap: 4px; font-weight: 600; font-size: 13px; }
+  .sheet-card label.q span { display: flex; align-items: center; gap: 8px; }
+  .sheet-card label.q input { font: 600 22px var(--mono); padding: 8px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--ink); width: 9em; text-align: right; }
+  .sheet-card .note { padding: 8px 10px; border-radius: 6px; font-size: 13px; background: var(--warn-soft); color: var(--ink); }
+  .sheet-card .btns { display: flex; flex-wrap: wrap; gap: 8px; }
+  .sheet-card .btns .okb { flex: 1 1 100%; padding: 13px; font-size: 16px; }
+  html.sheet-on, html.sheet-on body { overflow: hidden; }
   .toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); background: var(--ink); color: var(--ground); padding: 8px 14px; border-radius: 6px; font-size: 13px; z-index: 70; max-width: calc(100vw - 32px); }
   [hidden] { display: none !important; }
 </style>
@@ -94,33 +108,44 @@
 <div class="wrap">
   <div>
     <h1 data-nav="aisles">Aisle manager</h1>
-    <p class="sub">Scan an aisle's barcode, then the labels of what's on it (the big or small QR code): each batch is assigned to that aisle with its quantity (the label's, else SAP's; you can change it). Scan the next aisle's barcode to move on. A batch scanned in another aisle moves there. Product details and SAP's quantity and area come from the files loaded on the checker. Kept on this device; export to Excel.</p>
+    <p class="sub">Scan a bay's rack barcodes (the strip on the beam: 7E06A1, 7E06B1…) and each rack gets a button. Tap a rack, scan the label on its pallet, check the quantity (SAP's, from the stock overview: change it if it's wrong) and tap OK. Leave a rack empty by not filling it. Then scan the next bay's strip. Kept on this device; export to Excel when you're done.</p>
   </div>
   <section class="sapbar" aria-label="SAP data">
     <div class="grow"><b>SAP data:</b> <span id="sapText">looking for the SAP files…</span></div>
     <a href="./">Load or update them on the checker</a>
   </section>
   <section class="panel">
-    <div class="now">
-      <div class="aisle"><small>Assigning to aisle</small><b id="curAisle" class="none">no aisle yet: scan its barcode</b></div>
-      <button type="button" class="scan" id="scanBtn"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" d="M4 8.5A1.5 1.5 0 0 1 5.5 7h2.2l1.4-2h5.8l1.4 2h2.2A1.5 1.5 0 0 1 20 8.5v9a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 17.5z"/><circle cx="12" cy="13" r="3.4" fill="none" stroke="currentColor" stroke-width="1.8"/></svg><span id="scanText">Scan the aisle barcode</span></button>
-      <button type="button" class="quiet" id="aisleBtn" hidden>Scan another aisle</button>
-    </div>
-    <p class="hint">The camera stays open: scan the aisle's barcode, then each label on the rack; scan the next aisle's barcode to move on. Use the zoom slider for labels up high.</p>
-    <form class="row" id="setAisle"><input id="aisleIn" type="text" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="Aisle code" aria-label="Type an aisle code"><button type="submit" class="quiet">Set aisle</button></form>
-    <form class="row" id="addBatch"><input id="batchIn" type="text" inputmode="numeric" autocomplete="off" spellcheck="false" placeholder="Batch number" aria-label="Type a batch number to add to the aisle"><button type="submit" class="quiet">Add to this aisle</button></form>
+    <div class="bayhead"><small>Bay</small><b id="bayName" class="none">No bay yet: scan its rack barcodes</b></div>
+    <button type="button" class="scan" id="stripBtn"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" d="M4 6v12M7 6v12M10 6v12M14 6v12M16 6v12M20 6v12"/></svg><span id="stripText">Scan the rack barcodes</span></button>
+    <ol class="racks" id="racks"></ol>
+    <p class="hint" id="rackHint"></p>
+    <form class="row" id="addRacks"><input id="rackIn" type="text" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="Or type rack codes: 7E06A1 7E06B1" aria-label="Type rack codes"><button type="submit" class="quiet">Add</button></form>
   </section>
-  <section class="panel" id="listPanel">
+  <section class="panel">
+    <h2>All bays</h2>
     <dl class="tiles" id="tiles"></dl>
+    <ul class="bays" id="bays"></ul>
     <div class="actions">
-      <button type="button" class="quiet" id="xlsBtn">Export to Excel</button>
-      <button type="button" class="quiet" id="clearBtn">Clear all aisles</button>
+      <button type="button" id="xlsBtn">Export to Excel</button>
+      <button type="button" class="danger" id="clearBtn">Clear everything</button>
     </div>
-    <input type="search" class="tfilter" id="filter" placeholder="Filter by aisle, batch, product…" aria-label="Filter">
-    <div id="aisles" style="display:grid;gap:12px"></div>
   </section>
 </div>
 <p class="hint" style="text-align:center;margin:0 0 20px">Version __BUILD__</p>
+
+<div class="sheet" id="sheet" hidden role="dialog" aria-modal="true" aria-labelledby="sheetRack">
+  <div class="sheet-card">
+    <header><div><small>Rack</small><b id="sheetRack" class="m"></b></div><button type="button" class="quiet" id="sheetX" aria-label="Close">✕</button></header>
+    <dl id="sheetInfo"></dl>
+    <div class="note" id="sheetNote" hidden></div>
+    <label class="q">Quantity<span><input id="sheetQty" type="text" inputmode="decimal" autocomplete="off"><span id="sheetUnit" class="muted"></span></span><small class="muted" id="sheetFrom" style="font-weight:400"></small></label>
+    <div class="btns">
+      <button type="button" class="okb" id="sheetOk">OK</button>
+      <button type="button" class="quiet" id="sheetRescan">Scan a different label</button>
+      <button type="button" class="danger" id="sheetEmpty" hidden>Empty this rack</button>
+    </div>
+  </div>
+</div>
 <div class="toast" id="toast" hidden></div>
 <script src="vendor/xlsx.full.min.js?v=__BUILD__"></script>
 <script>window.XLSX || document.write('<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"><\/script>');</script>
@@ -137,14 +162,13 @@
   const { f, fs, dmy } = R.fmt;
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   const p2 = (n) => String(n).padStart(2, "0");
-  const hm = (t) => { const d = new Date(t); return `${p2(d.getHours())}:${p2(d.getMinutes())}`; };
   const q2 = (v) => (v === null || v === undefined || isNaN(v) ? "" : f(v, 2));
   const same = (a, b) => Math.abs(a - b) < 0.005;
   const cmp = (a, b) => String(a).localeCompare(String(b), undefined, { numeric: true });
   function toast(msg, ms = 2800) { const t = $("toast"); t.textContent = msg; t.hidden = false; clearTimeout(toast.t); toast.t = setTimeout(() => (t.hidden = true), ms); }
 
   // ------------------------------------------------------------ the SAP files the checker keeps in this browser
-  let ctx = null, saved;
+  let ctx = null, saved, byBatch = new Map(), names = new Map();
   const loadSaved = () => new Promise((resolve) => {
     try {
       const q = indexedDB.open("cheese-variance", 1);
@@ -153,226 +177,242 @@
       q.onsuccess = () => { try { const g = q.result.transaction("files").objectStore("files").get("workbook"); g.onsuccess = () => resolve(g.result || null); g.onerror = () => resolve(null); } catch { resolve(null); } };
     } catch { resolve(null); }
   });
-  let byBatch = new Map(), names = new Map();
   async function refresh() {
     const rec = await loadSaved();
     if (rec && rec.saved === saved && ctx) return;
     saved = rec ? rec.saved : null;
     const files = rec ? rec.files || (rec.buf ? [{ name: rec.name, buf: rec.buf }] : []) : [];
-    if (!files.length) { ctx = null; byBatch = new Map(); $("sapText").textContent = "no SAP files yet: batches can still be assigned, without SAP's quantity and area (load the stock overview on the checker)."; render(); return; }
+    if (!files.length) { ctx = null; byBatch = new Map(); $("sapText").textContent = "no SAP files yet: load the stock overview on the checker, for each batch's quantity."; render(); return; }
     $("sapText").textContent = "reading the SAP files…";
     await new Promise((r) => setTimeout(r, 30));
     try {
       const sheets = files.flatMap((x) => { const wb = XLSX.read(x.buf, { type: "array", dense: true }); return wb.SheetNames.map((sn) => ({ file: x.name, sheet: sn, rows: XLSX.utils.sheet_to_json(wb.Sheets[sn], { header: 1, raw: true, defval: null, blankrows: true }) })); });
       ctx = { wb: R.readWorkbook(sheets) };
-      const st = ctx.wb.stock || [];
+      const st0 = ctx.wb.stock || [];
       byBatch = new Map(); names = new Map();
-      for (const x of st) {
+      for (const x of st0) {
         const b = String(x.batch);
         if (!byBatch.has(b)) byBatch.set(b, []);
         byBatch.get(b).push(x);
         if (x.material_text !== null && x.material_text !== undefined && !names.has(x.material)) names.set(x.material, String(x.material_text));
       }
       for (const o of ctx.wb.orders || []) if (o.fg && o.fg_text && !names.has(o.fg)) names.set(o.fg, String(o.fg_text));
-      $("sapText").textContent = `${files.map((x) => x.name).join(", ")} · ` + (st.length ? `stock overview: ${f(st.length)} rows` : "no stock overview in these files: batches are assigned without SAP's quantity and area (add the Stock Overview on the checker)");
+      $("sapText").textContent = `${files.map((x) => x.name).join(", ")} · ` + (st0.length ? `stock overview: ${f(st0.length)} rows` : "no stock overview in these files: quantities come from the labels (add the Stock Overview on the checker)");
     } catch (e) { ctx = null; $("sapText").textContent = "couldn't read the SAP files: " + e.message; }
     render();
   }
-  // what SAP has for a batch (of a product, when the label says which)
   const sapOf = (product, batch) => (byBatch.get(String(batch)) || []).filter((x) => !product || String(x.material).toUpperCase() === String(product).toUpperCase());
+  const sapQty = (rows) => rows.reduce((a, x) => a + (isNaN(x.qty) ? 0 : x.qty), 0);
 
-  // ------------------------------------------------------------ the aisles, kept on this device
-  // assign: product|batch -> { aisle, product, batch, qty, unit, from ("qr" the label's small QR, "sap", "hand"), at,
-  // moved (the aisle it was in before) }; aisles: code -> first scanned; shapes: what aisle codes look like
-  // (letters as A, digits as 9), so another aisle's barcode is known while scanning labels
-  const KEY = "sapa-aisles";
-  let st = (() => { try { return JSON.parse(localStorage.getItem(KEY)) || null; } catch { return null; } })() || { current: null, aisles: {}, shapes: [], assign: {} };
+  // ------------------------------------------------------------ bays and racks, kept on this device
+  // A rack code is aisle, bay, level and position: 7E06A1 is aisle 7E, bay 06, level A, position 1. The racks of a
+  // bay (the strip on one beam) differ only in the level. racks: code -> { bay, level, at, item: { product, batch,
+  // qty, unit, from ("sap", "label", "typed"), label (the label's quantity), at } or null (empty) }
+  const KEY = "sapa-racks";
+  let st = (() => { try { return JSON.parse(localStorage.getItem(KEY)) || null; } catch { return null; } })() || { current: null, bays: {}, racks: {} };
   const save = () => { try { localStorage.setItem(KEY, JSON.stringify(st)); } catch { /* private window: kept until the page closes */ } };
-  const shape = (t) => String(t).toUpperCase().replace(/[A-Z]/g, "A").replace(/[0-9]/g, "9");
-  const looksLikeAisle = (t) => st.aisles[t] !== undefined || st.shapes.includes(shape(t));
-  function setAisle(code) {
-    code = String(code).trim();
-    if (!code) return;
-    st.current = code;
-    if (st.aisles[code] === undefined) st.aisles[code] = Date.now();
-    if (!st.shapes.includes(shape(code))) st.shapes.push(shape(code));
-    save(); render();
+  const LOC = /^(\d{1,2}[A-Z])(\d{2})([A-Z])(\d{1,2})$/;
+  function parseLoc(code) {
+    const m = code.match(LOC);
+    if (m) return { aisle: m[1], bay: m[2], level: m[3], pos: m[4], key: `${m[1]}${m[2]}-${m[4]}`, name: `Aisle ${m[1]} · Bay ${m[2]} · Position ${m[4]}` };
+    return { aisle: "", bay: "", level: "", pos: "", key: "other", name: "Other racks" };
   }
-  // a batch onto the current aisle: the label's quantity (small QR), else SAP's; one aisle per batch (scanned
-  // again elsewhere, it moves)
-  function assign(lab) {
-    const rows = sapOf(lab.product, lab.batch);
-    const product = lab.product || (rows[0] && rows[0].material) || "";
-    const k = `${product}|${lab.batch}`, prev = st.assign[k];
-    if (prev && prev.aisle === st.current) return { prev, same: true };
-    const sapQ = rows.reduce((a, x) => a + (isNaN(x.qty) ? 0 : x.qty), 0);
-    const qty = lab.qty !== null && lab.qty !== undefined ? lab.qty : rows.length ? sapQ : null;
-    const rec = { aisle: st.current, product, batch: String(lab.batch), qty, unit: lab.unit || (rows[0] && rows[0].uom ? String(rows[0].uom).toLowerCase() : ""),
-      from: lab.qty !== null && lab.qty !== undefined ? "qr" : rows.length ? "sap" : null, at: Date.now(), moved: prev ? prev.aisle : null };
-    st.assign[k] = rec; save(); render();
-    return { rec, prev, rows, sapQ };
+  // a code read off a beam: the plant's rack codes, or (until one of those is seen) another short code of letters
+  // and digits
+  const isRackCode = (t) => LOC.test(t) || (/^[A-Z0-9-]{3,16}$/.test(t) && !Object.keys(st.racks).some((k) => LOC.test(k)));
+  function addRack(code) {
+    code = String(code).trim().toUpperCase();
+    if (!code) return false;
+    const L = parseLoc(code);
+    if (!st.bays[L.key]) st.bays[L.key] = { key: L.key, name: L.name, aisle: L.aisle, bay: L.bay, pos: L.pos, at: Date.now() };
+    st.current = L.key;
+    if (st.racks[code]) return false;
+    st.racks[code] = { bay: L.key, level: L.level, at: Date.now(), item: null };
+    return true;
   }
+  const racksOf = (bay) => Object.entries(st.racks).filter(([, r]) => r.bay === bay).map(([code, r]) => ({ code, ...r })).sort((a, b) => cmp(a.level || a.code, b.level || b.code));
+  const whereIs = (product, batch) => Object.entries(st.racks).find(([, r]) => r.item && r.item.batch === String(batch) && (!product || !r.item.product || r.item.product === product));
 
   // ------------------------------------------------------------ the page
   function render() {
-    const cur = st.current;
-    $("curAisle").textContent = cur || "no aisle yet: scan its barcode";
-    $("curAisle").className = cur ? "" : "none";
-    $("scanText").textContent = cur ? `Scan labels into aisle ${cur}` : "Scan the aisle barcode";
-    $("aisleBtn").hidden = !cur;
-    $("addBatch").querySelector("button").disabled = !cur;
-    const recs = Object.entries(st.assign).map(([k, r]) => ({ k, ...r }));
-    const aisles = [...new Set([...Object.keys(st.aisles), ...recs.map((r) => r.aisle)])].sort(cmp);
-    const units = (rs) => { const u = new Map(); for (const r of rs) if (r.qty !== null) u.set(r.unit || "", (u.get(r.unit || "") || 0) + r.qty); return [...u].map(([k, v]) => `${q2(v)}${k ? " " + k : ""}`).join(" · ") || "no quantities"; };
-    $("tiles").innerHTML = [["Aisles", f(aisles.length), cur ? `assigning to ${cur}` : "none chosen"], ["Batches assigned", f(recs.length), units(recs)],
-      ["Not in SAP's stock", f(recs.filter((r) => !sapOf(r.product, r.batch).length).length), ctx ? "batches SAP doesn't have on hand" : "no stock overview loaded"],
-      ["Quantity differs from SAP", f(recs.filter((r) => { const s = sapOf(r.product, r.batch); return s.length && r.qty !== null && !same(r.qty, s.reduce((a, x) => a + (isNaN(x.qty) ? 0 : x.qty), 0)); }).length), "label or typed vs SAP"]]
-      .map(([k, v, s2]) => `<div><dt>${esc(k)}</dt><dd>${esc(v)}<small>${esc(s2)}</small></dd></div>`).join("");
-    const fq = $("filter").value.trim().toLowerCase();
-    const FROM = { qr: "label", sap: "SAP", hand: "typed" };
-    const html = aisles.map((a) => {
-      const rs = recs.filter((r) => r.aisle === a).filter((r) => !fq || [a, r.batch, r.product, names.get(r.product) || ""].join(" ").toLowerCase().includes(fq)).sort((x, y) => y.at - x.at);
-      if (fq && !rs.length && !a.toLowerCase().includes(fq)) return "";
-      const body = rs.map((r) => {
-        const sap = sapOf(r.product, r.batch), sapQ = sap.reduce((s, x) => s + (isNaN(x.qty) ? 0 : x.qty), 0);
-        const diff = sap.length && r.qty !== null && !same(r.qty, sapQ);
-        return `<tr data-k="${esc(r.k)}"><td class="wrap"><b class="m">${esc(r.batch)}</b><small class="m">${esc(r.product || "?")}</small><small>${esc(names.get(r.product) || "")}</small><small>${hm(r.at)}${r.moved ? ` · moved from ${esc(r.moved)}` : ""}</small></td>`
-          + `<td class="q"><input type="text" inputmode="decimal" value="${r.qty === null ? "" : esc(r.qty)}" aria-label="Quantity of ${esc(r.batch)}"><small>${esc(r.unit || "")}${r.unit ? " · " : ""}${FROM[r.from] || "no quantity"}</small></td>`
-          + `<td class="n">${sap.length ? `<span class="${diff ? "bad" : ""}">${q2(sapQ)}</span>` : `<small class="warn">not in SAP</small>`}${diff ? `<small class="bad">${fs(r.qty - sapQ, 2)}</small>` : ""}<small>${esc([...new Set(sap.map((x) => x.area))].join(", "))}</small></td>`
-          + `<td class="x"><button type="button" aria-label="Remove ${esc(r.batch)} from aisle ${esc(a)}">✕</button></td></tr>`;
-      }).join("");
-      const all = recs.filter((r) => r.aisle === a);
-      return `<section class="aisle${a === cur ? " cur" : ""}" data-a="${esc(a)}"><header><b>${esc(a)}</b><span>${f(all.length)} batch${all.length === 1 ? "" : "es"} · ${units(all)}</span>${a === cur ? "" : `<button type="button" class="quiet use">Assign here</button>`}</header>`
-        + (body ? `<div class="scroll"><table><thead><tr><th>Batch</th><th>Qty</th><th style="text-align:right">SAP</th><th></th></tr></thead><tbody>${body}</tbody></table></div>` : `<p class="hint" style="padding:8px 12px">Nothing assigned yet${a === cur ? ": scan the labels on this aisle" : ""}.</p>`)
-        + `</section>`;
+    const bay = st.current && st.bays[st.current];
+    $("bayName").textContent = bay ? bay.name : "No bay yet: scan its rack barcodes";
+    $("bayName").className = bay ? "" : "none";
+    $("stripText").textContent = bay ? "Scan the next bay's rack barcodes" : "Scan the rack barcodes";
+    const racks = bay ? racksOf(bay.key) : [];
+    const next = racks.find((r) => !r.item);
+    $("racks").innerHTML = racks.map((r) => {
+      const it = r.item, sap = it ? sapOf(it.product, it.batch) : [];
+      const what = it ? `<b>${esc(it.product || "?")}</b> · <span class="m">${esc(it.batch)}</span><small>${esc(names.get(it.product) || "")}</small>`
+          + `<span class="qty">${it.qty === null ? "no quantity" : `${q2(it.qty)} ${esc(it.unit || "")}`}</span>${sap.length && it.qty !== null && !same(it.qty, sapQty(sap)) ? ` <small class="bad">SAP ${q2(sapQty(sap))} (${fs(it.qty - sapQty(sap), 2)})</small>` : !sap.length && ctx ? ` <small class="warn">not in SAP's stock</small>` : ""}`
+        : `<span class="empty">Empty · tap to scan its pallet's label</span>`;
+      return `<li data-r="${esc(r.code)}"${r === next ? ' class="next"' : ""}><button type="button" class="rack"><span class="chip l${/^[A-D]$/.test(r.level) ? r.level : "X"}">${esc(r.code)}</span><span class="what">${what}</span></button>${it ? `<button type="button" class="edit">Edit</button>` : `<button type="button" class="edit drop" aria-label="Remove rack ${esc(r.code)} (not in use)" title="Not in use: remove this rack">✕</button>`}</li>`;
     }).join("");
-    $("aisles").innerHTML = html || `<div class="empty">No aisles yet. Tap <b>Scan the aisle barcode</b> and point at the aisle's barcode (or type its code and tap <b>Set aisle</b>), then scan the labels on it.</div>`;
+    $("rackHint").textContent = !bay ? "Point the camera at the strip of barcodes on the beam and hold it there until each rack is read."
+      : next ? "Tap a rack, scan the label on its pallet, check the quantity and tap OK. Racks left empty stay empty." : "Every rack of this bay has a pallet. Scan the next bay's barcodes to move on.";
+    const all = Object.entries(st.racks), filled = all.filter(([, r]) => r.item);
+    $("tiles").innerHTML = [["Bays", f(Object.keys(st.bays).length)], ["Racks", f(all.length)], ["With a pallet", f(filled.length)], ["Empty", f(all.length - filled.length)]]
+      .map(([k, v]) => `<div><dt>${esc(k)}</dt><dd>${esc(v)}</dd></div>`).join("");
+    $("bays").innerHTML = Object.values(st.bays).sort((a, b) => cmp(a.key, b.key)).map((b) => {
+      const rs = racksOf(b.key), n = rs.filter((r) => r.item).length;
+      return `<li data-b="${esc(b.key)}"${b.key === st.current ? ' class="cur"' : ""}><div><b>${esc(b.name)}</b><small>${f(n)} of ${f(rs.length)} rack${rs.length === 1 ? "" : "s"} with a pallet · ${esc(rs.map((r) => r.code).join(", "))}</small></div>${b.key === st.current ? "" : `<button type="button" class="quiet">Open</button>`}</li>`;
+    }).join("") || `<li><div class="muted">No bays yet.</div></li>`;
   }
-  $("filter").oninput = () => render();
-  $("setAisle").addEventListener("submit", (e) => { e.preventDefault(); const v = $("aisleIn").value.trim(); if (v) { setAisle(v.toUpperCase()); $("aisleIn").value = ""; toast(`Assigning to aisle ${st.current}`); } });
-  $("addBatch").addEventListener("submit", (e) => {
+  $("racks").addEventListener("click", (e) => {
+    const li = e.target.closest("li[data-r]");
+    if (!li) return;
+    const code = li.dataset.r;
+    if (e.target.closest("button.drop")) { if (confirm(`Remove rack ${code}? (For a rack that isn't in use; an empty rack can also just be left empty.)`)) { delete st.racks[code]; save(); render(); } return; }
+    if (e.target.closest("button.edit")) { const it = st.racks[code].item; openSheet(code, { product: it.product, batch: it.batch, qty: it.label ?? null, unit: it.unit }, it); return; }
+    scanLabel(code);
+  });
+  $("bays").addEventListener("click", (e) => { const li = e.target.closest("li[data-b]"); if (li && e.target.closest("button")) { st.current = li.dataset.b; save(); render(); window.scrollTo({ top: 0, behavior: "smooth" }); } });
+  $("addRacks").addEventListener("submit", (e) => {
     e.preventDefault();
-    const b = $("batchIn").value.trim();
-    if (!b || !st.current) return;
-    const rows = sapOf("", b);
-    if (!rows.length && !confirm(`Batch ${b} isn't in SAP's stock overview. Add it to aisle ${st.current} anyway?`)) return;
-    const r = assign({ product: rows[0] ? rows[0].material : "", batch: b, qty: null, unit: "" });
-    $("batchIn").value = "";
-    toast(r.same ? `${b} is already in aisle ${st.current}` : `${b} added to aisle ${st.current}${r.prev ? ` (moved from ${r.prev.aisle})` : ""}`);
+    const codes = $("rackIn").value.toUpperCase().split(/[\s,;]+/).filter(Boolean);
+    let n = 0;
+    for (const c of codes) if (addRack(c)) n++;
+    $("rackIn").value = ""; save(); render();
+    if (codes.length) toast(n ? `${n} rack${n === 1 ? "" : "s"} added` : "Those racks are already here");
   });
-  $("aisles").addEventListener("click", (e) => {
-    const use = e.target.closest("button.use");
-    if (use) { setAisle(use.closest("section").dataset.a); toast(`Assigning to aisle ${st.current}`); return; }
-    const x = e.target.closest("td.x button");
-    if (x) { const k = x.closest("tr").dataset.k; delete st.assign[k]; save(); render(); }
-  });
-  $("aisles").addEventListener("change", (e) => {
-    const inp = e.target.closest("td.q input");
-    if (!inp) return;
-    const k = inp.closest("tr").dataset.k, t = inp.value.trim().replace(",", "."), v = t === "" ? null : Number(t);
-    if (t !== "" && !isFinite(v)) { toast("Type a number"); return; }
-    st.assign[k].qty = v; st.assign[k].from = v === null ? null : "hand"; save(); render();
-  });
-  $("clearBtn").onclick = () => { if (Object.keys(st.assign).length + Object.keys(st.aisles).length && !confirm("Clear every aisle and what's assigned to it? Export to Excel first to keep a copy.")) return; st = { current: null, aisles: {}, shapes: st.shapes, assign: {} }; save(); render(); };
+  $("clearBtn").onclick = () => { if (Object.keys(st.racks).length && !confirm("Clear every bay, rack and pallet? Export to Excel first to keep a copy.")) return; st = { current: null, bays: {}, racks: {} }; save(); render(); };
+  // one row per rack, empty racks included (blank)
   $("xlsBtn").onclick = () => {
-    const recs = Object.values(st.assign).sort((a, b) => cmp(a.aisle, b.aisle) || cmp(a.batch, b.batch));
-    if (!recs.length) { toast("Nothing assigned yet"); return; }
-    const local = (t) => dmy(t - new Date(t).getTimezoneOffset() * 60000);
-    const rows = recs.map((r) => { const sap = sapOf(r.product, r.batch), sapQ = sap.reduce((s, x) => s + (isNaN(x.qty) ? 0 : x.qty), 0); return {
-      Aisle: r.aisle, Product: r.product, Description: names.get(r.product) || "", Batch: r.batch, Quantity: r.qty, UoM: r.unit, "Quantity from": { qr: "label (QR)", sap: "SAP", hand: "typed" }[r.from] || "",
-      "SAP qty": sap.length ? sapQ : null, Difference: sap.length && r.qty !== null ? Number((r.qty - sapQ).toFixed(3)) : null, "SAP area": [...new Set(sap.map((x) => x.area))].join(", ") || "not in SAP's stock",
-      "Assigned at": local(r.at), "Moved from": r.moved || "" }; });
-    // one line per aisle and unit: cases and kg aren't added together
-    const sum = [];
-    for (const a of [...new Set(recs.map((r) => r.aisle))]) for (const u of [...new Set(recs.filter((r) => r.aisle === a).map((r) => r.unit || ""))].sort()) {
-      const rs = recs.filter((r) => r.aisle === a && (r.unit || "") === u);
-      sum.push({ Aisle: a, Batches: rs.length, Quantity: Number(rs.reduce((s, r) => s + (r.qty || 0), 0).toFixed(3)), UoM: u });
-    }
+    const rows = Object.entries(st.racks).sort((a, b) => cmp(a[1].bay, b[1].bay) || cmp(a[1].level || a[0], b[1].level || b[0])).map(([code, r]) => {
+      const L = parseLoc(code), it = r.item, sap = it ? sapOf(it.product, it.batch) : [];
+      return { Location: code, Aisle: L.aisle, Bay: L.bay, Level: L.level, Position: L.pos,
+        Product: it ? it.product : "", Description: it ? names.get(it.product) || "" : "", Batch: it ? it.batch : "", Quantity: it ? it.qty : null, UoM: it ? it.unit : "",
+        "Quantity from": it ? { sap: "SAP", label: "label", typed: "typed" }[it.from] || "" : "", "SAP qty": sap.length ? sapQty(sap) : null,
+        Difference: sap.length && it && it.qty !== null ? Number((it.qty - sapQty(sap)).toFixed(3)) : null,
+        "SAP area": it ? [...new Set(sap.map((x) => x.area))].join(", ") || "not in SAP's stock" : "", "Label qty": it && it.label !== null && it.label !== undefined ? it.label : null,
+        "Scanned at": it ? dmy(it.at - new Date(it.at).getTimezoneOffset() * 60000) : "" };
+    });
+    if (!rows.length) { toast("Nothing to export yet"); return; }
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), "Aisles");
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(sum), "By aisle");
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), "Racks");
     const d = new Date();
-    XLSX.writeFile(wb, `Aisles ${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}.xlsx`);
+    XLSX.writeFile(wb, `Racks ${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}.xlsx`);
   };
 
-  // ------------------------------------------------------------ scanning
-  // Every barcode kind is read (the aisle's may be a QR code or a 1D barcode); the plant's labels are the big
-  // "(90)product(10)batch" and small "product,batch,qty,unit" QR codes. Pointing at an aisle barcode sets the aisle;
-  // after that, labels are assigned to it, and a code shaped like an aisle code (as the ones scanned before) moves
-  // on to that aisle. Any other code is ignored, so a supplier's barcode on a pallet doesn't change the aisle.
-  const FORMATS = ["QRCode", "DataMatrix", "Code128", "Code39", "Code93", "EAN-13", "UPC-A", "ITF", "Codabar"];
-  async function codesIn(src, w, h, max = 1600) {
-    const sc = Math.min(1, max / Math.max(w, h)), c = document.createElement("canvas");
-    c.width = Math.round(w * sc); c.height = Math.round(h * sc);
-    const x = c.getContext("2d", { willReadFrequently: true });
-    x.drawImage(src, 0, 0, c.width, c.height);
-    const codes = await BagOCR.readCodes(x.getImageData(0, 0, c.width, c.height), { formats: FORMATS, maxNumberOfSymbols: 8 });
-    const up = (q) => ({ x: q.x / sc, y: q.y / sc });
-    return codes.map((c2) => ({ ...c2, tl: up(c2.tl), tr: up(c2.tr), br: up(c2.br), bl: up(c2.bl) }));
+  // ------------------------------------------------------------ the check before a pallet goes on a rack
+  // the label's product and batch, SAP's quantity for it (from the stock overview) to keep or change, OK to save
+  let sheetFor = null;
+  function openSheet(code, lab, existing) {
+    const rows = sapOf(lab.product, lab.batch), product = lab.product || (rows[0] && rows[0].material) || "";
+    const sapQ = rows.length ? sapQty(rows) : null, unit = (rows[0] && rows[0].uom ? String(rows[0].uom).toLowerCase() : "") || lab.unit || "";
+    const qty = existing ? existing.qty : sapQ !== null ? sapQ : lab.qty;
+    sheetFor = { code, product, batch: String(lab.batch), label: lab.qty ?? null, unit, from: existing ? existing.from : sapQ !== null ? "sap" : lab.qty !== null && lab.qty !== undefined ? "label" : null, start: qty };
+    $("sheetRack").textContent = code;
+    $("sheetInfo").innerHTML = `<dt>Product</dt><dd>${esc(product || "?")}<small>${esc(names.get(product) || "")}</small></dd><dt>Batch</dt><dd>${esc(lab.batch)}</dd>`
+      + `<dt>SAP</dt><dd>${rows.length ? `${q2(sapQ)} ${esc(unit)}<small>at ${esc([...new Set(rows.map((x) => x.area))].join(", "))}</small>` : `<span class="warn">${ctx ? "not in SAP's stock" : "no stock overview loaded"}</span>`}</dd>`
+      + (lab.qty !== null && lab.qty !== undefined ? `<dt>Label</dt><dd>${q2(lab.qty)} ${esc(lab.unit || "")}${sapQ !== null && !same(lab.qty, sapQ) ? ` <span class="bad">(${fs(lab.qty - sapQ, 2)} vs SAP)</span>` : ""}</dd>` : "");
+    const there = whereIs(product, lab.batch);
+    $("sheetNote").hidden = !(there && there[0] !== code);
+    if (there && there[0] !== code) $("sheetNote").textContent = `This batch is on rack ${there[0]} now: OK moves it here.`;
+    $("sheetQty").value = qty === null || qty === undefined ? "" : String(Number(Number(qty).toFixed(3)));
+    $("sheetUnit").textContent = unit;
+    $("sheetFrom").textContent = sheetFor.from === "sap" ? "SAP's quantity: change it if the pallet isn't" : sheetFor.from === "label" ? "the label's quantity (not in SAP's stock)" : sheetFor.from === "typed" ? "typed" : "type the quantity";
+    $("sheetEmpty").hidden = !existing;
+    $("sheet").hidden = false; document.documentElement.classList.add("sheet-on");
+    $("sheetOk").focus();
   }
+  const closeSheet = () => { $("sheet").hidden = true; document.documentElement.classList.remove("sheet-on"); sheetFor = null; };
+  $("sheetX").onclick = closeSheet;
+  $("sheet").addEventListener("click", (e) => { if (e.target === $("sheet")) closeSheet(); });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !$("sheet").hidden) closeSheet(); });
+  $("sheetQty").addEventListener("keydown", (e) => { if (e.key === "Enter") $("sheetOk").click(); });
+  $("sheetOk").onclick = () => {
+    const s = sheetFor;
+    if (!s) return;
+    const t = $("sheetQty").value.trim().replace(",", "."), v = t === "" ? null : Number(t);
+    if (t !== "" && !isFinite(v)) { toast("Type a number"); return; }
+    const there = whereIs(s.product, s.batch);
+    if (there && there[0] !== s.code) st.racks[there[0]].item = null;
+    const from = v === null ? null : s.start !== null && s.start !== undefined && same(v, s.start) ? s.from : "typed";
+    st.racks[s.code].item = { product: s.product, batch: s.batch, qty: v, unit: s.unit, from, label: s.label, at: Date.now() };
+    save(); closeSheet(); render();
+    toast(`${s.batch} on rack ${s.code}${there && there[0] !== s.code ? ` (moved from ${there[0]})` : ""}`);
+    const nx = document.querySelector("#racks li.next");
+    if (nx) nx.scrollIntoView({ behavior: "smooth", block: "center" });
+  };
+  $("sheetRescan").onclick = () => { const c = sheetFor && sheetFor.code; closeSheet(); if (c) scanLabel(c); };
+  $("sheetEmpty").onclick = () => { const c = sheetFor && sheetFor.code; if (c) { st.racks[c].item = null; save(); } closeSheet(); render(); };
+
+  // ------------------------------------------------------------ the cameras
   let beep = null;
   function ding(ok) {
     if (navigator.vibrate) navigator.vibrate(ok ? 60 : [60, 80, 60]);
     if (beep) try { const o = beep.createOscillator(), g = beep.createGain(); o.frequency.value = ok ? 1320 : 520; g.gain.value = 0.08; o.connect(g).connect(beep.destination); o.start(); o.stop(beep.currentTime + (ok ? 0.09 : 0.25)); } catch { /* no sound */ }
   }
-  function scan(wantAisle) {
-    if (!window.isSecureContext || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { toast("The camera needs the page opened over https (the GitHub Pages address)."); return; }
+  const camOk = () => {
+    if (!window.isSecureContext || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { toast("The camera needs the page opened over https (the GitHub Pages address)."); return false; }
     try { if (!beep) beep = new (window.AudioContext || window.webkitAudioContext)(); } catch { /* no sound */ }
-    let mode = wantAisle || !st.current ? "aisle" : "labels";
-    const pending = new Map();
-    let last = "", lastAt = 0;
-    const said = () => (mode === "aisle" ? "Point at the aisle's barcode" : `Aisle ${st.current}: point at a label`);
-    const n = () => Object.values(st.assign).filter((r) => r.aisle === st.current).length;
+    return true;
+  };
+  const camFailed = (e) => toast(e.name === "NotAllowedError" ? "Camera blocked: allow the camera for this site in the browser's settings." : "No camera here to scan with.", 5000);
+  // The strip's barcodes are 1D (Code 128) set at an angle, alternately one way and the other (A and C rising, B and
+  // D falling), past what the reader takes on its own: each frame is read upright, then turned 30° one way, then the
+  // other, in turn, at up to 2000 pixels. What's read is kept until the strip's done.
+  const BARS = ["Code128", "Code39", "Code93", "ITF", "Codabar", "EAN-13", "DataMatrix", "QRCode"], TURNS = [0, 30, -30];
+  async function barsIn(src, w, h, deg, max = 2000) {
+    const sc = Math.min(1, max / Math.max(w, h)), a = (deg * Math.PI) / 180, sw = w * sc, sh = h * sc;
+    const W = Math.round(Math.abs(sw * Math.cos(a)) + Math.abs(sh * Math.sin(a))), H = Math.round(Math.abs(sw * Math.sin(a)) + Math.abs(sh * Math.cos(a)));
+    const c = document.createElement("canvas"); c.width = W; c.height = H;
+    const x = c.getContext("2d", { willReadFrequently: true });
+    x.fillStyle = "#fff"; x.fillRect(0, 0, W, H); x.translate(W / 2, H / 2); x.rotate(a); x.drawImage(src, -sw / 2, -sh / 2, sw, sh);
+    return (await BagOCR.readCodes(x.getImageData(0, 0, W, H), { formats: BARS, maxNumberOfSymbols: 8 })).map((r) => r.text.trim().toUpperCase());
+  }
+  $("stripBtn").onclick = () => {
+    if (!camOk()) return;
+    let turn = 0, bayKey = null;
+    const got = [];
+    const say = () => (got.length ? `✓ ${got.join(" · ")} · hold on the strip for the rest, then tap Done` : "Point at the strip of rack barcodes on the beam");
     CamView.start({
-      msg: said(), idleMs: 180000, idleMsg: "Camera off after three minutes with nothing read.", width: 3840, height: 2160,
-      buttons: [{ text: "Another aisle", title: "Scan the next aisle's barcode", onClick: (cam) => { mode = "aisle"; last = ""; cam.msg(said()); } }],
-      onClose: (why) => { if (why) toast(why); render(); },
+      msg: say(), idleMs: 90000, idleMsg: "Camera off after a minute and a half.", width: 3840, height: 2160,
+      buttons: [{ text: "Done", title: "Finish this bay's racks", onClick: (cam) => cam.finish(() => {}, 0) }],
+      onClose: () => { save(); render(); if (got.length) toast(`${got.length} rack${got.length === 1 ? "" : "s"}: tap one to scan its pallet`); },
+      read: async (v, cam) => {
+        const texts = await barsIn(v, v.videoWidth, v.videoHeight, TURNS[turn++ % TURNS.length]);
+        if (!texts.length) return;
+        cam.alive();
+        let fresh = false;
+        for (const t of texts) {
+          if (!isRackCode(t) || got.includes(t)) continue;
+          const L = parseLoc(t);
+          if (bayKey && L.key !== bayKey) continue;   // another bay's strip in view: this bay first
+          bayKey = L.key; addRack(t); got.push(t); got.sort(cmp); fresh = true;
+        }
+        if (fresh) { save(); render(); cam.msg(say()); cam.flash(); ding(true); }
+        if (got.length >= 4) cam.finish(() => {}, 900);   // a strip has four racks
+      },
+    }).catch(camFailed);
+  };
+  // One rack's pallet: the label nearest the middle (both its QR codes where they can be had, up to two seconds for
+  // the small one), then the check
+  function scanLabel(code) {
+    if (!camOk()) return;
+    const pending = new Map();
+    CamView.start({
+      msg: `Rack ${code}: point at the pallet's label`, idleMs: 60000, idleMsg: "Camera off after a minute with no label read.", width: 3840, height: 2160,
+      buttons: [{ text: "Leave empty", title: "No pallet on this rack", onClick: (cam) => cam.finish(() => toast(`Rack ${code} left empty`), 0) }],
       read: async (v, cam) => {
         const w = v.videoWidth, h = v.videoHeight;
-        const codes = await codesIn(v, w, h);
+        const codes = (await BagOCR.codesIn(v, w, h, 1600)).filter((c) => c.kind === "big" || c.kind === "small");
         if (!codes.length) return;
         cam.alive();
         const mid = { x: w / 2, y: h / 2 }, ctr = (q) => ({ x: (q.tl.x + q.br.x) / 2, y: (q.tl.y + q.br.y) / 2 }), d = (q) => Math.hypot(ctr(q).x - mid.x, ctr(q).y - mid.y);
-        const labels = codes.filter((c) => c.kind === "big" || c.kind === "small"), others = codes.filter((c) => c.kind === "other").sort((a, b) => d(a) - d(b));
-        // the aisle's barcode: any code that isn't a label while setting the aisle; one shaped like an aisle code
-        // while scanning labels
-        const aisleCode = mode === "aisle" ? others[0] : others.find((c) => looksLikeAisle(c.text.trim()) && c.text.trim() !== st.current);
-        if (aisleCode && (mode === "aisle" || !labels.length || d(aisleCode) < Math.min(...labels.map(d)))) {
-          const code = aisleCode.text.trim();
-          if (code === last && Date.now() - lastAt < 4000) return;
-          last = code; lastAt = Date.now();
-          const was = st.current;
-          setAisle(code); mode = "labels";
-          cam.msg(`✓ Aisle ${code}${was && was !== code ? ` (was ${was})` : ""} · ${n()} batch${n() === 1 ? "" : "es"} on it · now scan the labels`); cam.flash(); ding(true);
-          return;
-        }
-        if (mode === "aisle") { if (labels.length) cam.msg("That's a product label: point at the aisle's barcode first"); return; }
-        if (!labels.length) { if (!others.some((c) => c.text.trim() === st.current)) cam.msg(`That code isn't a label · aisle ${st.current}`); return; }   // the aisle's own barcode still in view: quiet
-        // the label nearest the middle, both its codes where they can be had (the small one has the quantity)
-        const near = labels.slice().sort((a, b) => d(a) - d(b))[0];
-        const lk = `${near.product}|${near.batch}`;
-        if (lk === last && Date.now() - lastAt < 4000) return;
-        const mine = labels.filter((c) => c.batch === near.batch && (!c.product || !near.product || c.product === near.product)), now = Date.now();
+        const near = codes.slice().sort((a, b) => d(a) - d(b))[0], lk = `${near.product}|${near.batch}`, now = Date.now();
+        const mine = codes.filter((c) => c.batch === near.batch && (!c.product || !near.product || c.product === near.product));
         let acc = pending.get(lk);
-        if (!acc || now - acc.last > 4000) { acc = { first: now, big: null, small: null }; pending.set(lk, acc); }
-        acc.last = now;
+        if (!acc) { acc = { first: now, big: null, small: null }; pending.set(lk, acc); }
         for (const c of mine) acc[c.kind] = acc[c.kind] || c;
         if (!acc.small && now - acc.first < 2000) { cam.msg(`${near.batch}: looking for the small QR (the quantity)… hold steady`); return; }
-        pending.delete(lk); last = lk; lastAt = now;
         const lab = B.mergeCodes([acc.big, acc.small].filter(Boolean));
-        const r = assign(lab);
-        if (r.same) { cam.msg(`${lab.batch} is already in aisle ${st.current} · ${n()} on it`); return; }
-        const { rec, prev, rows, sapQ } = r;
-        let msg = `✓ ${lab.batch} → aisle ${st.current} · ${rec.qty === null ? "no quantity" : `${q2(rec.qty)} ${rec.unit}`}`, ok = true;
-        if (prev) msg += ` · moved from ${prev.aisle}`;
-        if (!rows.length) { msg += " · not in SAP's stock"; ok = false; }
-        else if (lab.qty !== null && lab.qty !== undefined && !same(lab.qty, sapQ)) { msg += ` · SAP ${q2(sapQ)} (${fs(lab.qty - sapQ, 2)})`; ok = false; }
-        cam.msg(`${msg} · ${n()} on this aisle`); cam.flash(); ding(ok);
+        cam.msg(`✓ ${lab.product ? lab.product + " · " : ""}${lab.batch}`); ding(true);
+        cam.finish(() => openSheet(code, lab, null));
       },
-    }).catch((e) => toast(e.name === "NotAllowedError" ? "Camera blocked: allow the camera for this site in the browser's settings." : "No camera here to scan with.", 5000));
+    }).catch(camFailed);
   }
-  $("scanBtn").onclick = () => scan(false);
-  $("aisleBtn").onclick = () => scan(true);
 
   window.addEventListener("focus", () => refresh());
   render();
