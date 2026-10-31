@@ -80,8 +80,11 @@ background (OCR, as Scan and check does) and shown next to the QR's ("✓ = QR",
 another area than the one you're counting in, one not in SAP's stock, or one of another product is said on the
 picture and listed under *Scanned, not in this list*. Click a batch number for a panel over the list (sized for a phone, one text size) with
 where SAP has it and its dates, and every transaction in the journal with the running stock (and a link to the
-full trace on the checker). Rows can be ticked
-and counts typed by hand; the list filters and sorts by any column. The count is kept in that browser until *Start a
+full trace on the checker). The camera next to the product box works before any product
+is typed: it reads one label and opens that batch's panel with the label's quantity against SAP's, *Show the QR
+codes* (the label's big and small QR codes drawn again, black on white, from exactly the text the camera read, for
+another scanner to read off the phone; batches scanned during a count have the button too) and *List all … stock*.
+Rows can be ticked and counts typed by hand; the list filters and sorts by any column. The count is kept in that browser until *Start a
 new count*, and *Download the count* saves it as Excel (the count, and what was scanned but isn't in the list).
 
 Every camera view (the trace, pallet scanning, Scan and check, the stock take) has a zoom slider for labels out of

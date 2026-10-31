@@ -108,6 +108,20 @@
   .sheet-body td small { display: block; color: var(--muted); font-size: 12px; }
   .sheet-body tr.prod td:first-child { font-weight: 600; } .sheet-body tr.neg td.q { color: var(--bad); }
   html.sheet-on, html.sheet-on body { overflow: hidden; }
+  .prodrow { display: flex; align-items: flex-end; gap: 8px; }
+  .camq { width: 48px; height: 48px; padding: 0; display: grid; place-items: center; border-radius: 8px; }
+  .sheet-btns { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0 4px; }
+  .qrview { position: fixed; inset: 0; z-index: 80; background: #fff; color: #111; overflow-y: auto; padding: calc(env(safe-area-inset-top, 0px) + 12px) 16px calc(env(safe-area-inset-bottom, 0px) + 20px); }
+  .qrhead { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
+  .qrhead b { flex: 1; font: 600 15px var(--mono); }
+  .qrhead button { width: 40px; height: 40px; padding: 0; border-radius: 50%; background: #eee; color: #111; border: 0; font: 600 18px/1 var(--sans); }
+  .qrbody { display: grid; gap: 22px; justify-items: center; }
+  .qrbody figure { margin: 0; display: grid; justify-items: center; gap: 6px; }
+  .qrbody canvas { image-rendering: pixelated; display: block; }
+  .qrbody figcaption { text-align: center; font: 13px var(--sans); max-width: 380px; }
+  .qrbody figcaption b { display: block; }
+  .qrbody code { font: 12px var(--mono); color: #555; word-break: break-all; }
+  .qrtip { text-align: center; font: 12px var(--sans); color: #555; margin: 16px 0 0; }
   input.tfilter { width: 100%; max-width: 320px; font: inherit; font-size: 13px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--ink); }
   .empty { border: 1px dashed var(--line); border-radius: 8px; padding: 26px; text-align: center; color: var(--muted); background: var(--surface); }
   .toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); background: var(--ink); color: var(--ground); padding: 8px 14px; border-radius: 6px; font-size: 13px; z-index: 70; max-width: calc(100vw - 32px); }
@@ -125,7 +139,8 @@
     <a href="./">Load or update them on the checker</a>
   </section>
   <form class="ask panel" id="ask">
-    <div class="combo"><label for="q">Product</label><input id="q" type="text" enterkeyhint="search" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="e.g. RMMA10EX" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="qList"><ul id="qList" role="listbox" aria-label="Products" hidden></ul></div>
+    <div class="prodrow"><div class="combo"><label for="q">Product</label><input id="q" type="text" enterkeyhint="search" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="e.g. RMMA10EX" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="qList"><ul id="qList" role="listbox" aria-label="Products" hidden></ul></div>
+      <button type="button" class="camq" id="lookBtn" title="Scan a label to see its stock" aria-label="Scan a label to see its stock"><svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" d="M4 8.5A1.5 1.5 0 0 1 5.5 7h2.2l1.4-2h5.8l1.4 2h2.2A1.5 1.5 0 0 1 20 8.5v9a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 17.5z"/><circle cx="12" cy="13" r="3.4" fill="none" stroke="currentColor" stroke-width="1.8"/></svg></button></div>
     <div class="combo"><label for="area">Counting in</label><input id="area" type="text" enterkeyhint="done" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="All areas" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="areaList"><ul id="areaList" role="listbox" aria-label="Areas" hidden></ul></div>
     <button type="submit">Show stock</button>
   </form>
@@ -142,17 +157,23 @@
     <div class="scroll"><table id="list"></table></div>
     <div id="extras"></div>
   </section>
-  <main id="out" aria-live="polite"><div class="empty">Type a product code and tap <b>Show stock</b>.</div></main>
+  <main id="out" aria-live="polite"><div class="empty">Type a product code and tap <b>Show stock</b>, or tap the camera to scan a label and see its stock.</div></main>
 </div>
 <p class="hint" style="text-align:center;margin:0 0 20px">Version __BUILD__</p>
 <div class="sheet" id="sheet" hidden role="dialog" aria-modal="true" aria-labelledby="sheetTitle">
   <div class="sheet-card"><div class="sheet-head"><div><b id="sheetTitle"></b><small id="sheetSub"></small></div><button type="button" id="sheetX" aria-label="Close">✕</button></div><div class="sheet-body" id="sheetBody"></div></div>
+</div>
+<div class="qrview" id="qrView" hidden role="dialog" aria-modal="true" aria-labelledby="qrTitle">
+  <div class="qrhead"><b id="qrTitle"></b><button type="button" id="qrX" aria-label="Close">✕</button></div>
+  <div class="qrbody" id="qrBody"></div>
+  <p class="qrtip">Turn the screen brightness up for another scanner to read it.</p>
 </div>
 <div class="toast" id="toast" hidden></div>
 <script src="vendor/xlsx.full.min.js?v=__BUILD__"></script>
 <script>window.XLSX || document.write('<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"><\/script>');</script>
 <script src="reconcile.js?v=__BUILD__"></script>
 <script src="vendor/tesseract/tesseract.min.js?v=__BUILD__"></script>
+<script src="vendor/qrcode.js?v=__BUILD__"></script>
 <script src="vendor/zxing/zxing-reader.js?v=__BUILD__"></script>
 <script src="bagscan.js?v=__BUILD__"></script>
 <script src="bagocr.js?v=__BUILD__"></script>
@@ -285,15 +306,21 @@
   }
   // a batch's details in a sheet over the list: what the stock overview has (where, how much, its dates) and every
   // transaction in the journal with the running stock, in columns that fit a phone
-  function openSheet(r) {
+  // lab: the label read by the camera (its quantity and its QR codes' exact text), when there is one
+  function openSheet(material, batch, lab) {
+    const r = { material, batch: String(batch), text: (PRODS.get(material) || {}).text || "" };
     const so = stock().filter((x) => x.material === r.material && String(x.batch) === r.batch);
+    const sapQ = so.reduce((a, x) => a + (isNaN(x.qty) ? 0 : x.qty), 0);
+    const codes = lab ? [["Big QR (goods movement)", lab.big], ["Small QR (quantity)", lab.small]].filter(([, t]) => t) : [];
+    const labHtml = !lab ? "" : `<h3>The label</h3><p>${lab.qty !== null && lab.qty !== undefined ? `Label ${q2(lab.qty)} ${esc(lab.unit || "")}${so.length ? `, SAP ${q2(sapQ)}: ${same(lab.qty, sapQ) ? `<span class="ok">the same</span>` : `<span class="bad">${fs(lab.qty - sapQ, 2)}</span>`}` : ""}.` : "No quantity read (only the big QR code)."}</p>`
+      + `<div class="sheet-btns">${codes.length ? `<button type="button" id="showQr">Show the QR code${codes.length > 1 ? "s" : ""}</button>` : ""}${PRODS.has(r.material) ? `<button type="button" class="quiet" id="listProd">List all ${esc(r.material)} stock</button>` : ""}</div>`;
     const day = (t) => (t === null || t === undefined || isNaN(t) ? "" : sapTs(t).slice(0, 10));
     const when = (t) => { const x = sapTs(t); return `${x.slice(0, 6)}${x.slice(8, 10)}<small>${x.slice(11, 16)}</small>`; };   // 07.09.26 over 10:53
     const rows = ctx ? R.batchHistory(ctx, r.material, r.batch) : [];
     const last = rows[rows.length - 1];
-    $("sheetTitle").textContent = `${r.material} · ${r.batch}`;
+    $("sheetTitle").textContent = `${r.material || "Unknown product"} · ${r.batch}`;
     $("sheetSub").textContent = r.text || "";
-    $("sheetBody").innerHTML = `<h3>On hand in SAP</h3>`
+    $("sheetBody").innerHTML = labHtml + `<h3>On hand in SAP</h3>`
       + (so.length ? `<div class="scroll"><table><thead><tr><th>Area</th><th class="n">Qty</th><th>Expires</th></tr></thead><tbody>`
         + so.map((x) => `<tr><td class="m">${esc(x.area)}${x.restricted ? `<small class="warn">restricted</small>` : ""}</td><td class="n">${q2(x.qty)} ${esc(String(x.uom || "").toLowerCase())}</td><td class="m">${day(x.expiry_date) || "–"}${x.production_date ? `<small>made ${day(x.production_date)}</small>` : ""}</td></tr>`).join("")
         + `</tbody></table></div>` : `<p>Not in the stock overview.</p>`)
@@ -306,11 +333,39 @@
       + `<p style="margin-top:12px"><a href="./?trace=${encodeURIComponent(r.batch)}&amp;product=${encodeURIComponent(r.material)}">Open the full trace on the checker</a></p>`;
     $("sheet").hidden = false; document.documentElement.classList.add("sheet-on");
     $("sheetBody").scrollTop = 0; $("sheetX").focus();
+    if ($("showQr")) $("showQr").onclick = () => showCodes(r, codes);
+    if ($("listProd")) $("listProd").onclick = () => { closeSheet(); $("q").value = r.material; const f0 = $("ask"); if (f0.requestSubmit) f0.requestSubmit(); else f0.dispatchEvent(new Event("submit", { cancelable: true })); };
   }
+  // The label's QR codes drawn again from exactly the text the camera read, black on white with the quiet zone, as
+  // big as the screen allows, for another scanner to read off this screen
+  function qrCanvas(text, px) {
+    const q = qrcode(0, "M"); q.addData(text); q.make();
+    const n = q.getModuleCount(), dpr = Math.min(3, window.devicePixelRatio || 1), cell = Math.max(2, Math.floor((px * dpr) / (n + 8)));
+    const c = document.createElement("canvas"), size = cell * (n + 8);
+    c.width = c.height = size; c.style.width = c.style.height = `${Math.round(size / dpr)}px`;
+    const x = c.getContext("2d");
+    x.fillStyle = "#fff"; x.fillRect(0, 0, size, size); x.fillStyle = "#000";
+    for (let r = 0; r < n; r++) for (let k = 0; k < n; k++) if (q.isDark(r, k)) x.fillRect((k + 4) * cell, (r + 4) * cell, cell, cell);
+    return c;
+  }
+  function showCodes(r, codes) {
+    const box = $("qrBody"), px = Math.min(window.innerWidth - 48, 380);
+    box.innerHTML = "";
+    $("qrTitle").textContent = `${r.material} · ${r.batch}`;
+    for (const [name, text] of codes) {
+      const fig = document.createElement("figure");
+      fig.appendChild(qrCanvas(text, px));
+      const cap = document.createElement("figcaption");
+      cap.innerHTML = `<b>${esc(name)}</b><code>${esc(text)}</code>`;
+      fig.appendChild(cap); box.appendChild(fig);
+    }
+    $("qrView").hidden = false; $("qrX").focus();
+  }
+  $("qrX").onclick = () => { $("qrView").hidden = true; };
   const closeSheet = () => { $("sheet").hidden = true; document.documentElement.classList.remove("sheet-on"); };
   $("sheetX").onclick = closeSheet;
   $("sheet").addEventListener("click", (e) => { if (e.target === $("sheet")) closeSheet(); });
-  document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !$("sheet").hidden) closeSheet(); });
+  document.addEventListener("keydown", (e) => { if (e.key !== "Escape") return; if (!$("qrView").hidden) $("qrView").hidden = true; else if (!$("sheet").hidden) closeSheet(); });
   function render() {
     if (!ctx || !stock().length) {
       $("countPanel").hidden = true;
@@ -318,7 +373,7 @@
       $("out").innerHTML = `<div class="empty">${ctx ? "No stock overview in the SAP files loaded on the checker. Export the <b>Stock Overview</b> from SAP and add it on the checker, then come back here." : "Load the SAP files (with the stock overview) on the checker first."}</div>`;
       return;
     }
-    if (!query) { $("countPanel").hidden = true; $("out").hidden = false; $("out").innerHTML = `<div class="empty">Type a product code and tap <b>Show stock</b>.</div>`; return; }
+    if (!query) { $("countPanel").hidden = true; $("out").hidden = false; $("out").innerHTML = `<div class="empty">Type a product code and tap <b>Show stock</b>, or tap the camera to scan a label and see its stock.</div>`; return; }
     const all = matches();
     if (!all.length) { $("countPanel").hidden = true; $("out").hidden = false; $("out").innerHTML = `<div class="empty">Nothing on hand in the stock overview for <b>${esc(query)}</b>.</div>`; return; }
     $("out").hidden = true; $("countPanel").hidden = false;
@@ -446,7 +501,7 @@
     const th = e.target.closest("th[data-c]");
     if (th) { sort = { col: th.dataset.c, dir: sort.col === th.dataset.c ? -sort.dir : 1 }; render(); return; }
     const hb = e.target.closest("button.hist");
-    if (hb) { const k = hb.closest("tr").dataset.k, r = rowsNow().find((x) => x.key === k); if (r) openSheet(r); }
+    if (hb) { const k = hb.closest("tr").dataset.k, r = rowsNow().find((x) => x.key === k), s = count.seen[k]; if (r) openSheet(r.material, r.batch, s && s.by === "scan" && (s.big || s.small) ? { qty: s.qr, unit: s.unit, big: s.big, small: s.small } : null); }
   });
   $("list").addEventListener("change", (e) => {
     const tr = e.target.closest("tr[data-k]");
@@ -511,39 +566,70 @@
     if (navigator.vibrate) navigator.vibrate(ok ? 60 : [60, 80, 60]);
     if (beep) try { const o = beep.createOscillator(), g = beep.createGain(); o.frequency.value = ok ? 1320 : 520; g.gain.value = 0.08; o.connect(g).connect(beep.destination); o.start(); o.stop(beep.currentTime + (ok ? 0.09 : 0.25)); } catch { /* no sound */ }
   }
-  $("scanBtn").onclick = () => {
-    if (!window.isSecureContext || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { toast("The camera needs the page opened over https (the GitHub Pages address)."); return; }
-    try { if (!beep) beep = new (window.AudioContext || window.webkitAudioContext)(); } catch { /* no sound */ }
+  // One label from the frames: the one nearest the middle, with both its QR codes where they can be had (the small
+  // one has the quantity: up to two seconds for it); the same label still in view isn't read twice. Gives
+  // { lab (product, batch, qty, unit, big and small: the codes' exact text), mine (its codes), now } or null.
+  function labelReader() {
     const pending = new Map();
     let last = "", lastAt = 0;
+    return async (v, cam) => {
+      const w = v.videoWidth, h = v.videoHeight;
+      const codes = (await BagOCR.codesIn(v, w, h, 1600)).filter((c) => c.kind === "big" || c.kind === "small");
+      if (!codes.length) return null;
+      cam.alive();
+      const mid = { x: w / 2, y: h / 2 }, ctr = (q) => ({ x: (q.tl.x + q.br.x) / 2, y: (q.tl.y + q.br.y) / 2 });
+      const near = codes.slice().sort((a, b) => Math.hypot(ctr(a).x - mid.x, ctr(a).y - mid.y) - Math.hypot(ctr(b).x - mid.x, ctr(b).y - mid.y))[0];
+      const lk = `${near.product}|${near.batch}`;
+      if (lk === last && Date.now() - lastAt < 4000) return null;   // the same label still in view
+      const mine = codes.filter((c) => c.batch === near.batch && (!c.product || !near.product || c.product === near.product)), now = Date.now();
+      let acc = pending.get(lk);
+      if (!acc || now - acc.last > 4000) { acc = { first: now, big: null, small: null }; pending.set(lk, acc); }
+      acc.last = now;
+      for (const c of mine) acc[c.kind] = acc[c.kind] || c;
+      if (!acc.small && now - acc.first < 2000) { cam.msg(`${near.batch}: looking for the small QR (the quantity)… hold steady`); return null; }
+      pending.delete(lk); last = lk; lastAt = now;
+      return { lab: B.mergeCodes([acc.big, acc.small].filter(Boolean)), mine, now };
+    };
+  }
+  const camOk = () => {
+    if (!window.isSecureContext || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { toast("The camera needs the page opened over https (the GitHub Pages address)."); return false; }
+    try { if (!beep) beep = new (window.AudioContext || window.webkitAudioContext)(); } catch { /* no sound */ }
+    return true;
+  };
+  const camFailed = (e) => toast(e.name === "NotAllowedError" ? "Camera blocked: allow the camera for this site in the browser's settings." : "No camera here to scan with.", 5000);
+  // the camera by the product box: one label, then its stock (no product needed first, nothing counted)
+  $("lookBtn").onclick = () => {
+    if (!camOk()) return;
+    const read = labelReader();
+    CamView.start({
+      msg: "Point at a label to see its stock", idleMs: 60000, idleMsg: "Camera off after a minute with no label read.", width: 3840, height: 2160,
+      onClose: (why) => { if (why) toast(why); },
+      read: async (v, cam) => {
+        const got = await read(v, cam);
+        if (!got) return;
+        const { lab } = got;
+        cam.msg(`✓ ${lab.product ? lab.product + " · " : ""}batch ${lab.batch}${lab.qty !== null ? ` · ${q2(lab.qty)} ${lab.unit}` : ""}`); ding(true);
+        cam.finish(() => openSheet(lab.product || (stock().find((x) => String(x.batch) === lab.batch) || {}).material || "", lab.batch, lab));
+      },
+    }).catch(camFailed);
+  };
+  $("scanBtn").onclick = () => {
+    if (!camOk()) return;
+    const read = labelReader();
     const left = () => { const rows = rowsNow(); const n = rows.filter((r) => !count.seen[r.key]).length; return n ? `${n} still to find` : "all seen"; };
     CamView.start({
       msg: `Point at a label · ${left()}`, idleMs: 180000, idleMsg: "Camera off after three minutes with no label read.", width: 3840, height: 2160,
       onClose: (why) => { if (why) toast(why); render(); },
       read: async (v, cam) => {
-        const w = v.videoWidth, h = v.videoHeight;
-        const codes = (await BagOCR.codesIn(v, w, h, 1600)).filter((c) => c.kind === "big" || c.kind === "small");
-        if (!codes.length) return;
-        cam.alive();
-        const mid = { x: w / 2, y: h / 2 }, ctr = (q) => ({ x: (q.tl.x + q.br.x) / 2, y: (q.tl.y + q.br.y) / 2 });
-        const near = codes.slice().sort((a, b) => Math.hypot(ctr(a).x - mid.x, ctr(a).y - mid.y) - Math.hypot(ctr(b).x - mid.x, ctr(b).y - mid.y))[0];
-        const lk = `${near.product}|${near.batch}`;
-        if (lk === last && Date.now() - lastAt < 4000) return;   // the same label still in view
-        const mine = codes.filter((c) => c.batch === near.batch && (!c.product || !near.product || c.product === near.product)), now = Date.now();
-        // both codes where they can be had (the small one has the quantity): up to two seconds
-        let acc = pending.get(lk);
-        if (!acc || now - acc.last > 4000) { acc = { first: now, big: null, small: null }; pending.set(lk, acc); }
-        acc.last = now;
-        for (const c of mine) acc[c.kind] = acc[c.kind] || c;
-        if (!acc.small && now - acc.first < 2000) { cam.msg(`${near.batch}: looking for the small QR (the quantity)… hold steady`); return; }
-        pending.delete(lk); last = lk; lastAt = now;
-        const lab = B.mergeCodes([acc.big, acc.small].filter(Boolean));
+        const got = await read(v, cam);
+        if (!got) return;
+        const { lab, mine, now } = got, w = v.videoWidth, h = v.videoHeight;
         const rows = stock().filter((x) => String(x.batch) === lab.batch && (!lab.product || String(x.material).toUpperCase() === lab.product));
         const product = lab.product || (rows[0] && rows[0].material) || "";
         const k = keyOf(product, lab.batch);
         if (count.seen[k] && count.seen[k].by === "scan") { cam.msg(`${lab.batch} was already counted at ${hm(count.seen[k].at)} · ${left()}`); return; }
         const area = areaLabel(), sel = areaSel();
-        const s = { at: now, by: "scan", product, batch: lab.batch, qr: lab.qty, unit: lab.unit || "", print: null, area, areas: sel ? [...sel] : null, q: query.toUpperCase() };
+        const s = { at: now, by: "scan", product, batch: lab.batch, qr: lab.qty, unit: lab.unit || "", big: lab.big || "", small: lab.small || "", print: null, area, areas: sel ? [...sel] : null, q: query.toUpperCase() };
         if (count.seen[k] && count.seen[k].counted !== undefined) s.counted = count.seen[k].counted;
         count.seen[k] = s; save();
         readPrint(k, grab(v, w, h), mine);
@@ -559,7 +645,7 @@
         cam.msg(`${msg} · ${left()}`); cam.flash(); ding(ok);
         render();
       },
-    }).catch((e) => toast(e.name === "NotAllowedError" ? "Camera blocked: allow the camera for this site in the browser's settings." : "No camera here to scan with.", 5000));
+    }).catch(camFailed);
   };
 
   window.addEventListener("focus", () => refresh());
