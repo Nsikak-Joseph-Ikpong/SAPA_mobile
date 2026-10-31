@@ -51,7 +51,7 @@
   .ask input { width: 11em; }
   .combo { position: relative; display: grid; gap: 4px; font-weight: 600; font-size: 13px; }
   .combo input { font: 600 16px var(--mono); padding: 10px 12px; width: 12em; }
-  .combo ul { position: absolute; z-index: 30; top: 100%; left: 0; margin: 4px 0 0; padding: 4px; list-style: none; width: max(100%, 15em); max-height: 50vh; overflow-y: auto;
+  .combo ul { position: absolute; z-index: 30; top: 100%; left: 0; margin: 4px 0 0; padding: 4px; list-style: none; width: max(100%, 15em); max-height: 50vh; overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; touch-action: pan-y;
     background: var(--surface); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 8px 24px rgba(0, 0, 0, .14); }
   .combo li { padding: 9px 10px; border-radius: 6px; cursor: pointer; font: 500 14px var(--mono); display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
   .combo li small { font: 12px var(--sans); color: var(--muted); white-space: nowrap; }
@@ -392,7 +392,9 @@
     input.addEventListener("focus", show);
     input.addEventListener("click", () => { if (list.hidden) show(); });
     input.addEventListener("input", () => { show(); if (onInput) onInput(); });
-    input.addEventListener("blur", () => setTimeout(close, 150));
+    // the list stays open when the keyboard goes down (the box loses focus): it closes on a pick, a tap elsewhere or
+    // Escape, so it can be scrolled with the keyboard away
+    document.addEventListener("pointerdown", (e) => { if (!list.hidden && e.target !== input && !list.contains(e.target)) close(); });
     input.addEventListener("keydown", (e) => {
       const items = [...list.querySelectorAll("li[data-v]")];
       if (e.key === "ArrowDown" || e.key === "ArrowUp") {
@@ -406,8 +408,10 @@
       else if (e.key === "Enter") close();
       else if (e.key === "Escape") close();
     });
-    // pointerdown, not click: the box's blur would close the list before a tap's click arrives
-    list.addEventListener("pointerdown", (e) => { const li = e.target.closest("li[data-v]"); if (li) { e.preventDefault(); pickIt(li.dataset.v); } });
+    // a tap picks (click): a finger that moves to scroll the list picks nothing; on a computer the mouse doesn't take
+    // the focus from the box
+    list.addEventListener("click", (e) => { const li = e.target.closest("li[data-v]"); if (li) pickIt(li.dataset.v); });
+    list.addEventListener("mousedown", (e) => e.preventDefault());
   }
   const more = (n) => ({ value: null, html: `<small>… ${f(n)} more: keep typing</small>` });
   const batches = (n) => `${f(n)} batch${n === 1 ? "" : "es"}`;
