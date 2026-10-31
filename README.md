@@ -65,8 +65,10 @@ lists the week's jobs; click any to investigate it.
 
 `stocktake.html` (*Stock take* in the page menu) uses the stock overview and confirmation journal loaded on the
 checker. Type a product and tap *Show stock*: a prefix lists every product it starts (RMMA lists RMMA10EX, RMMA20BF…,
-with a button per product to narrow it), the full code just that one. *Counting in* limits the list to one logistics
-area. Each batch on hand is a row: SAP's quantity, the label's quantity, the difference, a count typed by hand, the
+with a button per product to narrow it), the full code just that one. *Counting in* limits the list by logistics
+area: type and the matching areas are suggested (spaces and underscores aside, so "floor 5" suggests FLOOR5_A,
+FLOOR_5C…), with *All areas* first; pick one for that area, or leave part of a name to count in every area it
+matches. Each batch on hand is a row: SAP's quantity, the label's quantity, the difference, a count typed by hand, the
 product and SAP's area.
 
 *Scan labels* opens the camera across the screen and keeps it open while you walk the racks. The label nearest the

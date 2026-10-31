@@ -47,7 +47,15 @@
   .ask { display: flex; flex-wrap: wrap; gap: 10px 12px; align-items: end; }
   .ask label { display: grid; gap: 4px; font-weight: 600; font-size: 13px; }
   .ask input, .ask select { font: 600 18px var(--mono); padding: 8px 12px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--ink); min-width: 0; }
-  .ask input { width: 11em; } .ask select { font: 500 15px var(--sans); padding: 10px; max-width: 16em; }
+  .ask input { width: 11em; }
+  .combo { position: relative; display: grid; gap: 4px; font-weight: 600; font-size: 13px; }
+  .combo input { font: 600 16px var(--mono); padding: 10px 12px; width: 12em; }
+  .combo ul { position: absolute; z-index: 30; top: 100%; left: 0; margin: 4px 0 0; padding: 4px; list-style: none; width: max(100%, 15em); max-height: 50vh; overflow-y: auto;
+    background: var(--surface); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 8px 24px rgba(0, 0, 0, .14); }
+  .combo li { padding: 9px 10px; border-radius: 6px; cursor: pointer; font: 500 14px var(--mono); display: flex; justify-content: space-between; gap: 12px; }
+  .combo li small { font: 12px var(--sans); color: var(--muted); }
+  .combo li[aria-selected="true"], .combo li:hover { background: var(--accent-soft); }
+  .combo li.all { font-family: var(--sans); font-weight: 600; }
   .ask button { padding: 11px 18px; font-size: 15px; }
   .actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
   .actions .scan { display: inline-flex; align-items: center; gap: 8px; padding: 12px 20px; font-size: 15px; }
@@ -99,7 +107,7 @@
   </section>
   <form class="ask panel" id="ask">
     <label>Product<input id="q" type="search" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="e.g. RMMA10EX"></label>
-    <label>Counting in<select id="area"><option value="">Any area</option></select></label>
+    <div class="combo"><label for="area">Counting in</label><input id="area" type="text" enterkeyhint="done" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="All areas" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="areaList"><ul id="areaList" role="listbox" aria-label="Areas" hidden></ul></div>
     <button type="submit">Show stock</button>
   </form>
   <section class="panel" id="countPanel" hidden>
@@ -164,9 +172,8 @@
       const sheets = files.flatMap((x) => { const wb = XLSX.read(x.buf, { type: "array", dense: true }); return wb.SheetNames.map((sn) => ({ file: x.name, sheet: sn, rows: XLSX.utils.sheet_to_json(wb.Sheets[sn], { header: 1, raw: true, defval: null, blankrows: true }) })); });
       ctx = { wb: R.readWorkbook(sheets) };
       const st = ctx.wb.stock || [];
-      const areas = [...new Set(st.map((x) => x.area).filter(Boolean))].sort();
-      const keep = $("area").value;
-      $("area").innerHTML = `<option value="">Any area</option>` + areas.map((a) => `<option${a === keep ? " selected" : ""}>${esc(a)}</option>`).join("");
+      const areas = [...new Set(st.map((x) => x.area).filter(Boolean))].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+      AREAS = areas;
       $("sapText").textContent = `${files.map((x) => x.name).join(", ")} · ` + (st.length ? `stock overview: ${f(st.length)} rows in ${areas.length} areas` : "no stock overview in these files: export the Stock Overview from SAP and add it on the checker") + ` · journal: ${f(ctx.wb.journal.length)} rows`;
     } catch (e) { ctx = null; $("sapText").textContent = "couldn't read the SAP files: " + e.message; }
     render();
@@ -182,6 +189,20 @@
   const labelQty = (s) => (!s ? null : s.counted ?? s.qr ?? s.print ?? null);
 
   // ------------------------------------------------------------ the list
+  // Counting in: blank or "All" is every area; an area's name (typed or picked) is that area; part of a name is
+  // every area it matches, spaces and underscores aside ("floor 5" is FLOOR5, FLOOR5_A, FLOOR_5B…)
+  let AREAS = [];
+  const norm = (t) => String(t || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+  const areaText = () => $("area").value.trim();
+  const isAll = (t) => !t || /^all( areas?)?$/i.test(t);
+  const areasLike = (t) => { const n = norm(t); return n ? AREAS.filter((a) => norm(a).includes(n)) : AREAS.slice(); };
+  function areaSel() {
+    const t = areaText();
+    if (isAll(t)) return null;
+    const exact = AREAS.find((a) => norm(a) === norm(t));
+    return new Set(exact ? [exact] : areasLike(t));
+  }
+  const areaLabel = () => { const sel = areaSel(); return !sel ? null : sel.size === 1 ? [...sel][0] : areaText().toUpperCase(); };
   let query = "", pick = "", sort = { col: "area", dir: 1 }, open = new Set();
   const stock = () => (ctx && ctx.wb.stock) || [];
   const matches = () => {
@@ -191,7 +212,7 @@
   };
   // one row per product and batch (a batch on hand in two areas is one thing to find: its areas are listed)
   function rowsNow() {
-    const area = $("area").value, by = new Map();
+    const sel = areaSel(), by = new Map();
     for (const x of matches()) {
       if (pick && x.material !== pick) continue;
       const k = keyOf(x.material, x.batch);
@@ -200,7 +221,7 @@
       r.areas.push(x.area); r.qty += isNaN(x.qty) ? 0 : x.qty; r.restricted = r.restricted || x.restricted;
     }
     let rows = [...by.values()];
-    if (area) rows = rows.filter((r) => r.areas.includes(area));
+    if (sel) rows = rows.filter((r) => r.areas.some((a) => sel.has(a)));
     return rows;
   }
   const COLS = [
@@ -261,7 +282,7 @@
     for (const x of all) prods.set(x.material, (prods.get(x.material) || new Set()).add(String(x.batch)));
     $("chips").innerHTML = prods.size > 1 ? [`<button type="button" data-p="" aria-pressed="${!pick}">All ${esc(query.toUpperCase())} (${f([...prods.values()].reduce((a, s) => a + s.size, 0))})</button>`,
       ...[...prods].sort((a, b) => (a[0] < b[0] ? -1 : 1)).map(([m, s]) => `<button type="button" data-p="${esc(m)}" aria-pressed="${pick === m}">${esc(m)} (${f(s.size)})</button>`)].join("") : "";
-    const rows = rowsNow(), area = $("area").value;
+    const rows = rowsNow(), area = areaLabel(), sel = areaSel();
     const seenN = rows.filter((r) => count.seen[r.key]).length;
     const counted = rows.filter((r) => labelQty(count.seen[r.key]) !== null);
     const off = counted.filter((r) => !same(labelQty(count.seen[r.key]), r.qty));
@@ -269,7 +290,7 @@
     const inList = new Set(rows.map((r) => r.key));
     const extras = Object.entries(count.seen).filter(([k, s]) => !inList.has(k) && s.by === "scan" && s.q === query.toUpperCase());
     $("tiles").innerHTML = [
-      ["Batches on hand", f(rows.length), `${q2(sapQ)} in SAP${area ? ` · in ${area}` : ""}`, ""],
+      ["Batches on hand", f(rows.length), `${q2(sapQ)} in SAP${area ? ` · in ${area}${sel.size > 1 ? ` (${sel.size} areas)` : ""}` : ""}`, ""],
       ["Seen", f(seenN), `of ${f(rows.length)}`, seenN === rows.length ? "ok" : ""],
       ["Still to find", f(rows.length - seenN), rows.length - seenN ? "not seen yet" : "all seen", rows.length - seenN ? "warn" : "ok"],
       ["Quantity differences", f(off.length), counted.length ? `counted ${q2(cntQ)} vs SAP ${q2(cntSap)} (${fs(cntQ - cntSap, 2)})` : "nothing counted yet", off.length ? "bad" : counted.length ? "ok" : ""],
@@ -290,7 +311,7 @@
         diff: `<td class="n ${d === null ? "" : same(d, 0) ? "ok" : "bad"}">${d === null ? "" : same(d, 0) ? "✓ 0" : fs(d, 2)}</td>`,
         counted: `<td class="cnt"><input type="text" inputmode="decimal" value="${s && s.counted !== null && s.counted !== undefined ? esc(s.counted) : ""}" aria-label="Counted quantity of ${esc(r.batch)}"></td>`,
         material: `<td class="m" title="${esc(r.text)}">${esc(r.material)}</td>`,
-        area: `<td class="m">${esc(r.areas.join(", "))}${r.restricted ? ' <span class="warn">restricted</span>' : ""}${s && s.area && !r.areas.includes(s.area) ? ` <span class="bad">found in ${esc(s.area)}</span>` : ""}</td>`,
+        area: `<td class="m">${esc(r.areas.join(", "))}${r.restricted ? ' <span class="warn">restricted</span>' : ""}${s && s.area && !r.areas.some((a) => (s.areas || [s.area]).includes(a)) ? ` <span class="bad">found in ${esc(s.area)}</span>` : ""}</td>`,
         print: `<td>${printCell(s)}</td>`,
         at: `<td class="m">${s ? `${hm(s.at)}${s.by === "hand" ? " (by hand)" : ""}` : ""}</td>`,
       };
@@ -311,7 +332,36 @@
     if (query) count.q = query.toUpperCase(), save();
     refresh().then(render);
   });
-  $("area").onchange = () => render();
+  // the area box: suggestions as you type (All areas first), picked with a tap or the arrow keys and Enter
+  let hi = -1;
+  function suggest() {
+    const t = areaText(), list = $("areaList"), opts = isAll(t) ? AREAS : areasLike(t);
+    const cnt = (a) => { const n = new Set(stock().filter((x) => x.area === a).map((x) => x.material + "|" + x.batch)).size; return `${f(n)} batch${n === 1 ? "" : "es"}`; };
+    list.innerHTML = `<li role="option" class="all" data-a="">All areas<small>${f(AREAS.length)} areas</small></li>`
+      + opts.slice(0, 60).map((a) => `<li role="option" data-a="${esc(a)}">${esc(a)}<small>${cnt(a)}</small></li>`).join("")
+      + (opts.length > 60 ? `<li role="option" aria-disabled="true"><small>… ${f(opts.length - 60)} more: keep typing</small></li>` : "")
+      + (!opts.length && !isAll(t) ? `<li role="option" aria-disabled="true"><small>No area matches “${esc(t)}”</small></li>` : "");
+    hi = -1; list.hidden = !AREAS.length; $("area").setAttribute("aria-expanded", String(!list.hidden));
+  }
+  const closeList = () => { $("areaList").hidden = true; $("area").setAttribute("aria-expanded", "false"); };
+  const choose = (a) => { $("area").value = a; closeList(); render(); };
+  $("area").addEventListener("focus", suggest);
+  $("area").addEventListener("click", () => { if ($("areaList").hidden) suggest(); });
+  $("area").addEventListener("input", () => { suggest(); render(); });
+  $("area").addEventListener("blur", () => setTimeout(closeList, 150));
+  $("area").addEventListener("keydown", (e) => {
+    const items = [...$("areaList").querySelectorAll("li[data-a]")];
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      if ($("areaList").hidden) suggest();
+      hi = (hi + (e.key === "ArrowDown" ? 1 : -1) + items.length) % items.length;
+      items.forEach((li, i) => li.setAttribute("aria-selected", String(i === hi)));
+      if (items[hi]) items[hi].scrollIntoView({ block: "nearest" });
+      e.preventDefault();
+    } else if (e.key === "Enter" && !$("areaList").hidden && hi >= 0 && items[hi]) { choose(items[hi].dataset.a); e.preventDefault(); }
+    else if (e.key === "Escape") closeList();
+  });
+  // pointerdown, not click: the box's blur would close the list before a tap's click arrives
+  $("areaList").addEventListener("pointerdown", (e) => { const li = e.target.closest("li[data-a]"); if (li) { e.preventDefault(); choose(li.dataset.a); } });
   $("filter").oninput = () => render();
   $("chips").addEventListener("click", (e) => { const b = e.target.closest("button[data-p]"); if (b) { pick = b.dataset.p; render(); } });
   $("list").addEventListener("click", (e) => {
@@ -325,12 +375,12 @@
     if (!tr) return;
     const k = tr.dataset.k, [m, b] = k.split("|");
     if (e.target.type === "checkbox") {
-      if (e.target.checked) count.seen[k] = { ...(count.seen[k] || {}), at: Date.now(), by: (count.seen[k] || {}).by || "hand", product: m, batch: b, area: $("area").value || null, q: query.toUpperCase() };
+      if (e.target.checked) count.seen[k] = { ...(count.seen[k] || {}), at: Date.now(), by: (count.seen[k] || {}).by || "hand", product: m, batch: b, area: areaLabel(), areas: areaSel() ? [...areaSel()] : null, q: query.toUpperCase() };
       else delete count.seen[k];
     } else if (e.target.closest("td.cnt")) {
       const t = e.target.value.trim().replace(",", "."), v = t === "" ? null : Number(t);
       if (t !== "" && !isFinite(v)) { toast("Type a number"); return; }
-      const s = count.seen[k] || { at: Date.now(), by: "hand", product: m, batch: b, area: $("area").value || null, q: query.toUpperCase() };
+      const s = count.seen[k] || { at: Date.now(), by: "hand", product: m, batch: b, area: areaLabel(), areas: areaSel() ? [...areaSel()] : null, q: query.toUpperCase() };
       s.counted = v; count.seen[k] = s;
     }
     save(); render();
@@ -414,12 +464,12 @@
         const product = lab.product || (rows[0] && rows[0].material) || "";
         const k = keyOf(product, lab.batch);
         if (count.seen[k] && count.seen[k].by === "scan") { cam.msg(`${lab.batch} was already counted at ${hm(count.seen[k].at)} · ${left()}`); return; }
-        const area = $("area").value || null;
-        const s = { at: now, by: "scan", product, batch: lab.batch, qr: lab.qty, unit: lab.unit || "", print: null, area, q: query.toUpperCase() };
+        const area = areaLabel(), sel = areaSel();
+        const s = { at: now, by: "scan", product, batch: lab.batch, qr: lab.qty, unit: lab.unit || "", print: null, area, areas: sel ? [...sel] : null, q: query.toUpperCase() };
         if (count.seen[k] && count.seen[k].counted !== undefined) s.counted = count.seen[k].counted;
         count.seen[k] = s; save();
         readPrint(k, grab(v, w, h), mine);
-        const sapQ = rows.reduce((a, x) => a + (isNaN(x.qty) ? 0 : x.qty), 0), here = !area || rows.some((x) => x.area === area);
+        const sapQ = rows.reduce((a, x) => a + (isNaN(x.qty) ? 0 : x.qty), 0), here = !sel || rows.some((x) => sel.has(x.area));
         const inSearch = rows.length && String(product).toUpperCase().startsWith(query.toUpperCase());
         let msg, ok = true;
         if (!rows.length) { msg = `✗ ${product} ${lab.batch}: not in SAP's stock`; ok = false; }
