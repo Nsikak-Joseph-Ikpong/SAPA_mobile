@@ -1,0 +1,383 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:,">
+<title>Aisle Manager</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
+<style>
+  :root {
+    --ground: #f2f4f1; --surface: #ffffff; --sunken: #e9ece8; --ink: #17201d; --muted: #5b6661; --line: #d8ddd9;
+    --accent: #23615a; --accent-ink: #ffffff; --accent-soft: #dcebe8;
+    --bad: #b3261e; --bad-soft: #f8e1df; --warn: #9a6200; --warn-soft: #f6ead3; --ok: #2b7a4b; --ok-soft: #dff0e5;
+    --sans: "IBM Plex Sans", "Segoe UI", system-ui, -apple-system, sans-serif;
+    --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --ground: #111513; --surface: #192019; --sunken: #141a17; --ink: #e5eae7; --muted: #9aa59f; --line: #2c3531;
+      --accent: #62b5aa; --accent-ink: #0d1412; --accent-soft: #1c3531;
+      --bad: #f27b70; --bad-soft: #3a1f1c; --warn: #e2a846; --warn-soft: #372b16; --ok: #6dc690; --ok-soft: #183023;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --ground: #111513; --surface: #192019; --sunken: #141a17; --ink: #e5eae7; --muted: #9aa59f; --line: #2c3531;
+    --accent: #62b5aa; --accent-ink: #0d1412; --accent-soft: #1c3531;
+    --bad: #f27b70; --bad-soft: #3a1f1c; --warn: #e2a846; --warn-soft: #372b16; --ok: #6dc690; --ok-soft: #183023;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+  body { background: var(--ground); color: var(--ink); font: 14px/1.5 var(--sans); }
+  .wrap { max-width: 1240px; margin: 0 auto; padding: 20px 16px 48px; display: grid; gap: 16px; }
+  h1 { font-size: 21px; line-height: 1.2; margin: 0; letter-spacing: -0.01em; }
+  h2 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin: 0; font-weight: 600; }
+  .sub { color: var(--muted); margin: 4px 0 0; font-size: 13px; max-width: 90ch; }
+  .panel { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; display: grid; gap: 12px; align-content: start; min-width: 0; }
+  .hint { font-size: 12.5px; color: var(--muted); margin: 0; }
+  a { color: var(--accent); }
+  button { font: 600 13.5px var(--sans); border-radius: 6px; padding: 8px 14px; cursor: pointer; border: 1px solid var(--accent); background: var(--accent); color: var(--accent-ink); }
+  button.quiet { background: var(--surface); color: var(--ink); border-color: var(--line); font-weight: 500; }
+  button:disabled { opacity: .5; cursor: default; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .sapbar { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 10px 16px; font-size: 13px; }
+  .sapbar .grow { flex: 1 1 320px; min-width: 0; }
+  .now { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; }
+  .now .aisle { flex: 1 1 200px; }
+  .now .aisle small { display: block; font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: 600; }
+  .now .aisle b { font: 600 26px var(--mono); }
+  .now .aisle b.none { color: var(--muted); font: 500 18px var(--sans); }
+  .scan { display: inline-flex; align-items: center; gap: 8px; padding: 12px 20px; font-size: 15px; }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .row input { font: 600 15px var(--mono); padding: 9px 11px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--ink); width: 11em; min-width: 0; }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; margin: 0; }
+  .tiles div { background: var(--sunken); border-radius: 6px; padding: 8px 10px; }
+  .tiles dt { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); }
+  .tiles dd { margin: 2px 0 0; font: 600 20px var(--mono); font-variant-numeric: tabular-nums; }
+  .tiles dd small { display: block; font: 12px var(--sans); color: var(--muted); }
+  .actions { display: flex; flex-wrap: wrap; gap: 10px; }
+  input.tfilter { width: 100%; max-width: 320px; font: inherit; font-size: 13px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--ink); }
+  section.aisle { border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  section.aisle.cur { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+  section.aisle header { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: baseline; padding: 8px 12px; background: var(--sunken); }
+  section.aisle header b { font: 600 16px var(--mono); }
+  section.aisle header span { font-size: 12.5px; color: var(--muted); flex: 1; }
+  section.aisle header button { font-size: 12.5px; padding: 4px 10px; }
+  .scroll { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; }
+  th, td { text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--line); vertical-align: middle; white-space: nowrap; }
+  tr:last-child td { border-bottom: 0; }
+  th { font-size: 12px; font-weight: 600; }
+  td.n { text-align: right; font-variant-numeric: tabular-nums; font-family: var(--mono); }
+  td.m { font-family: var(--mono); }
+  td small { display: block; color: var(--muted); font: 12px/1.35 var(--sans); white-space: normal; margin-top: 1px; }
+  td.wrap { white-space: normal; }
+  td small.m { font-family: var(--mono); color: var(--ink); }
+  td.q input { width: 5.5em; }
+  td.n small { text-align: right; }
+  td.x { width: 1%; padding-left: 0; }
+  th, td { padding: 6px 8px; }
+  td.q input { width: 6.5em; font: 500 13px var(--mono); padding: 4px 6px; border: 1px solid var(--line); border-radius: 5px; background: var(--surface); color: var(--ink); text-align: right; }
+  td.x button { padding: 2px 9px; background: none; color: var(--muted); border: 1px solid var(--line); font-size: 13px; }
+  .bad { color: var(--bad); } .ok { color: var(--ok); } .warn { color: var(--warn); } .muted { color: var(--muted); }
+  .empty { border: 1px dashed var(--line); border-radius: 8px; padding: 26px; text-align: center; color: var(--muted); background: var(--surface); }
+  .toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); background: var(--ink); color: var(--ground); padding: 8px 14px; border-radius: 6px; font-size: 13px; z-index: 70; max-width: calc(100vw - 32px); }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div>
+    <h1 data-nav="aisles">Aisle manager</h1>
+    <p class="sub">Scan an aisle's barcode, then the labels of what's on it (the big or small QR code): each batch is assigned to that aisle with its quantity (the label's, else SAP's; you can change it). Scan the next aisle's barcode to move on. A batch scanned in another aisle moves there. Product details and SAP's quantity and area come from the files loaded on the checker. Kept on this device; export to Excel.</p>
+  </div>
+  <section class="sapbar" aria-label="SAP data">
+    <div class="grow"><b>SAP data:</b> <span id="sapText">looking for the SAP files…</span></div>
+    <a href="./">Load or update them on the checker</a>
+  </section>
+  <section class="panel">
+    <div class="now">
+      <div class="aisle"><small>Assigning to aisle</small><b id="curAisle" class="none">no aisle yet: scan its barcode</b></div>
+      <button type="button" class="scan" id="scanBtn"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" d="M4 8.5A1.5 1.5 0 0 1 5.5 7h2.2l1.4-2h5.8l1.4 2h2.2A1.5 1.5 0 0 1 20 8.5v9a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 17.5z"/><circle cx="12" cy="13" r="3.4" fill="none" stroke="currentColor" stroke-width="1.8"/></svg><span id="scanText">Scan the aisle barcode</span></button>
+      <button type="button" class="quiet" id="aisleBtn" hidden>Scan another aisle</button>
+    </div>
+    <p class="hint">The camera stays open: scan the aisle's barcode, then each label on the rack; scan the next aisle's barcode to move on. Use the zoom slider for labels up high.</p>
+    <form class="row" id="setAisle"><input id="aisleIn" type="text" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="Aisle code" aria-label="Type an aisle code"><button type="submit" class="quiet">Set aisle</button></form>
+    <form class="row" id="addBatch"><input id="batchIn" type="text" inputmode="numeric" autocomplete="off" spellcheck="false" placeholder="Batch number" aria-label="Type a batch number to add to the aisle"><button type="submit" class="quiet">Add to this aisle</button></form>
+  </section>
+  <section class="panel" id="listPanel">
+    <dl class="tiles" id="tiles"></dl>
+    <div class="actions">
+      <button type="button" class="quiet" id="xlsBtn">Export to Excel</button>
+      <button type="button" class="quiet" id="clearBtn">Clear all aisles</button>
+    </div>
+    <input type="search" class="tfilter" id="filter" placeholder="Filter by aisle, batch, product…" aria-label="Filter">
+    <div id="aisles" style="display:grid;gap:12px"></div>
+  </section>
+</div>
+<p class="hint" style="text-align:center;margin:0 0 20px">Version __BUILD__</p>
+<div class="toast" id="toast" hidden></div>
+<script src="vendor/xlsx.full.min.js?v=__BUILD__"></script>
+<script>window.XLSX || document.write('<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"><\/script>');</script>
+<script src="reconcile.js?v=__BUILD__"></script>
+<script src="vendor/zxing/zxing-reader.js?v=__BUILD__"></script>
+<script src="bagscan.js?v=__BUILD__"></script>
+<script src="bagocr.js?v=__BUILD__"></script>
+<script src="camview.js?v=__BUILD__"></script>
+<script src="nav.js?v=__BUILD__"></script>
+<script>
+(function () {
+  "use strict";
+  const R = window.OrderCheck, B = window.BagScan, $ = (id) => document.getElementById(id);
+  const { f, fs, dmy } = R.fmt;
+  const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const p2 = (n) => String(n).padStart(2, "0");
+  const hm = (t) => { const d = new Date(t); return `${p2(d.getHours())}:${p2(d.getMinutes())}`; };
+  const q2 = (v) => (v === null || v === undefined || isNaN(v) ? "" : f(v, 2));
+  const same = (a, b) => Math.abs(a - b) < 0.005;
+  const cmp = (a, b) => String(a).localeCompare(String(b), undefined, { numeric: true });
+  function toast(msg, ms = 2800) { const t = $("toast"); t.textContent = msg; t.hidden = false; clearTimeout(toast.t); toast.t = setTimeout(() => (t.hidden = true), ms); }
+
+  // ------------------------------------------------------------ the SAP files the checker keeps in this browser
+  let ctx = null, saved;
+  const loadSaved = () => new Promise((resolve) => {
+    try {
+      const q = indexedDB.open("cheese-variance", 1);
+      q.onupgradeneeded = () => q.result.createObjectStore("files");
+      q.onerror = () => resolve(null);
+      q.onsuccess = () => { try { const g = q.result.transaction("files").objectStore("files").get("workbook"); g.onsuccess = () => resolve(g.result || null); g.onerror = () => resolve(null); } catch { resolve(null); } };
+    } catch { resolve(null); }
+  });
+  let byBatch = new Map(), names = new Map();
+  async function refresh() {
+    const rec = await loadSaved();
+    if (rec && rec.saved === saved && ctx) return;
+    saved = rec ? rec.saved : null;
+    const files = rec ? rec.files || (rec.buf ? [{ name: rec.name, buf: rec.buf }] : []) : [];
+    if (!files.length) { ctx = null; byBatch = new Map(); $("sapText").textContent = "no SAP files yet: batches can still be assigned, without SAP's quantity and area (load the stock overview on the checker)."; render(); return; }
+    $("sapText").textContent = "reading the SAP files…";
+    await new Promise((r) => setTimeout(r, 30));
+    try {
+      const sheets = files.flatMap((x) => { const wb = XLSX.read(x.buf, { type: "array", dense: true }); return wb.SheetNames.map((sn) => ({ file: x.name, sheet: sn, rows: XLSX.utils.sheet_to_json(wb.Sheets[sn], { header: 1, raw: true, defval: null, blankrows: true }) })); });
+      ctx = { wb: R.readWorkbook(sheets) };
+      const st = ctx.wb.stock || [];
+      byBatch = new Map(); names = new Map();
+      for (const x of st) {
+        const b = String(x.batch);
+        if (!byBatch.has(b)) byBatch.set(b, []);
+        byBatch.get(b).push(x);
+        if (x.material_text !== null && x.material_text !== undefined && !names.has(x.material)) names.set(x.material, String(x.material_text));
+      }
+      for (const o of ctx.wb.orders || []) if (o.fg && o.fg_text && !names.has(o.fg)) names.set(o.fg, String(o.fg_text));
+      $("sapText").textContent = `${files.map((x) => x.name).join(", ")} · ` + (st.length ? `stock overview: ${f(st.length)} rows` : "no stock overview in these files: batches are assigned without SAP's quantity and area (add the Stock Overview on the checker)");
+    } catch (e) { ctx = null; $("sapText").textContent = "couldn't read the SAP files: " + e.message; }
+    render();
+  }
+  // what SAP has for a batch (of a product, when the label says which)
+  const sapOf = (product, batch) => (byBatch.get(String(batch)) || []).filter((x) => !product || String(x.material).toUpperCase() === String(product).toUpperCase());
+
+  // ------------------------------------------------------------ the aisles, kept on this device
+  // assign: product|batch -> { aisle, product, batch, qty, unit, from ("qr" the label's small QR, "sap", "hand"), at,
+  // moved (the aisle it was in before) }; aisles: code -> first scanned; shapes: what aisle codes look like
+  // (letters as A, digits as 9), so another aisle's barcode is known while scanning labels
+  const KEY = "sapa-aisles";
+  let st = (() => { try { return JSON.parse(localStorage.getItem(KEY)) || null; } catch { return null; } })() || { current: null, aisles: {}, shapes: [], assign: {} };
+  const save = () => { try { localStorage.setItem(KEY, JSON.stringify(st)); } catch { /* private window: kept until the page closes */ } };
+  const shape = (t) => String(t).toUpperCase().replace(/[A-Z]/g, "A").replace(/[0-9]/g, "9");
+  const looksLikeAisle = (t) => st.aisles[t] !== undefined || st.shapes.includes(shape(t));
+  function setAisle(code) {
+    code = String(code).trim();
+    if (!code) return;
+    st.current = code;
+    if (st.aisles[code] === undefined) st.aisles[code] = Date.now();
+    if (!st.shapes.includes(shape(code))) st.shapes.push(shape(code));
+    save(); render();
+  }
+  // a batch onto the current aisle: the label's quantity (small QR), else SAP's; one aisle per batch (scanned
+  // again elsewhere, it moves)
+  function assign(lab) {
+    const rows = sapOf(lab.product, lab.batch);
+    const product = lab.product || (rows[0] && rows[0].material) || "";
+    const k = `${product}|${lab.batch}`, prev = st.assign[k];
+    if (prev && prev.aisle === st.current) return { prev, same: true };
+    const sapQ = rows.reduce((a, x) => a + (isNaN(x.qty) ? 0 : x.qty), 0);
+    const qty = lab.qty !== null && lab.qty !== undefined ? lab.qty : rows.length ? sapQ : null;
+    const rec = { aisle: st.current, product, batch: String(lab.batch), qty, unit: lab.unit || (rows[0] && rows[0].uom ? String(rows[0].uom).toLowerCase() : ""),
+      from: lab.qty !== null && lab.qty !== undefined ? "qr" : rows.length ? "sap" : null, at: Date.now(), moved: prev ? prev.aisle : null };
+    st.assign[k] = rec; save(); render();
+    return { rec, prev, rows, sapQ };
+  }
+
+  // ------------------------------------------------------------ the page
+  function render() {
+    const cur = st.current;
+    $("curAisle").textContent = cur || "no aisle yet: scan its barcode";
+    $("curAisle").className = cur ? "" : "none";
+    $("scanText").textContent = cur ? `Scan labels into aisle ${cur}` : "Scan the aisle barcode";
+    $("aisleBtn").hidden = !cur;
+    $("addBatch").querySelector("button").disabled = !cur;
+    const recs = Object.entries(st.assign).map(([k, r]) => ({ k, ...r }));
+    const aisles = [...new Set([...Object.keys(st.aisles), ...recs.map((r) => r.aisle)])].sort(cmp);
+    const units = (rs) => { const u = new Map(); for (const r of rs) if (r.qty !== null) u.set(r.unit || "", (u.get(r.unit || "") || 0) + r.qty); return [...u].map(([k, v]) => `${q2(v)}${k ? " " + k : ""}`).join(" · ") || "no quantities"; };
+    $("tiles").innerHTML = [["Aisles", f(aisles.length), cur ? `assigning to ${cur}` : "none chosen"], ["Batches assigned", f(recs.length), units(recs)],
+      ["Not in SAP's stock", f(recs.filter((r) => !sapOf(r.product, r.batch).length).length), ctx ? "batches SAP doesn't have on hand" : "no stock overview loaded"],
+      ["Quantity differs from SAP", f(recs.filter((r) => { const s = sapOf(r.product, r.batch); return s.length && r.qty !== null && !same(r.qty, s.reduce((a, x) => a + (isNaN(x.qty) ? 0 : x.qty), 0)); }).length), "label or typed vs SAP"]]
+      .map(([k, v, s2]) => `<div><dt>${esc(k)}</dt><dd>${esc(v)}<small>${esc(s2)}</small></dd></div>`).join("");
+    const fq = $("filter").value.trim().toLowerCase();
+    const FROM = { qr: "label", sap: "SAP", hand: "typed" };
+    const html = aisles.map((a) => {
+      const rs = recs.filter((r) => r.aisle === a).filter((r) => !fq || [a, r.batch, r.product, names.get(r.product) || ""].join(" ").toLowerCase().includes(fq)).sort((x, y) => y.at - x.at);
+      if (fq && !rs.length && !a.toLowerCase().includes(fq)) return "";
+      const body = rs.map((r) => {
+        const sap = sapOf(r.product, r.batch), sapQ = sap.reduce((s, x) => s + (isNaN(x.qty) ? 0 : x.qty), 0);
+        const diff = sap.length && r.qty !== null && !same(r.qty, sapQ);
+        return `<tr data-k="${esc(r.k)}"><td class="wrap"><b class="m">${esc(r.batch)}</b><small class="m">${esc(r.product || "?")}</small><small>${esc(names.get(r.product) || "")}</small><small>${hm(r.at)}${r.moved ? ` · moved from ${esc(r.moved)}` : ""}</small></td>`
+          + `<td class="q"><input type="text" inputmode="decimal" value="${r.qty === null ? "" : esc(r.qty)}" aria-label="Quantity of ${esc(r.batch)}"><small>${esc(r.unit || "")}${r.unit ? " · " : ""}${FROM[r.from] || "no quantity"}</small></td>`
+          + `<td class="n">${sap.length ? `<span class="${diff ? "bad" : ""}">${q2(sapQ)}</span>` : `<small class="warn">not in SAP</small>`}${diff ? `<small class="bad">${fs(r.qty - sapQ, 2)}</small>` : ""}<small>${esc([...new Set(sap.map((x) => x.area))].join(", "))}</small></td>`
+          + `<td class="x"><button type="button" aria-label="Remove ${esc(r.batch)} from aisle ${esc(a)}">✕</button></td></tr>`;
+      }).join("");
+      const all = recs.filter((r) => r.aisle === a);
+      return `<section class="aisle${a === cur ? " cur" : ""}" data-a="${esc(a)}"><header><b>${esc(a)}</b><span>${f(all.length)} batch${all.length === 1 ? "" : "es"} · ${units(all)}</span>${a === cur ? "" : `<button type="button" class="quiet use">Assign here</button>`}</header>`
+        + (body ? `<div class="scroll"><table><thead><tr><th>Batch</th><th>Qty</th><th style="text-align:right">SAP</th><th></th></tr></thead><tbody>${body}</tbody></table></div>` : `<p class="hint" style="padding:8px 12px">Nothing assigned yet${a === cur ? ": scan the labels on this aisle" : ""}.</p>`)
+        + `</section>`;
+    }).join("");
+    $("aisles").innerHTML = html || `<div class="empty">No aisles yet. Tap <b>Scan the aisle barcode</b> and point at the aisle's barcode (or type its code and tap <b>Set aisle</b>), then scan the labels on it.</div>`;
+  }
+  $("filter").oninput = () => render();
+  $("setAisle").addEventListener("submit", (e) => { e.preventDefault(); const v = $("aisleIn").value.trim(); if (v) { setAisle(v.toUpperCase()); $("aisleIn").value = ""; toast(`Assigning to aisle ${st.current}`); } });
+  $("addBatch").addEventListener("submit", (e) => {
+    e.preventDefault();
+    const b = $("batchIn").value.trim();
+    if (!b || !st.current) return;
+    const rows = sapOf("", b);
+    if (!rows.length && !confirm(`Batch ${b} isn't in SAP's stock overview. Add it to aisle ${st.current} anyway?`)) return;
+    const r = assign({ product: rows[0] ? rows[0].material : "", batch: b, qty: null, unit: "" });
+    $("batchIn").value = "";
+    toast(r.same ? `${b} is already in aisle ${st.current}` : `${b} added to aisle ${st.current}${r.prev ? ` (moved from ${r.prev.aisle})` : ""}`);
+  });
+  $("aisles").addEventListener("click", (e) => {
+    const use = e.target.closest("button.use");
+    if (use) { setAisle(use.closest("section").dataset.a); toast(`Assigning to aisle ${st.current}`); return; }
+    const x = e.target.closest("td.x button");
+    if (x) { const k = x.closest("tr").dataset.k; delete st.assign[k]; save(); render(); }
+  });
+  $("aisles").addEventListener("change", (e) => {
+    const inp = e.target.closest("td.q input");
+    if (!inp) return;
+    const k = inp.closest("tr").dataset.k, t = inp.value.trim().replace(",", "."), v = t === "" ? null : Number(t);
+    if (t !== "" && !isFinite(v)) { toast("Type a number"); return; }
+    st.assign[k].qty = v; st.assign[k].from = v === null ? null : "hand"; save(); render();
+  });
+  $("clearBtn").onclick = () => { if (Object.keys(st.assign).length + Object.keys(st.aisles).length && !confirm("Clear every aisle and what's assigned to it? Export to Excel first to keep a copy.")) return; st = { current: null, aisles: {}, shapes: st.shapes, assign: {} }; save(); render(); };
+  $("xlsBtn").onclick = () => {
+    const recs = Object.values(st.assign).sort((a, b) => cmp(a.aisle, b.aisle) || cmp(a.batch, b.batch));
+    if (!recs.length) { toast("Nothing assigned yet"); return; }
+    const local = (t) => dmy(t - new Date(t).getTimezoneOffset() * 60000);
+    const rows = recs.map((r) => { const sap = sapOf(r.product, r.batch), sapQ = sap.reduce((s, x) => s + (isNaN(x.qty) ? 0 : x.qty), 0); return {
+      Aisle: r.aisle, Product: r.product, Description: names.get(r.product) || "", Batch: r.batch, Quantity: r.qty, UoM: r.unit, "Quantity from": { qr: "label (QR)", sap: "SAP", hand: "typed" }[r.from] || "",
+      "SAP qty": sap.length ? sapQ : null, Difference: sap.length && r.qty !== null ? Number((r.qty - sapQ).toFixed(3)) : null, "SAP area": [...new Set(sap.map((x) => x.area))].join(", ") || "not in SAP's stock",
+      "Assigned at": local(r.at), "Moved from": r.moved || "" }; });
+    // one line per aisle and unit: cases and kg aren't added together
+    const sum = [];
+    for (const a of [...new Set(recs.map((r) => r.aisle))]) for (const u of [...new Set(recs.filter((r) => r.aisle === a).map((r) => r.unit || ""))].sort()) {
+      const rs = recs.filter((r) => r.aisle === a && (r.unit || "") === u);
+      sum.push({ Aisle: a, Batches: rs.length, Quantity: Number(rs.reduce((s, r) => s + (r.qty || 0), 0).toFixed(3)), UoM: u });
+    }
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), "Aisles");
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(sum), "By aisle");
+    const d = new Date();
+    XLSX.writeFile(wb, `Aisles ${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}.xlsx`);
+  };
+
+  // ------------------------------------------------------------ scanning
+  // Every barcode kind is read (the aisle's may be a QR code or a 1D barcode); the plant's labels are the big
+  // "(90)product(10)batch" and small "product,batch,qty,unit" QR codes. Pointing at an aisle barcode sets the aisle;
+  // after that, labels are assigned to it, and a code shaped like an aisle code (as the ones scanned before) moves
+  // on to that aisle. Any other code is ignored, so a supplier's barcode on a pallet doesn't change the aisle.
+  const FORMATS = ["QRCode", "DataMatrix", "Code128", "Code39", "Code93", "EAN-13", "UPC-A", "ITF", "Codabar"];
+  async function codesIn(src, w, h, max = 1600) {
+    const sc = Math.min(1, max / Math.max(w, h)), c = document.createElement("canvas");
+    c.width = Math.round(w * sc); c.height = Math.round(h * sc);
+    const x = c.getContext("2d", { willReadFrequently: true });
+    x.drawImage(src, 0, 0, c.width, c.height);
+    const codes = await BagOCR.readCodes(x.getImageData(0, 0, c.width, c.height), { formats: FORMATS, maxNumberOfSymbols: 8 });
+    const up = (q) => ({ x: q.x / sc, y: q.y / sc });
+    return codes.map((c2) => ({ ...c2, tl: up(c2.tl), tr: up(c2.tr), br: up(c2.br), bl: up(c2.bl) }));
+  }
+  let beep = null;
+  function ding(ok) {
+    if (navigator.vibrate) navigator.vibrate(ok ? 60 : [60, 80, 60]);
+    if (beep) try { const o = beep.createOscillator(), g = beep.createGain(); o.frequency.value = ok ? 1320 : 520; g.gain.value = 0.08; o.connect(g).connect(beep.destination); o.start(); o.stop(beep.currentTime + (ok ? 0.09 : 0.25)); } catch { /* no sound */ }
+  }
+  function scan(wantAisle) {
+    if (!window.isSecureContext || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { toast("The camera needs the page opened over https (the GitHub Pages address)."); return; }
+    try { if (!beep) beep = new (window.AudioContext || window.webkitAudioContext)(); } catch { /* no sound */ }
+    let mode = wantAisle || !st.current ? "aisle" : "labels";
+    const pending = new Map();
+    let last = "", lastAt = 0;
+    const said = () => (mode === "aisle" ? "Point at the aisle's barcode" : `Aisle ${st.current}: point at a label`);
+    const n = () => Object.values(st.assign).filter((r) => r.aisle === st.current).length;
+    CamView.start({
+      msg: said(), idleMs: 180000, idleMsg: "Camera off after three minutes with nothing read.", width: 3840, height: 2160,
+      buttons: [{ text: "Another aisle", title: "Scan the next aisle's barcode", onClick: (cam) => { mode = "aisle"; last = ""; cam.msg(said()); } }],
+      onClose: (why) => { if (why) toast(why); render(); },
+      read: async (v, cam) => {
+        const w = v.videoWidth, h = v.videoHeight;
+        const codes = await codesIn(v, w, h);
+        if (!codes.length) return;
+        cam.alive();
+        const mid = { x: w / 2, y: h / 2 }, ctr = (q) => ({ x: (q.tl.x + q.br.x) / 2, y: (q.tl.y + q.br.y) / 2 }), d = (q) => Math.hypot(ctr(q).x - mid.x, ctr(q).y - mid.y);
+        const labels = codes.filter((c) => c.kind === "big" || c.kind === "small"), others = codes.filter((c) => c.kind === "other").sort((a, b) => d(a) - d(b));
+        // the aisle's barcode: any code that isn't a label while setting the aisle; one shaped like an aisle code
+        // while scanning labels
+        const aisleCode = mode === "aisle" ? others[0] : others.find((c) => looksLikeAisle(c.text.trim()) && c.text.trim() !== st.current);
+        if (aisleCode && (mode === "aisle" || !labels.length || d(aisleCode) < Math.min(...labels.map(d)))) {
+          const code = aisleCode.text.trim();
+          if (code === last && Date.now() - lastAt < 4000) return;
+          last = code; lastAt = Date.now();
+          const was = st.current;
+          setAisle(code); mode = "labels";
+          cam.msg(`✓ Aisle ${code}${was && was !== code ? ` (was ${was})` : ""} · ${n()} batch${n() === 1 ? "" : "es"} on it · now scan the labels`); cam.flash(); ding(true);
+          return;
+        }
+        if (mode === "aisle") { if (labels.length) cam.msg("That's a product label: point at the aisle's barcode first"); return; }
+        if (!labels.length) { if (!others.some((c) => c.text.trim() === st.current)) cam.msg(`That code isn't a label · aisle ${st.current}`); return; }   // the aisle's own barcode still in view: quiet
+        // the label nearest the middle, both its codes where they can be had (the small one has the quantity)
+        const near = labels.slice().sort((a, b) => d(a) - d(b))[0];
+        const lk = `${near.product}|${near.batch}`;
+        if (lk === last && Date.now() - lastAt < 4000) return;
+        const mine = labels.filter((c) => c.batch === near.batch && (!c.product || !near.product || c.product === near.product)), now = Date.now();
+        let acc = pending.get(lk);
+        if (!acc || now - acc.last > 4000) { acc = { first: now, big: null, small: null }; pending.set(lk, acc); }
+        acc.last = now;
+        for (const c of mine) acc[c.kind] = acc[c.kind] || c;
+        if (!acc.small && now - acc.first < 2000) { cam.msg(`${near.batch}: looking for the small QR (the quantity)… hold steady`); return; }
+        pending.delete(lk); last = lk; lastAt = now;
+        const lab = B.mergeCodes([acc.big, acc.small].filter(Boolean));
+        const r = assign(lab);
+        if (r.same) { cam.msg(`${lab.batch} is already in aisle ${st.current} · ${n()} on it`); return; }
+        const { rec, prev, rows, sapQ } = r;
+        let msg = `✓ ${lab.batch} → aisle ${st.current} · ${rec.qty === null ? "no quantity" : `${q2(rec.qty)} ${rec.unit}`}`, ok = true;
+        if (prev) msg += ` · moved from ${prev.aisle}`;
+        if (!rows.length) { msg += " · not in SAP's stock"; ok = false; }
+        else if (lab.qty !== null && lab.qty !== undefined && !same(lab.qty, sapQ)) { msg += ` · SAP ${q2(sapQ)} (${fs(lab.qty - sapQ, 2)})`; ok = false; }
+        cam.msg(`${msg} · ${n()} on this aisle`); cam.flash(); ding(ok);
+      },
+    }).catch((e) => toast(e.name === "NotAllowedError" ? "Camera blocked: allow the camera for this site in the browser's settings." : "No camera here to scan with.", 5000));
+  }
+  $("scanBtn").onclick = () => scan(false);
+  $("aisleBtn").onclick = () => scan(true);
+
+  window.addEventListener("focus", () => refresh());
+  render();
+  refresh();
+})();
+</script>
+</body>
+</html>

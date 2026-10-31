@@ -91,6 +91,19 @@ Every camera view (the trace, pallet scanning, Scan and check, the stock take) h
 reach: the camera's own zoom where the phone has one, else the middle of the picture enlarged up to 4× and read at
 the camera's full resolution.
 
+## Aisle manager
+
+`aisle.html` (*Aisle manager* in the page menu) assigns stock to aisles. Tap *Scan the aisle barcode* and point at
+the aisle's barcode (a QR code, DataMatrix or 1D barcode: Code 128, Code 39, EAN…); the camera stays open, and each
+plant label scanned after it (its big or small QR code) is assigned to that aisle with its quantity: the label's
+(the small QR's), else SAP's, and it can be changed in the list. Scan the next aisle's barcode to move on (a code
+shaped like the aisle codes scanned before, so a supplier's barcode on a pallet doesn't change the aisle), or tap
+*Another aisle*. A batch scanned again in another aisle moves there. An aisle code can also be typed (*Set aisle*)
+and a batch added by its number. Each aisle lists its batches with the product, the quantity, SAP's quantity (the
+difference in red) and SAP's area, or "not in SAP" when the stock overview doesn't have it. The aisles are kept on
+the device; *Export to Excel* saves every batch with its aisle, and a sheet with each aisle's batches and quantity
+per unit.
+
 ## Scan and check on one device (phone or laptop)
 
 Scanning inputs (offcut bags, cheese blocks, packaging) with a phone instead of the QR gun, so there's a record of

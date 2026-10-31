@@ -32,7 +32,7 @@ jobs:
           cp web/*.js _site/
           cp -r web/vendor _site/
           # the bag scanner, inputs and investigator pages are complete documents: copied as they are
-          cp web/scanner.html web/inputs.html web/investigate.html web/stocktake.html _site/
+          cp web/scanner.html web/inputs.html web/investigate.html web/stocktake.html web/aisle.html _site/
           { printf '%s\n' '<!doctype html>' '<html lang="en"><head><meta charset="utf-8">' \
               '<meta name="viewport" content="width=device-width, initial-scale=1">'; cat web/index.html; } > _site/index.html
           # the commit as the files' version, so phones load matching copies after each deploy

@@ -9,6 +9,7 @@
     { id: "checker", href: "./", title: "Cheese variance check", sub: "Production orders, the cheese balance, stock trace" },
     { id: "investigate", href: "investigate.html", title: "Variance investigator", sub: "Type a job: its variance, where it came from and the other jobs it touched, over 1 or 2 weeks" },
     { id: "stocktake", href: "stocktake.html", title: "Stock take", sub: "Search a product, scan its labels as you walk the racks, and set each label's quantity against SAP" },
+    { id: "aisles", href: "aisle.html", title: "Aisle manager", sub: "Scan an aisle's barcode, then the labels on it: each batch is assigned to that aisle with its quantity; export to Excel" },
     { id: "here", href: "inputs.html?here", title: "Scan and check here", sub: "Book the job, scan bags and check them against SAP, all on this phone or laptop" },
     { id: "inputs", href: "inputs.html", title: "Input products (linked)", sub: "The laptop dashboard a phone sends its scans to" },
     { id: "scanner", href: "scanner.html", title: "Bag scanner (linked)", sub: "For the phone: pair it from Input products" },
