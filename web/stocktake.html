@@ -52,8 +52,11 @@
   .combo input { font: 600 16px var(--mono); padding: 10px 12px; width: 12em; }
   .combo ul { position: absolute; z-index: 30; top: 100%; left: 0; margin: 4px 0 0; padding: 4px; list-style: none; width: max(100%, 15em); max-height: 50vh; overflow-y: auto;
     background: var(--surface); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 8px 24px rgba(0, 0, 0, .14); }
-  .combo li { padding: 9px 10px; border-radius: 6px; cursor: pointer; font: 500 14px var(--mono); display: flex; justify-content: space-between; gap: 12px; }
-  .combo li small { font: 12px var(--sans); color: var(--muted); }
+  .combo li { padding: 9px 10px; border-radius: 6px; cursor: pointer; font: 500 14px var(--mono); display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+  .combo li small { font: 12px var(--sans); color: var(--muted); white-space: nowrap; }
+  .combo li span small { white-space: normal; }
+  .combo li[aria-disabled="true"] { cursor: default; }
+  .combo #qList { width: max(100%, 22em); }
   .combo li[aria-selected="true"], .combo li:hover { background: var(--accent-soft); }
   .combo li.all { font-family: var(--sans); font-weight: 600; }
   .ask button { padding: 11px 18px; font-size: 15px; }
@@ -106,7 +109,7 @@
     <a href="./">Load or update them on the checker</a>
   </section>
   <form class="ask panel" id="ask">
-    <label>Product<input id="q" type="search" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="e.g. RMMA10EX"></label>
+    <div class="combo"><label for="q">Product</label><input id="q" type="text" enterkeyhint="search" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="e.g. RMMA10EX" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="qList"><ul id="qList" role="listbox" aria-label="Products" hidden></ul></div>
     <div class="combo"><label for="area">Counting in</label><input id="area" type="text" enterkeyhint="done" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="All areas" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="areaList"><ul id="areaList" role="listbox" aria-label="Areas" hidden></ul></div>
     <button type="submit">Show stock</button>
   </form>
@@ -332,36 +335,68 @@
     if (query) count.q = query.toUpperCase(), save();
     refresh().then(render);
   });
-  // the area box: suggestions as you type (All areas first), picked with a tap or the arrow keys and Enter
-  let hi = -1;
-  function suggest() {
-    const t = areaText(), list = $("areaList"), opts = isAll(t) ? AREAS : areasLike(t);
-    const cnt = (a) => { const n = new Set(stock().filter((x) => x.area === a).map((x) => x.material + "|" + x.batch)).size; return `${f(n)} batch${n === 1 ? "" : "es"}`; };
-    list.innerHTML = `<li role="option" class="all" data-a="">All areas<small>${f(AREAS.length)} areas</small></li>`
-      + opts.slice(0, 60).map((a) => `<li role="option" data-a="${esc(a)}">${esc(a)}<small>${cnt(a)}</small></li>`).join("")
-      + (opts.length > 60 ? `<li role="option" aria-disabled="true"><small>… ${f(opts.length - 60)} more: keep typing</small></li>` : "")
-      + (!opts.length && !isAll(t) ? `<li role="option" aria-disabled="true"><small>No area matches “${esc(t)}”</small></li>` : "");
-    hi = -1; list.hidden = !AREAS.length; $("area").setAttribute("aria-expanded", String(!list.hidden));
+  // A box with suggestions as you type, picked with a tap or the arrow keys and Enter. options(text) gives the list's
+  // items ({ value, html }), choose(value) what picking one does.
+  function combo(input, list, options, choose, onInput) {
+    let hi = -1;
+    const close = () => { list.hidden = true; input.setAttribute("aria-expanded", "false"); };
+    const show = () => {
+      const items = options(input.value.trim());
+      list.innerHTML = items.map((o) => (o.value === null ? `<li role="option" aria-disabled="true">${o.html}</li>` : `<li role="option" data-v="${esc(o.value)}"${o.cls ? ` class="${o.cls}"` : ""}>${o.html}</li>`)).join("");
+      hi = -1; list.hidden = !items.length; input.setAttribute("aria-expanded", String(!list.hidden));
+    };
+    const pickIt = (v) => { input.value = v; close(); choose(v); };
+    input.addEventListener("focus", show);
+    input.addEventListener("click", () => { if (list.hidden) show(); });
+    input.addEventListener("input", () => { show(); if (onInput) onInput(); });
+    input.addEventListener("blur", () => setTimeout(close, 150));
+    input.addEventListener("keydown", (e) => {
+      const items = [...list.querySelectorAll("li[data-v]")];
+      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        if (list.hidden) show();
+        if (!items.length) return;
+        hi = (hi + (e.key === "ArrowDown" ? 1 : -1) + items.length) % items.length;
+        items.forEach((li, i) => li.setAttribute("aria-selected", String(i === hi)));
+        items[hi].scrollIntoView({ block: "nearest" });
+        e.preventDefault();
+      } else if (e.key === "Enter" && !list.hidden && hi >= 0 && items[hi]) { pickIt(items[hi].dataset.v); e.preventDefault(); }
+      else if (e.key === "Enter") close();
+      else if (e.key === "Escape") close();
+    });
+    // pointerdown, not click: the box's blur would close the list before a tap's click arrives
+    list.addEventListener("pointerdown", (e) => { const li = e.target.closest("li[data-v]"); if (li) { e.preventDefault(); pickIt(li.dataset.v); } });
   }
-  const closeList = () => { $("areaList").hidden = true; $("area").setAttribute("aria-expanded", "false"); };
-  const choose = (a) => { $("area").value = a; closeList(); render(); };
-  $("area").addEventListener("focus", suggest);
-  $("area").addEventListener("click", () => { if ($("areaList").hidden) suggest(); });
-  $("area").addEventListener("input", () => { suggest(); render(); });
-  $("area").addEventListener("blur", () => setTimeout(closeList, 150));
-  $("area").addEventListener("keydown", (e) => {
-    const items = [...$("areaList").querySelectorAll("li[data-a]")];
-    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
-      if ($("areaList").hidden) suggest();
-      hi = (hi + (e.key === "ArrowDown" ? 1 : -1) + items.length) % items.length;
-      items.forEach((li, i) => li.setAttribute("aria-selected", String(i === hi)));
-      if (items[hi]) items[hi].scrollIntoView({ block: "nearest" });
-      e.preventDefault();
-    } else if (e.key === "Enter" && !$("areaList").hidden && hi >= 0 && items[hi]) { choose(items[hi].dataset.a); e.preventDefault(); }
-    else if (e.key === "Escape") closeList();
-  });
-  // pointerdown, not click: the box's blur would close the list before a tap's click arrives
-  $("areaList").addEventListener("pointerdown", (e) => { const li = e.target.closest("li[data-a]"); if (li) { e.preventDefault(); choose(li.dataset.a); } });
+  const more = (n) => ({ value: null, html: `<small>… ${f(n)} more: keep typing</small>` });
+  const batches = (n) => `${f(n)} batch${n === 1 ? "" : "es"}`;
+  // Product: the codes that start with what's typed (and, from 3 letters, those whose description has it), each with
+  // its description and batches on hand; with several, "every product starting …" first
+  combo($("q"), $("qList"), (t) => {
+    const T = t.toUpperCase(), by = new Map();
+    for (const x of stock()) {
+      if (!by.has(x.material)) by.set(x.material, { text: x.material_text || "", b: new Set() });
+      by.get(x.material).b.add(String(x.batch));
+    }
+    const all = [...by].sort((a, b) => a[0].localeCompare(b[0], undefined, { numeric: true }));
+    const starts = all.filter(([m]) => m.toUpperCase().startsWith(T));
+    const named = T.length >= 3 ? all.filter(([m, v]) => !m.toUpperCase().startsWith(T) && v.text.toUpperCase().includes(T)) : [];
+    const hits = [...starts, ...named];
+    const out = [];
+    if (T && starts.length > 1) out.push({ value: T, cls: "all", html: `Every product starting ${esc(T)}<small>${f(starts.length)} products · ${batches(starts.reduce((a, [, v]) => a + v.b.size, 0))}</small>` });
+    for (const [m, v] of hits.slice(0, 60)) out.push({ value: m, html: `<span>${esc(m)}${v.text ? `<br><small>${esc(v.text)}</small>` : ""}</span><small>${batches(v.b.size)}</small>` });
+    if (hits.length > 60) out.push(more(hits.length - 60));
+    if (T && !hits.length) out.push({ value: null, html: `<small>Nothing on hand starts with “${esc(T)}”</small>` });
+    return out;
+  }, () => { const f0 = $("ask"); if (f0.requestSubmit) f0.requestSubmit(); else f0.dispatchEvent(new Event("submit", { cancelable: true })); });
+  // Counting in: All areas first, then the areas matching what's typed; the list follows as you type
+  combo($("area"), $("areaList"), (t) => {
+    const opts = isAll(t) ? AREAS : areasLike(t);
+    const cnt = (a) => batches(new Set(stock().filter((x) => x.area === a).map((x) => x.material + "|" + x.batch)).size);
+    if (!AREAS.length) return [];
+    return [{ value: "", cls: "all", html: `All areas<small>${f(AREAS.length)} areas</small>` },
+      ...opts.slice(0, 60).map((a) => ({ value: a, html: `${esc(a)}<small>${cnt(a)}</small>` })),
+      ...(opts.length > 60 ? [more(opts.length - 60)] : []),
+      ...(!opts.length && !isAll(t) ? [{ value: null, html: `<small>No area matches “${esc(t)}”</small>` }] : [])];
+  }, () => render(), () => render());
   $("filter").oninput = () => render();
   $("chips").addEventListener("click", (e) => { const b = e.target.closest("button[data-p]"); if (b) { pick = b.dataset.p; render(); } });
   $("list").addEventListener("click", (e) => {

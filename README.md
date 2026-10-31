@@ -64,7 +64,9 @@ lists the week's jobs; click any to investigate it.
 ## Stock take
 
 `stocktake.html` (*Stock take* in the page menu) uses the stock overview and confirmation journal loaded on the
-checker. Type a product and tap *Show stock*: a prefix lists every product it starts (RMMA lists RMMA10EX, RMMA20BF…,
+checker. Type a product and tap *Show stock*, or pick one of the suggestions that come up as you type (the codes starting
+with what's typed, and from three letters those whose description has it, each with its description and batches on
+hand, and *Every product starting …* first): a prefix lists every product it starts (RMMA lists RMMA10EX, RMMA20BF…,
 with a button per product to narrow it), the full code just that one. *Counting in* limits the list by logistics
 area: type and the matching areas are suggested (spaces and underscores aside, so "floor 5" suggests FLOOR5_A,
 FLOOR_5C…), with *All areas* first; pick one for that area, or leave part of a name to count in every area it
