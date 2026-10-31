@@ -61,6 +61,28 @@ turn up somewhere else. The investigation works through it in the order an analy
 **Copy the summary** gives it all in plain words for an email or report. **Every job in the window** (folded away)
 lists the week's jobs; click any to investigate it.
 
+## Stock take
+
+`stocktake.html` (*Stock take* in the page menu) uses the stock overview and confirmation journal loaded on the
+checker. Type a product and tap *Show stock*: a prefix lists every product it starts (RMMA lists RMMA10EX, RMMA20BF…,
+with a button per product to narrow it), the full code just that one. *Counting in* limits the list to one logistics
+area. Each batch on hand is a row: SAP's quantity, the label's quantity, the difference, a count typed by hand, the
+product and SAP's area.
+
+*Scan labels* opens the camera across the screen and keeps it open while you walk the racks. The label nearest the
+middle is read (both QR codes where it can: the small one holds the quantity), the batch is ticked, and the picture
+says the label's quantity against SAP's ("label 1,007.71, SAP 1,000.00 (+7.71)"). The printed quantity is read in the
+background (OCR, as Scan and check does) and shown next to the QR's ("✓ = QR", or "≠ QR"). A label SAP has in
+another area than the one you're counting in, one not in SAP's stock, or one of another product is said on the
+picture and listed under *Scanned, not in this list*. Click a batch number for its stock overview rows and every
+transaction in the journal with the running stock (and a link to the full trace on the checker). Rows can be ticked
+and counts typed by hand; the list filters and sorts by any column. The count is kept in that browser until *Start a
+new count*, and *Download the count* saves it as Excel (the count, and what was scanned but isn't in the list).
+
+Every camera view (the trace, pallet scanning, Scan and check, the stock take) has a zoom slider for labels out of
+reach: the camera's own zoom where the phone has one, else the middle of the picture enlarged up to 4× and read at
+the camera's full resolution.
+
 ## Scan and check on one device (phone or laptop)
 
 Scanning inputs (offcut bags, cheese blocks, packaging) with a phone instead of the QR gun, so there's a record of

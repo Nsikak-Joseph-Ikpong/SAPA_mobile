@@ -1,6 +1,7 @@
 // The camera across the whole screen, as the stock trace (the checker) and Scan and check here use it: the picture in
 // a rounded frame with a margin round it, a message on it, round buttons under it (close, the light where the phone
-// has one, and any the page adds). The page is handed each frame to read and closes the camera when it has what it
+// has one, and any the page adds), and a zoom slider for labels out of reach (a high rack). The zoom is the camera's own
+// where the phone has one; else the middle of the picture is enlarged, and that part is what the page reads. The page is handed each frame to read and closes the camera when it has what it
 // needs (cam.finish), so there's nothing to tap once a label is read.
 (function (root) {
   "use strict";
@@ -21,6 +22,9 @@
   .camview .cv-round.cv-close { background: #fff; color: #111; }
   .camview .cv-round.cv-on { background: #ffd54a; color: #111; }
   .camview .cv-pill { height: 46px; padding: 0 18px; border-radius: 999px; font: 600 14px var(--sans, system-ui, sans-serif); }
+  .camview .cv-zoom { flex: 1 0 100%; display: flex; align-items: center; justify-content: center; gap: 12px; color: #fff; font: 600 14px var(--sans, system-ui, sans-serif); }
+  .camview .cv-zoom input { width: min(420px, 70vw); accent-color: #fff; height: 28px; }
+  .camview .cv-zoom output { min-width: 3.2em; font-variant-numeric: tabular-nums; }
   html.camview-on, html.camview-on body { overflow: hidden; }`;
   const ICONS = {
     light: `<svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round" d="M9 18h6M10 21h4M12 3a6 6 0 0 0-3.5 10.9c.6.5 1 1.2 1 2.1h5c0-.9.4-1.6 1-2.1A6 6 0 0 0 12 3z"/></svg>`,
@@ -35,11 +39,13 @@
     wrap.className = "camview"; wrap.hidden = true;
     wrap.setAttribute("role", "dialog"); wrap.setAttribute("aria-modal", "true"); wrap.setAttribute("aria-label", "Camera");
     wrap.innerHTML = `<div class="cv-view"><video playsinline muted autoplay></video><div class="cv-aim"></div><div class="cv-msg" aria-live="polite"></div></div>`
-      + `<div class="cv-bar"><span class="cv-extra" style="display:contents"></span><button type="button" class="cv-round cv-light" hidden aria-label="Light" title="Light">${ICONS.light}</button>`
+      + `<div class="cv-bar"><label class="cv-zoom" hidden><span aria-hidden="true">Zoom</span><input type="range" min="1" max="4" step="0.1" value="1" aria-label="Zoom"><output>1×</output></label><span class="cv-extra" style="display:contents"></span><button type="button" class="cv-round cv-light" hidden aria-label="Light" title="Light">${ICONS.light}</button>`
       + `<button type="button" class="cv-round cv-close" aria-label="Close camera" title="Close camera">${ICONS.close}</button></div>`;
     document.body.appendChild(wrap);
     const q = (s) => wrap.querySelector(s);
-    ui = { wrap, video: q("video"), aim: q(".cv-aim"), msg: q(".cv-msg"), extra: q(".cv-extra"), light: q(".cv-light"), close: q(".cv-close") };
+    ui = { wrap, video: q("video"), aim: q(".cv-aim"), msg: q(".cv-msg"), extra: q(".cv-extra"), light: q(".cv-light"), close: q(".cv-close"),
+      zoom: q(".cv-zoom"), zoomIn: q(".cv-zoom input"), zoomOut: q(".cv-zoom output") };
+    ui.zoomIn.oninput = () => setZoom(Number(ui.zoomIn.value));
     ui.close.onclick = () => stop();
     ui.light.onclick = async () => {
       const track = cur && cur.stream && cur.stream.getVideoTracks()[0];
@@ -53,6 +59,31 @@
     return ui;
   }
 
+  // Zoom: the camera's own (track constraint) where it has one, else digital: the picture is enlarged on screen and
+  // the page is handed the enlarged middle of each frame, at the camera's full resolution (a canvas standing in for
+  // the video, with its videoWidth / videoHeight), so a small QR code high up is read as well as one held close.
+  let lastZoom = 1;
+  function setZoom(z) {
+    const me = cur;
+    if (!me) return;
+    lastZoom = z; ui.zoomOut.textContent = `${(Math.round(z * 10) / 10).toString()}×`;
+    if (me.hwZoom) {
+      me.dz = 1;
+      const track = me.stream && me.stream.getVideoTracks()[0];
+      if (track) track.applyConstraints({ advanced: [{ zoom: z }] }).catch(() => {});
+    } else {
+      me.dz = z; ui.video.style.transform = z > 1 ? `scale(${z})` : "";
+    }
+  }
+  function cropped(me, v) {
+    const z = me.dz, w = Math.round(v.videoWidth / z), h = Math.round(v.videoHeight / z);
+    const c = me.crop || (me.crop = document.createElement("canvas"));
+    if (c.width !== w || c.height !== h) { c.width = w; c.height = h; }
+    c.getContext("2d").drawImage(v, (v.videoWidth - w) / 2, (v.videoHeight - h) / 2, w, h, 0, 0, w, h);
+    c.videoWidth = w; c.videoHeight = h; c.readyState = 4;
+    return c;
+  }
+
   // opts: read(video, cam): one frame to read (called again and again while the camera is open); msg: what it
   // says first; buttons: [{ text, title, onClick(cam) }]; idleMs / idleMsg: closes after that long without
   // cam.alive(); onClose(reason): reason is idleMsg when it closed for lack of a label, else undefined.
@@ -64,7 +95,8 @@
     const ask = navigator.mediaDevices && navigator.mediaDevices.getUserMedia
       ? navigator.mediaDevices.getUserMedia({ audio: false, video: { facingMode: { ideal: "environment" }, width: { ideal: opts.width || 1920 }, height: { ideal: opts.height || 1080 } } })
       : Promise.reject(Object.assign(new Error("This browser can't show the camera here"), { name: "NotSupportedError" }));
-    const me = cur = { opts, stream: null, timer: null, busy: false, done: false, idleAt: Date.now() };
+    const me = cur = { opts, stream: null, timer: null, busy: false, done: false, idleAt: Date.now(), dz: 1, hwZoom: null };
+    u.zoom.hidden = true; u.video.style.transform = "";
     u.msg.textContent = opts.msg || "Point at a label's QR code";
     u.aim.classList.remove("cv-hit"); u.light.hidden = true; u.light.classList.remove("cv-on");
     u.extra.textContent = "";
@@ -81,6 +113,14 @@
       await u.video.play().catch(() => {});
       const track = stream.getVideoTracks()[0], caps = track.getCapabilities ? track.getCapabilities() : {};
       u.light.hidden = !caps.torch;
+      // zoom: the camera's own range, else digital up to 4×; the last zoom used comes back
+      const hz = caps.zoom && caps.zoom.max > (caps.zoom.min || 1) ? caps.zoom : null;
+      me.hwZoom = hz;
+      const lo = hz ? hz.min || 1 : 1, hi = hz ? Math.min(hz.max, 10) : 4;
+      u.zoomIn.min = lo; u.zoomIn.max = hi; u.zoomIn.step = hz && hz.step ? Math.max(hz.step, 0.1) : 0.1;
+      u.zoomIn.value = Math.min(hi, Math.max(lo, lastZoom));
+      u.zoom.hidden = false;
+      setZoom(Number(u.zoomIn.value));
       if (caps.focusMode && caps.focusMode.includes("continuous")) track.applyConstraints({ advanced: [{ focusMode: "continuous" }] }).catch(() => {});
       tick(me);
       return true;
@@ -91,7 +131,7 @@
     const v = ui.video;
     if (!me.busy && v.readyState >= 2 && v.videoWidth) {
       me.busy = true;
-      try { await me.opts.read(v, api); } catch { /* this frame: the next one */ }
+      try { await me.opts.read(me.dz > 1 ? cropped(me, v) : v, api); } catch { /* this frame: the next one */ }
       me.busy = false;
     }
     if (cur !== me || me.done) return;
@@ -104,7 +144,7 @@
     cur = null; clearTimeout(me.timer);
     if (me.stream) me.stream.getTracks().forEach((t) => t.stop());
     ui.video.srcObject = null; ui.wrap.hidden = true; document.documentElement.classList.remove("camview-on");
-    ui.aim.classList.remove("cv-hit"); ui.light.classList.remove("cv-on");
+    ui.aim.classList.remove("cv-hit"); ui.light.classList.remove("cv-on"); ui.video.style.transform = ""; ui.zoom.hidden = true;
     if (me.opts.onClose) me.opts.onClose(reason);
   }
   // what the page's reader can do with the camera

@@ -1,0 +1,444 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:,">
+<title>Stock Take</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
+<style>
+  :root {
+    --ground: #f2f4f1; --surface: #ffffff; --sunken: #e9ece8; --ink: #17201d; --muted: #5b6661; --line: #d8ddd9;
+    --accent: #23615a; --accent-ink: #ffffff; --accent-soft: #dcebe8;
+    --bad: #b3261e; --bad-soft: #f8e1df; --warn: #9a6200; --warn-soft: #f6ead3; --ok: #2b7a4b; --ok-soft: #dff0e5;
+    --sans: "IBM Plex Sans", "Segoe UI", system-ui, -apple-system, sans-serif;
+    --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --ground: #111513; --surface: #192019; --sunken: #141a17; --ink: #e5eae7; --muted: #9aa59f; --line: #2c3531;
+      --accent: #62b5aa; --accent-ink: #0d1412; --accent-soft: #1c3531;
+      --bad: #f27b70; --bad-soft: #3a1f1c; --warn: #e2a846; --warn-soft: #372b16; --ok: #6dc690; --ok-soft: #183023;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --ground: #111513; --surface: #192019; --sunken: #141a17; --ink: #e5eae7; --muted: #9aa59f; --line: #2c3531;
+    --accent: #62b5aa; --accent-ink: #0d1412; --accent-soft: #1c3531;
+    --bad: #f27b70; --bad-soft: #3a1f1c; --warn: #e2a846; --warn-soft: #372b16; --ok: #6dc690; --ok-soft: #183023;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body { background: var(--ground); color: var(--ink); font: 14px/1.5 var(--sans); }
+  .wrap { max-width: 1240px; margin: 0 auto; padding: 20px 16px 48px; display: grid; gap: 16px; }
+  h1 { font-size: 21px; line-height: 1.2; margin: 0; letter-spacing: -0.01em; }
+  h2 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin: 0; font-weight: 600; }
+  .sub { color: var(--muted); margin: 4px 0 0; font-size: 13px; max-width: 90ch; }
+  .panel { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; display: grid; gap: 12px; align-content: start; min-width: 0; }
+  .hint { font-size: 12.5px; color: var(--muted); margin: 0; }
+  a { color: var(--accent); }
+  button { font: 600 13.5px var(--sans); border-radius: 6px; padding: 8px 14px; cursor: pointer; border: 1px solid var(--accent); background: var(--accent); color: var(--accent-ink); }
+  button.quiet { background: var(--surface); color: var(--ink); border-color: var(--line); font-weight: 500; }
+  button.link { border: 0; background: none; padding: 0; color: var(--accent); text-decoration: underline; font: inherit; font-family: var(--mono); font-weight: 500; cursor: pointer; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .ask { display: flex; flex-wrap: wrap; gap: 10px 12px; align-items: end; }
+  .ask label { display: grid; gap: 4px; font-weight: 600; font-size: 13px; }
+  .ask input, .ask select { font: 600 18px var(--mono); padding: 8px 12px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--ink); min-width: 0; }
+  .ask input { width: 11em; } .ask select { font: 500 15px var(--sans); padding: 10px; max-width: 16em; }
+  .ask button { padding: 11px 18px; font-size: 15px; }
+  .actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+  .actions .scan { display: inline-flex; align-items: center; gap: 8px; padding: 12px 20px; font-size: 15px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chips button { font: 500 12.5px var(--mono); padding: 4px 10px; border-radius: 999px; background: var(--sunken); color: var(--ink); border-color: var(--line); }
+  .chips button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+  .sapbar { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 10px 16px; font-size: 13px; }
+  .sapbar .grow { flex: 1 1 320px; min-width: 0; }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; margin: 0; }
+  .tiles div { background: var(--sunken); border-radius: 6px; padding: 8px 10px; }
+  .tiles dt { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); }
+  .tiles dd { margin: 2px 0 0; font: 600 20px var(--mono); font-variant-numeric: tabular-nums; }
+  .tiles dd small { display: block; font: 12px var(--sans); color: var(--muted); }
+  .tiles .bad dd { color: var(--bad); } .tiles .ok dd { color: var(--ok); } .tiles .warn dd { color: var(--warn); }
+  .scroll { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; }
+  th, td { text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--line); vertical-align: middle; white-space: nowrap; }
+  th { font-size: 12px; font-weight: 600; background: var(--sunken); cursor: pointer; user-select: none; }
+  th[aria-sort="ascending"]::after { content: " \25B2"; } th[aria-sort="descending"]::after { content: " \25BC"; }
+  td.n { text-align: right; font-variant-numeric: tabular-nums; font-family: var(--mono); }
+  td.m { font-family: var(--mono); }
+  td.tick { width: 1%; padding: 2px 8px; }
+  td.tick input { width: 22px; height: 22px; margin: 0; accent-color: var(--ok); cursor: pointer; vertical-align: middle; }
+  tr.seen > td { background: var(--ok-soft); }
+  tr.off > td { background: var(--bad-soft); }
+  tr.restr td { color: var(--warn); }
+  td.cnt input { width: 7em; font: 500 13px var(--mono); padding: 4px 6px; border: 1px solid var(--line); border-radius: 5px; background: var(--surface); color: var(--ink); text-align: right; }
+  .bad { color: var(--bad); } .ok { color: var(--ok); } .warn { color: var(--warn); } .muted { color: var(--muted); }
+  tr.hist > td { background: var(--sunken); white-space: normal; padding: 10px 12px 14px; }
+  tr.hist table { background: var(--surface); font-size: 12.5px; }
+  tr.hist th { cursor: default; }
+  tr.hist h3 { font-size: 13px; margin: 4px 0 6px; }
+  tr.hist tr.prod td { font-weight: 600; } tr.hist tr.neg td { color: var(--bad); }
+  input.tfilter { width: 100%; max-width: 320px; font: inherit; font-size: 13px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--ink); }
+  .empty { border: 1px dashed var(--line); border-radius: 8px; padding: 26px; text-align: center; color: var(--muted); background: var(--surface); }
+  .toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); background: var(--ink); color: var(--ground); padding: 8px 14px; border-radius: 6px; font-size: 13px; z-index: 70; max-width: calc(100vw - 32px); }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div>
+    <h1 data-nav="stocktake">Stock take</h1>
+    <p class="sub">Search a product (RMMA lists every RMMA product, RMMA10EX just that one) to list what SAP has on hand, batch by batch. Scan the labels with this device's camera as you walk the racks: each batch read is ticked, and the label's quantity (its QR code, checked against the print) is set against SAP's. Click a batch for its transactions. The count stays on this device until you start a new one; download it as Excel. It uses the stock overview and confirmation journal loaded on the checker.</p>
+  </div>
+  <section class="sapbar" aria-label="SAP data">
+    <div class="grow"><b>SAP data:</b> <span id="sapText">looking for the SAP files…</span></div>
+    <a href="./">Load or update them on the checker</a>
+  </section>
+  <form class="ask panel" id="ask">
+    <label>Product<input id="q" type="search" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="e.g. RMMA10EX"></label>
+    <label>Counting in<select id="area"><option value="">Any area</option></select></label>
+    <button type="submit">Show stock</button>
+  </form>
+  <section class="panel" id="countPanel" hidden>
+    <div class="chips" id="chips"></div>
+    <dl class="tiles" id="tiles"></dl>
+    <div class="actions">
+      <button type="button" class="scan" id="scanBtn"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" d="M4 8.5A1.5 1.5 0 0 1 5.5 7h2.2l1.4-2h5.8l1.4 2h2.2A1.5 1.5 0 0 1 20 8.5v9a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 17.5z"/><circle cx="12" cy="13" r="3.4" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>Scan labels</button>
+      <button type="button" class="quiet" id="xlsBtn">Download the count (Excel)</button>
+      <button type="button" class="quiet" id="newBtn">Start a new count</button>
+    </div>
+    <p class="hint">The camera stays open while you walk: each label it reads is ticked. Use the zoom slider for labels high up. Untick a batch, or type a count, by hand in the list.</p>
+    <input type="search" class="tfilter" id="filter" placeholder="Filter by batch, area, product…" aria-label="Filter the list">
+    <div class="scroll"><table id="list"></table></div>
+    <div id="extras"></div>
+  </section>
+  <main id="out" aria-live="polite"><div class="empty">Type a product code and tap <b>Show stock</b>.</div></main>
+</div>
+<p class="hint" style="text-align:center;margin:0 0 20px">Version __BUILD__</p>
+<div class="toast" id="toast" hidden></div>
+<script src="vendor/xlsx.full.min.js?v=__BUILD__"></script>
+<script>window.XLSX || document.write('<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"><\/script>');</script>
+<script src="reconcile.js?v=__BUILD__"></script>
+<script src="vendor/tesseract/tesseract.min.js?v=__BUILD__"></script>
+<script src="vendor/zxing/zxing-reader.js?v=__BUILD__"></script>
+<script src="bagscan.js?v=__BUILD__"></script>
+<script src="bagocr.js?v=__BUILD__"></script>
+<script src="camview.js?v=__BUILD__"></script>
+<script src="nav.js?v=__BUILD__"></script>
+<script>
+(function () {
+  "use strict";
+  const R = window.OrderCheck, B = window.BagScan, $ = (id) => document.getElementById(id);
+  const { f, fs, dmy } = R.fmt;
+  const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const p2 = (n) => String(n).padStart(2, "0");
+  const hm = (t) => { const d = new Date(t); return `${p2(d.getHours())}:${p2(d.getMinutes())}`; };
+  const sapTs = (t) => { const d = new Date(t); return `${p2(d.getUTCDate())}.${p2(d.getUTCMonth() + 1)}.${d.getUTCFullYear()} ${p2(d.getUTCHours())}:${p2(d.getUTCMinutes())}:${p2(d.getUTCSeconds())}`; };
+  const q2 = (v) => (v === null || v === undefined || isNaN(v) ? "" : f(v, 2));
+  const same = (a, b) => Math.abs(a - b) < 0.005;
+  function toast(msg, ms = 2800) { const t = $("toast"); t.textContent = msg; t.hidden = false; clearTimeout(toast.t); toast.t = setTimeout(() => (t.hidden = true), ms); }
+
+  // ------------------------------------------------------------ the SAP files the checker keeps in this browser
+  // Only the stock overview and the journal are needed here, so the workbook is read without the order checks.
+  let ctx = null, saved;
+  const loadSaved = () => new Promise((resolve) => {
+    try {
+      const q = indexedDB.open("cheese-variance", 1);
+      q.onupgradeneeded = () => q.result.createObjectStore("files");
+      q.onerror = () => resolve(null);
+      q.onsuccess = () => { try { const g = q.result.transaction("files").objectStore("files").get("workbook"); g.onsuccess = () => resolve(g.result || null); g.onerror = () => resolve(null); } catch { resolve(null); } };
+    } catch { resolve(null); }
+  });
+  async function refresh() {
+    const rec = await loadSaved();
+    if (rec && rec.saved === saved && ctx) return;
+    saved = rec ? rec.saved : null;
+    const files = rec ? rec.files || (rec.buf ? [{ name: rec.name, buf: rec.buf }] : []) : [];
+    if (!files.length) { ctx = null; $("sapText").textContent = "no SAP files yet: load the stock overview (and the confirmation journal, for the transactions) on the checker."; render(); return; }
+    $("sapText").textContent = "reading the SAP files…";
+    await new Promise((r) => setTimeout(r, 30));
+    try {
+      const sheets = files.flatMap((x) => { const wb = XLSX.read(x.buf, { type: "array", dense: true }); return wb.SheetNames.map((sn) => ({ file: x.name, sheet: sn, rows: XLSX.utils.sheet_to_json(wb.Sheets[sn], { header: 1, raw: true, defval: null, blankrows: true }) })); });
+      ctx = { wb: R.readWorkbook(sheets) };
+      const st = ctx.wb.stock || [];
+      const areas = [...new Set(st.map((x) => x.area).filter(Boolean))].sort();
+      const keep = $("area").value;
+      $("area").innerHTML = `<option value="">Any area</option>` + areas.map((a) => `<option${a === keep ? " selected" : ""}>${esc(a)}</option>`).join("");
+      $("sapText").textContent = `${files.map((x) => x.name).join(", ")} · ` + (st.length ? `stock overview: ${f(st.length)} rows in ${areas.length} areas` : "no stock overview in these files: export the Stock Overview from SAP and add it on the checker") + ` · journal: ${f(ctx.wb.journal.length)} rows`;
+    } catch (e) { ctx = null; $("sapText").textContent = "couldn't read the SAP files: " + e.message; }
+    render();
+  }
+
+  // ------------------------------------------------------------ the count, kept on this device
+  // seen: material|batch -> { at, by: "scan" | "hand", qr (the small QR's quantity), unit, print (the printed
+  // quantity read by OCR), printCheck, counted (typed by hand), area (where it was counted) }
+  const KEY = "sapa-stocktake";
+  let count = (() => { try { return JSON.parse(localStorage.getItem(KEY)) || null; } catch { return null; } })() || { started: Date.now(), q: "", seen: {} };
+  const save = () => { try { localStorage.setItem(KEY, JSON.stringify(count)); } catch { /* private window: the count lasts until the page closes */ } };
+  const keyOf = (m, b) => `${m}|${b}`;
+  const labelQty = (s) => (!s ? null : s.counted ?? s.qr ?? s.print ?? null);
+
+  // ------------------------------------------------------------ the list
+  let query = "", pick = "", sort = { col: "area", dir: 1 }, open = new Set();
+  const stock = () => (ctx && ctx.wb.stock) || [];
+  const matches = () => {
+    const Q = query.toUpperCase();
+    if (!Q) return [];
+    return stock().filter((x) => String(x.material).toUpperCase().startsWith(Q) || (Q.length >= 4 && String(x.material_text || "").toUpperCase().includes(Q)));
+  };
+  // one row per product and batch (a batch on hand in two areas is one thing to find: its areas are listed)
+  function rowsNow() {
+    const area = $("area").value, by = new Map();
+    for (const x of matches()) {
+      if (pick && x.material !== pick) continue;
+      const k = keyOf(x.material, x.batch);
+      if (!by.has(k)) by.set(k, { key: k, material: x.material, text: x.material_text || "", batch: String(x.batch), areas: [], qty: 0, uom: x.uom || "", restricted: false, expiry: x.expiry_date });
+      const r = by.get(k);
+      r.areas.push(x.area); r.qty += isNaN(x.qty) ? 0 : x.qty; r.restricted = r.restricted || x.restricted;
+    }
+    let rows = [...by.values()];
+    if (area) rows = rows.filter((r) => r.areas.includes(area));
+    return rows;
+  }
+  const COLS = [
+    ["seen", "✓"], ["batch", "Batch"], ["qty", "SAP qty"], ["label", "Label qty"], ["diff", "Difference"], ["counted", "Counted by hand"], ["material", "Product"], ["area", "SAP area"], ["print", "Label print (OCR)"], ["at", "Seen"],
+  ];
+  const val = (r, col) => {
+    const s = count.seen[r.key], lq = labelQty(s);
+    switch (col) {
+      case "seen": return s ? 1 : 0;
+      case "batch": return r.batch;
+      case "material": return r.material;
+      case "area": return r.areas.join(", ");
+      case "qty": return r.qty;
+      case "label": return s && s.qr !== undefined && s.qr !== null ? s.qr : s && s.print !== null && s.print !== undefined ? s.print : -Infinity;
+      case "counted": return lq ?? -Infinity;
+      case "diff": return lq === null ? -Infinity : lq - r.qty;
+      case "print": return s && s.print !== null && s.print !== undefined ? s.print : -Infinity;
+      case "at": return s ? s.at : 0;
+    }
+    return "";
+  };
+  function printCell(s) {
+    if (!s || s.by !== "scan") return "";
+    if (s.printState === "reading") return `<span class="muted">reading…</span>`;
+    if (s.print === null || s.print === undefined) return `<span class="muted">not read</span>`;
+    const vs = s.qr !== null && s.qr !== undefined ? (same(s.print, s.qr) ? ` <span class="ok">✓ = QR</span>` : ` <span class="bad">≠ QR ${q2(s.qr)}</span>`) : "";
+    return `${q2(s.print)}${vs}`;
+  }
+  function histHtml(r) {
+    const so = stock().filter((x) => x.material === r.material && String(x.batch) === r.batch);
+    const day = (t) => (t === null || t === undefined || isNaN(t) ? "" : sapTs(t).slice(0, 10));
+    const rows = ctx ? R.batchHistory(ctx, r.material, r.batch) : [];
+    const last = rows[rows.length - 1];
+    return `<h3>${esc(r.material)} ${esc(r.batch)}${r.text ? ` · ${esc(r.text)}` : ""}</h3>`
+      + `<div class="scroll"><table><thead><tr><th>Logistics Area ID</th><th>On-Hand Stock</th><th>UoM</th><th>Restricted</th><th>Production Date</th><th>Expiration Date</th></tr></thead><tbody>`
+      + so.map((x) => `<tr><td class="m">${esc(x.area)}</td><td class="n">${q2(x.qty)}</td><td>${esc(x.uom || "")}</td><td>${x.restricted ? "X" : ""}</td><td class="m">${day(x.production_date)}</td><td class="m">${day(x.expiry_date)}</td></tr>`).join("")
+      + `</tbody></table></div>`
+      + (rows.length ? `<h3>Transactions in the confirmation journal (${rows.length})</h3><p class="hint">Stock after the last one: ${q2(last.balance)}${last.area ? ` (last at ${esc(last.area)})` : ""}. Positive adds stock to that area, negative takes it away; production confirmations in bold, consumption in red.</p>`
+        + `<div class="scroll"><table><thead><tr><th>Created On</th><th>Conf.Document Type</th><th>Conf.ID</th><th>Logistics Area ID</th><th>Reference</th><th>Effective Qty</th><th>Stock after</th></tr></thead><tbody>`
+        + rows.map((x) => `<tr class="${x.is_prod ? "prod" : ""}${x.qty < 0 && x.is_prod ? " neg" : ""}"><td class="m">${esc(sapTs(x.time))}</td><td>${esc(x.doc)}</td><td class="m">${esc(x.conf)}</td><td class="m">${esc(x.area)}</td><td class="m">${esc(x.ref && x.ref !== "#" ? x.ref : "")}</td><td class="n">${q2(x.qty)}</td><td class="n">${q2(x.balance)}</td></tr>`).join("")
+        + `</tbody></table></div>`
+        : `<p class="hint">No transactions for this batch in the loaded confirmation journal${ctx && ctx.wb.journal.length ? " (it may be older than the journal's dates)" : ""}.</p>`)
+      + `<p class="hint"><a href="./?trace=${encodeURIComponent(r.batch)}&amp;product=${encodeURIComponent(r.material)}">Open the full trace on the checker</a></p>`;
+  }
+  function render() {
+    if (!ctx || !stock().length) {
+      $("countPanel").hidden = true;
+      $("out").hidden = false;
+      $("out").innerHTML = `<div class="empty">${ctx ? "No stock overview in the SAP files loaded on the checker. Export the <b>Stock Overview</b> from SAP and add it on the checker, then come back here." : "Load the SAP files (with the stock overview) on the checker first."}</div>`;
+      return;
+    }
+    if (!query) { $("countPanel").hidden = true; $("out").hidden = false; $("out").innerHTML = `<div class="empty">Type a product code and tap <b>Show stock</b>.</div>`; return; }
+    const all = matches();
+    if (!all.length) { $("countPanel").hidden = true; $("out").hidden = false; $("out").innerHTML = `<div class="empty">Nothing on hand in the stock overview for <b>${esc(query)}</b>.</div>`; return; }
+    $("out").hidden = true; $("countPanel").hidden = false;
+    // the products the search found, to narrow it to one
+    const prods = new Map();
+    for (const x of all) prods.set(x.material, (prods.get(x.material) || new Set()).add(String(x.batch)));
+    $("chips").innerHTML = prods.size > 1 ? [`<button type="button" data-p="" aria-pressed="${!pick}">All ${esc(query.toUpperCase())} (${f([...prods.values()].reduce((a, s) => a + s.size, 0))})</button>`,
+      ...[...prods].sort((a, b) => (a[0] < b[0] ? -1 : 1)).map(([m, s]) => `<button type="button" data-p="${esc(m)}" aria-pressed="${pick === m}">${esc(m)} (${f(s.size)})</button>`)].join("") : "";
+    const rows = rowsNow(), area = $("area").value;
+    const seenN = rows.filter((r) => count.seen[r.key]).length;
+    const counted = rows.filter((r) => labelQty(count.seen[r.key]) !== null);
+    const off = counted.filter((r) => !same(labelQty(count.seen[r.key]), r.qty));
+    const sapQ = rows.reduce((a, r) => a + r.qty, 0), cntQ = counted.reduce((a, r) => a + labelQty(count.seen[r.key]), 0), cntSap = counted.reduce((a, r) => a + r.qty, 0);
+    const inList = new Set(rows.map((r) => r.key));
+    const extras = Object.entries(count.seen).filter(([k, s]) => !inList.has(k) && s.by === "scan" && s.q === query.toUpperCase());
+    $("tiles").innerHTML = [
+      ["Batches on hand", f(rows.length), `${q2(sapQ)} in SAP${area ? ` · in ${area}` : ""}`, ""],
+      ["Seen", f(seenN), `of ${f(rows.length)}`, seenN === rows.length ? "ok" : ""],
+      ["Still to find", f(rows.length - seenN), rows.length - seenN ? "not seen yet" : "all seen", rows.length - seenN ? "warn" : "ok"],
+      ["Quantity differences", f(off.length), counted.length ? `counted ${q2(cntQ)} vs SAP ${q2(cntSap)} (${fs(cntQ - cntSap, 2)})` : "nothing counted yet", off.length ? "bad" : counted.length ? "ok" : ""],
+      ["Found, not in this list", f(extras.length), extras.length ? "see below the list" : "none", extras.length ? "bad" : ""],
+    ].map(([k, v, s2, c]) => `<div class="${c}"><dt>${esc(k)}</dt><dd>${esc(v)}<small>${esc(s2)}</small></dd></div>`).join("");
+    const fq = $("filter").value.trim().toLowerCase();
+    const shown = rows.filter((r) => !fq || [r.batch, r.material, r.text, r.areas.join(" ")].join(" ").toLowerCase().includes(fq))
+      .sort((a, b) => { const x = val(a, sort.col), y = val(b, sort.col); const c = typeof x === "number" && typeof y === "number" ? x - y : String(x).localeCompare(String(y), undefined, { numeric: true }); return c * sort.dir || a.batch.localeCompare(b.batch, undefined, { numeric: true }); });
+    const head = `<thead><tr>${COLS.map(([c, t]) => `<th data-c="${c}"${sort.col === c ? ` aria-sort="${sort.dir > 0 ? "ascending" : "descending"}"` : ""}>${t}</th>`).join("")}</tr></thead>`;
+    const body = shown.map((r) => {
+      const s = count.seen[r.key], lq = labelQty(s), d = lq === null ? null : lq - r.qty;
+      const cls = [s ? "seen" : "", d !== null && !same(d, 0) ? "off" : "", r.restricted ? "restr" : ""].join(" ").trim();
+      const cell = {
+        seen: `<td class="tick"><input type="checkbox"${s ? " checked" : ""} aria-label="Seen ${esc(r.batch)}"></td>`,
+        batch: `<td class="m"><button type="button" class="link hist" title="Show this batch's transactions">${esc(r.batch)}</button></td>`,
+        qty: `<td class="n">${q2(r.qty)}${r.uom ? ` <span class="muted">${esc(String(r.uom).toLowerCase())}</span>` : ""}</td>`,
+        label: `<td class="n">${s && s.qr !== null && s.qr !== undefined ? q2(s.qr) : s && s.print !== null && s.print !== undefined ? q2(s.print) : ""}</td>`,
+        diff: `<td class="n ${d === null ? "" : same(d, 0) ? "ok" : "bad"}">${d === null ? "" : same(d, 0) ? "✓ 0" : fs(d, 2)}</td>`,
+        counted: `<td class="cnt"><input type="text" inputmode="decimal" value="${s && s.counted !== null && s.counted !== undefined ? esc(s.counted) : ""}" aria-label="Counted quantity of ${esc(r.batch)}"></td>`,
+        material: `<td class="m" title="${esc(r.text)}">${esc(r.material)}</td>`,
+        area: `<td class="m">${esc(r.areas.join(", "))}${r.restricted ? ' <span class="warn">restricted</span>' : ""}${s && s.area && !r.areas.includes(s.area) ? ` <span class="bad">found in ${esc(s.area)}</span>` : ""}</td>`,
+        print: `<td>${printCell(s)}</td>`,
+        at: `<td class="m">${s ? `${hm(s.at)}${s.by === "hand" ? " (by hand)" : ""}` : ""}</td>`,
+      };
+      const tr = `<tr class="${cls}" data-k="${esc(r.key)}">${COLS.map(([c]) => cell[c]).join("")}</tr>`;
+      return tr + (open.has(r.key) ? `<tr class="hist"><td colspan="${COLS.length}">${histHtml(r)}</td></tr>` : "");
+    }).join("");
+    $("list").innerHTML = head + `<tbody>${body || `<tr><td colspan="${COLS.length}">No rows match the filter.</td></tr>`}</tbody>`;
+    $("extras").innerHTML = extras.length ? `<h2 style="margin:14px 0 6px">Scanned, not in this list (${extras.length})</h2><p class="hint">Labels read during this search whose batch isn't on hand for ${esc(query.toUpperCase())}${area ? ` in ${esc(area)}` : ""} in the stock overview: stock SAP doesn't have here.</p>`
+      + `<div class="scroll"><table><thead><tr><th>Batch</th><th>Label product</th><th>Label qty</th><th>SAP has it</th><th>Seen</th></tr></thead><tbody>`
+      + extras.map(([k, s]) => { const sap = stock().filter((x) => String(x.batch) === s.batch); return `<tr class="off"><td class="m">${esc(s.batch)}</td><td class="m">${esc(s.product || "")}</td><td class="n">${q2(labelQty(s))}</td><td>${sap.length ? sap.map((x) => `${esc(x.material)} at ${esc(x.area)} (${q2(x.qty)})`).join("; ") : "not in the stock overview"}</td><td class="m">${hm(s.at)}</td></tr>`; }).join("")
+      + `</tbody></table></div>` : "";
+  }
+
+  // ------------------------------------------------------------ the page
+  $("ask").addEventListener("submit", (e) => {
+    e.preventDefault();
+    query = $("q").value.trim(); pick = ""; open.clear();
+    if (query) count.q = query.toUpperCase(), save();
+    refresh().then(render);
+  });
+  $("area").onchange = () => render();
+  $("filter").oninput = () => render();
+  $("chips").addEventListener("click", (e) => { const b = e.target.closest("button[data-p]"); if (b) { pick = b.dataset.p; render(); } });
+  $("list").addEventListener("click", (e) => {
+    const th = e.target.closest("th[data-c]");
+    if (th) { sort = { col: th.dataset.c, dir: sort.col === th.dataset.c ? -sort.dir : 1 }; render(); return; }
+    const hb = e.target.closest("button.hist");
+    if (hb) { const k = hb.closest("tr").dataset.k; if (open.has(k)) open.delete(k); else open.add(k); render(); }
+  });
+  $("list").addEventListener("change", (e) => {
+    const tr = e.target.closest("tr[data-k]");
+    if (!tr) return;
+    const k = tr.dataset.k, [m, b] = k.split("|");
+    if (e.target.type === "checkbox") {
+      if (e.target.checked) count.seen[k] = { ...(count.seen[k] || {}), at: Date.now(), by: (count.seen[k] || {}).by || "hand", product: m, batch: b, area: $("area").value || null, q: query.toUpperCase() };
+      else delete count.seen[k];
+    } else if (e.target.closest("td.cnt")) {
+      const t = e.target.value.trim().replace(",", "."), v = t === "" ? null : Number(t);
+      if (t !== "" && !isFinite(v)) { toast("Type a number"); return; }
+      const s = count.seen[k] || { at: Date.now(), by: "hand", product: m, batch: b, area: $("area").value || null, q: query.toUpperCase() };
+      s.counted = v; count.seen[k] = s;
+    }
+    save(); render();
+  });
+  $("newBtn").onclick = () => {
+    if (Object.keys(count.seen).length && !confirm("Start a new count? The ticks and quantities of this one are cleared (download it first to keep a copy).")) return;
+    count = { started: Date.now(), q: query.toUpperCase(), seen: {} }; save(); render();
+  };
+  $("xlsBtn").onclick = () => {
+    const rows = rowsNow();
+    if (!rows.length) { toast("Nothing to download: show some stock first"); return; }
+    const inList = new Set(rows.map((r) => r.key));
+    const a = rows.map((r) => { const s = count.seen[r.key], lq = labelQty(s); return {
+      Product: r.material, Description: r.text, Batch: r.batch, "SAP area": r.areas.join(", "), "SAP qty": r.qty, UoM: r.uom, Restricted: r.restricted ? "X" : "",
+      Seen: s ? "yes" : "", "Seen at": s ? dmy(s.at - new Date(s.at).getTimezoneOffset() * 60000) : "", "Seen by": s ? (s.by === "scan" ? "scan" : "hand") : "", "Counted in": s && s.area ? s.area : "",
+      "Label qty (QR)": s && s.qr !== undefined ? s.qr : null, "Label print (OCR)": s && s.print !== undefined ? s.print : null, "Counted by hand": s && s.counted !== undefined ? s.counted : null,
+      Count: lq, Difference: lq === null ? null : Number((lq - r.qty).toFixed(3)) }; });
+    const ex = Object.entries(count.seen).filter(([k, s]) => !inList.has(k) && s.by === "scan").map(([, s]) => ({ Batch: s.batch, "Label product": s.product, "Label qty": labelQty(s), "SAP has it": stock().filter((x) => String(x.batch) === s.batch).map((x) => `${x.material} at ${x.area} (${x.qty})`).join("; ") || "not in the stock overview", "Seen at": dmy(s.at - new Date(s.at).getTimezoneOffset() * 60000) }));
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(a), "Count");
+    if (ex.length) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(ex), "Not in SAP list");
+    const d = new Date();
+    XLSX.writeFile(wb, `Stock take ${query.toUpperCase()} ${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}.xlsx`);
+  };
+
+  // ------------------------------------------------------------ scanning
+  // The camera stays open: the label nearest the middle is read (both QR codes where it can: the small one holds the
+  // quantity), its batch ticked and its quantity set against SAP's on the picture. The print on the label is read in
+  // the background (OCR, as Scan and check does) to check the quantity.
+  let worker = null, ocrQueue = Promise.resolve(), beep = null;
+  const abs = (p) => new URL(p, location.href).href;
+  const getWorker = () => worker || (worker = Tesseract.createWorker("eng", 1, { workerPath: abs("vendor/tesseract/worker.min.js"), corePath: abs("vendor/tesseract/"), langPath: abs("vendor/tesseract"), gzip: true, cacheMethod: "none" }));
+  const grab = (src, w, h) => { const c = document.createElement("canvas"); c.width = w; c.height = h; c.getContext("2d").drawImage(src, 0, 0, w, h); return c; };
+  function readPrint(k, full, codes) {
+    const s = count.seen[k];
+    s.printState = "reading";
+    ocrQueue = ocrQueue.then(async () => {
+      try {
+        const f0 = BagOCR.frameOf(codes.filter((c) => c.tl));
+        if (!f0) throw new Error("no label frame");
+        const cut = BagOCR.labelCut(full, f0), inCut = (p) => BagOCR.fromLU(cut.frame, BagOCR.toLU(f0, p));
+        const cc = codes.filter((c) => c.tl).map((c) => ({ text: c.text, kind: c.kind, tl: inCut(c.tl), tr: inCut(c.tr), br: inCut(c.br), bl: inCut(c.bl) }));
+        const res = await BagOCR.readLabel(await getWorker(), cut.canvas, cut.frame, cc, { product: s.product || null, batch: s.batch, qty: s.qr ?? null, unit: s.unit || null });
+        if (count.seen[k] === s) { s.print = res.qty !== null && res.qtyCheck !== "unread" ? Number(res.qty) : null; s.printCheck = res.qtyCheck; }
+      } catch { if (count.seen[k] === s) s.print = null; }
+      if (count.seen[k] === s) { s.printState = "done"; save(); render(); }
+    });
+  }
+  function ding(ok) {
+    if (navigator.vibrate) navigator.vibrate(ok ? 60 : [60, 80, 60]);
+    if (beep) try { const o = beep.createOscillator(), g = beep.createGain(); o.frequency.value = ok ? 1320 : 520; g.gain.value = 0.08; o.connect(g).connect(beep.destination); o.start(); o.stop(beep.currentTime + (ok ? 0.09 : 0.25)); } catch { /* no sound */ }
+  }
+  $("scanBtn").onclick = () => {
+    if (!window.isSecureContext || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { toast("The camera needs the page opened over https (the GitHub Pages address)."); return; }
+    try { if (!beep) beep = new (window.AudioContext || window.webkitAudioContext)(); } catch { /* no sound */ }
+    const pending = new Map();
+    let last = "", lastAt = 0;
+    const left = () => { const rows = rowsNow(); const n = rows.filter((r) => !count.seen[r.key]).length; return n ? `${n} still to find` : "all seen"; };
+    CamView.start({
+      msg: `Point at a label · ${left()}`, idleMs: 180000, idleMsg: "Camera off after three minutes with no label read.", width: 3840, height: 2160,
+      onClose: (why) => { if (why) toast(why); render(); },
+      read: async (v, cam) => {
+        const w = v.videoWidth, h = v.videoHeight;
+        const codes = (await BagOCR.codesIn(v, w, h, 1600)).filter((c) => c.kind === "big" || c.kind === "small");
+        if (!codes.length) return;
+        cam.alive();
+        const mid = { x: w / 2, y: h / 2 }, ctr = (q) => ({ x: (q.tl.x + q.br.x) / 2, y: (q.tl.y + q.br.y) / 2 });
+        const near = codes.slice().sort((a, b) => Math.hypot(ctr(a).x - mid.x, ctr(a).y - mid.y) - Math.hypot(ctr(b).x - mid.x, ctr(b).y - mid.y))[0];
+        const lk = `${near.product}|${near.batch}`;
+        if (lk === last && Date.now() - lastAt < 4000) return;   // the same label still in view
+        const mine = codes.filter((c) => c.batch === near.batch && (!c.product || !near.product || c.product === near.product)), now = Date.now();
+        // both codes where they can be had (the small one has the quantity): up to two seconds
+        let acc = pending.get(lk);
+        if (!acc || now - acc.last > 4000) { acc = { first: now, big: null, small: null }; pending.set(lk, acc); }
+        acc.last = now;
+        for (const c of mine) acc[c.kind] = acc[c.kind] || c;
+        if (!acc.small && now - acc.first < 2000) { cam.msg(`${near.batch}: looking for the small QR (the quantity)… hold steady`); return; }
+        pending.delete(lk); last = lk; lastAt = now;
+        const lab = B.mergeCodes([acc.big, acc.small].filter(Boolean));
+        const rows = stock().filter((x) => String(x.batch) === lab.batch && (!lab.product || String(x.material).toUpperCase() === lab.product));
+        const product = lab.product || (rows[0] && rows[0].material) || "";
+        const k = keyOf(product, lab.batch);
+        if (count.seen[k] && count.seen[k].by === "scan") { cam.msg(`${lab.batch} was already counted at ${hm(count.seen[k].at)} · ${left()}`); return; }
+        const area = $("area").value || null;
+        const s = { at: now, by: "scan", product, batch: lab.batch, qr: lab.qty, unit: lab.unit || "", print: null, area, q: query.toUpperCase() };
+        if (count.seen[k] && count.seen[k].counted !== undefined) s.counted = count.seen[k].counted;
+        count.seen[k] = s; save();
+        readPrint(k, grab(v, w, h), mine);
+        const sapQ = rows.reduce((a, x) => a + (isNaN(x.qty) ? 0 : x.qty), 0), here = !area || rows.some((x) => x.area === area);
+        const inSearch = rows.length && String(product).toUpperCase().startsWith(query.toUpperCase());
+        let msg, ok = true;
+        if (!rows.length) { msg = `✗ ${product} ${lab.batch}: not in SAP's stock`; ok = false; }
+        else if (!here) { msg = `✗ ${lab.batch}: SAP has it at ${[...new Set(rows.map((x) => x.area))].join(", ")}`; ok = false; }
+        else if (!inSearch) { msg = `${lab.batch} is ${product}, not ${query.toUpperCase()}: noted below the list`; ok = false; }
+        else if (lab.qty === null) msg = `✓ ${lab.batch} seen · SAP ${q2(sapQ)} · quantity: reading the print…`;
+        else if (same(lab.qty, sapQ)) msg = `✓ ${lab.batch} · label ${q2(lab.qty)} = SAP`;
+        else { msg = `⚠ ${lab.batch} · label ${q2(lab.qty)}, SAP ${q2(sapQ)} (${fs(lab.qty - sapQ, 2)})`; ok = false; }
+        cam.msg(`${msg} · ${left()}`); cam.flash(); ding(ok);
+        render();
+      },
+    }).catch((e) => toast(e.name === "NotAllowedError" ? "Camera blocked: allow the camera for this site in the browser's settings." : "No camera here to scan with.", 5000));
+  };
+
+  window.addEventListener("focus", () => refresh());
+  const q0 = new URLSearchParams(location.search).get("q") || count.q || "";
+  if (q0) { $("q").value = q0; query = q0; }
+  refresh();
+})();
+</script>
+</body>
+</html>
