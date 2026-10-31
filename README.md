@@ -78,8 +78,9 @@ middle is read (both QR codes where it can: the small one holds the quantity), t
 says the label's quantity against SAP's ("label 1,007.71, SAP 1,000.00 (+7.71)"). The printed quantity is read in the
 background (OCR, as Scan and check does) and shown next to the QR's ("✓ = QR", or "≠ QR"). A label SAP has in
 another area than the one you're counting in, one not in SAP's stock, or one of another product is said on the
-picture and listed under *Scanned, not in this list*. Click a batch number for its stock overview rows and every
-transaction in the journal with the running stock (and a link to the full trace on the checker). Rows can be ticked
+picture and listed under *Scanned, not in this list*. Click a batch number for a panel over the list (sized for a phone, one text size) with
+where SAP has it and its dates, and every transaction in the journal with the running stock (and a link to the
+full trace on the checker). Rows can be ticked
 and counts typed by hand; the list filters and sorts by any column. The count is kept in that browser until *Start a
 new count*, and *Download the count* saves it as Excel (the count, and what was scanned but isn't in the list).
 

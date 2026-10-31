@@ -32,6 +32,7 @@
   }
   * { box-sizing: border-box; }
   html, body { margin: 0; }
+  html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
   body { background: var(--ground); color: var(--ink); font: 14px/1.5 var(--sans); }
   .wrap { max-width: 1240px; margin: 0 auto; padding: 20px 16px 48px; display: grid; gap: 16px; }
   h1 { font-size: 21px; line-height: 1.2; margin: 0; letter-spacing: -0.01em; }
@@ -87,11 +88,26 @@
   tr.restr td { color: var(--warn); }
   td.cnt input { width: 7em; font: 500 13px var(--mono); padding: 4px 6px; border: 1px solid var(--line); border-radius: 5px; background: var(--surface); color: var(--ink); text-align: right; }
   .bad { color: var(--bad); } .ok { color: var(--ok); } .warn { color: var(--warn); } .muted { color: var(--muted); }
-  tr.hist > td { background: var(--sunken); white-space: normal; padding: 10px 12px 14px; }
-  tr.hist table { background: var(--surface); font-size: 12.5px; }
-  tr.hist th { cursor: default; }
-  tr.hist h3 { font-size: 13px; margin: 4px 0 6px; }
-  tr.hist tr.prod td { font-weight: 600; } tr.hist tr.neg td { color: var(--bad); }
+  .sheet { position: fixed; inset: 0; z-index: 50; background: rgba(0, 0, 0, .45); display: flex; align-items: flex-end; justify-content: center; }
+  .sheet-card { background: var(--surface); color: var(--ink); width: min(760px, 100%); max-height: 88vh; border-radius: 14px 14px 0 0; display: grid; grid-template-rows: auto minmax(0, 1fr);
+    font: 13px/1.45 var(--sans); padding-bottom: env(safe-area-inset-bottom, 0px); box-shadow: 0 -8px 30px rgba(0, 0, 0, .25); }
+  @media (min-width: 760px) { .sheet { align-items: center; } .sheet-card { border-radius: 14px; } }
+  .sheet-head { display: flex; align-items: flex-start; gap: 12px; padding: 14px 16px 10px; border-bottom: 1px solid var(--line); }
+  .sheet-head div { flex: 1; min-width: 0; }
+  .sheet-head b { display: block; font: 600 15px var(--mono); }
+  .sheet-head small { display: block; color: var(--muted); font-size: 13px; }
+  .sheet-head button { flex: none; width: 36px; height: 36px; padding: 0; border-radius: 50%; background: var(--sunken); color: var(--ink); border: 0; font: 600 18px/1 var(--sans); }
+  .sheet-body { overflow-y: auto; padding: 4px 16px 18px; -webkit-overflow-scrolling: touch; }
+  .sheet-body h3 { font-size: 13px; font-weight: 600; margin: 14px 0 6px; }
+  .sheet-body p { font-size: 13px; color: var(--muted); margin: 0 0 6px; }
+  .sheet-body table { font-size: 13px; }
+  .sheet-body th { cursor: default; font-size: 12px; }
+  .sheet-body th, .sheet-body td { padding: 6px 8px; white-space: normal; vertical-align: top; }
+  .sheet-body td.n, .sheet-body td.m, .sheet-body th { white-space: nowrap; }
+  .sheet-body th.n { text-align: right; }
+  .sheet-body td small { display: block; color: var(--muted); font-size: 12px; }
+  .sheet-body tr.prod td:first-child { font-weight: 600; } .sheet-body tr.neg td.q { color: var(--bad); }
+  html.sheet-on, html.sheet-on body { overflow: hidden; }
   input.tfilter { width: 100%; max-width: 320px; font: inherit; font-size: 13px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--ink); }
   .empty { border: 1px dashed var(--line); border-radius: 8px; padding: 26px; text-align: center; color: var(--muted); background: var(--surface); }
   .toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); background: var(--ink); color: var(--ground); padding: 8px 14px; border-radius: 6px; font-size: 13px; z-index: 70; max-width: calc(100vw - 32px); }
@@ -129,6 +145,9 @@
   <main id="out" aria-live="polite"><div class="empty">Type a product code and tap <b>Show stock</b>.</div></main>
 </div>
 <p class="hint" style="text-align:center;margin:0 0 20px">Version __BUILD__</p>
+<div class="sheet" id="sheet" hidden role="dialog" aria-modal="true" aria-labelledby="sheetTitle">
+  <div class="sheet-card"><div class="sheet-head"><div><b id="sheetTitle"></b><small id="sheetSub"></small></div><button type="button" id="sheetX" aria-label="Close">✕</button></div><div class="sheet-body" id="sheetBody"></div></div>
+</div>
 <div class="toast" id="toast" hidden></div>
 <script src="vendor/xlsx.full.min.js?v=__BUILD__"></script>
 <script>window.XLSX || document.write('<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"><\/script>');</script>
@@ -177,6 +196,17 @@
       const st = ctx.wb.stock || [];
       const areas = [...new Set(st.map((x) => x.area).filter(Boolean))].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
       AREAS = areas;
+      PRODS = new Map(); AREA_N = new Map();
+      const perArea = new Map();
+      for (const x of st) {
+        if (!PRODS.has(x.material)) PRODS.set(x.material, { text: "", b: new Set() });
+        const pr = PRODS.get(x.material);
+        if (!pr.text && x.material_text !== null && x.material_text !== undefined) pr.text = String(x.material_text);
+        pr.b.add(String(x.batch));
+        if (!perArea.has(x.area)) perArea.set(x.area, new Set());
+        perArea.get(x.area).add(x.material + "|" + x.batch);
+      }
+      for (const [a, set] of perArea) AREA_N.set(a, set.size);
       $("sapText").textContent = `${files.map((x) => x.name).join(", ")} · ` + (st.length ? `stock overview: ${f(st.length)} rows in ${areas.length} areas` : "no stock overview in these files: export the Stock Overview from SAP and add it on the checker") + ` · journal: ${f(ctx.wb.journal.length)} rows`;
     } catch (e) { ctx = null; $("sapText").textContent = "couldn't read the SAP files: " + e.message; }
     render();
@@ -194,7 +224,7 @@
   // ------------------------------------------------------------ the list
   // Counting in: blank or "All" is every area; an area's name (typed or picked) is that area; part of a name is
   // every area it matches, spaces and underscores aside ("floor 5" is FLOOR5, FLOOR5_A, FLOOR_5B…)
-  let AREAS = [];
+  let AREAS = [], PRODS = new Map(), AREA_N = new Map();
   const norm = (t) => String(t || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
   const areaText = () => $("area").value.trim();
   const isAll = (t) => !t || /^all( areas?)?$/i.test(t);
@@ -206,12 +236,12 @@
     return new Set(exact ? [exact] : areasLike(t));
   }
   const areaLabel = () => { const sel = areaSel(); return !sel ? null : sel.size === 1 ? [...sel][0] : areaText().toUpperCase(); };
-  let query = "", pick = "", sort = { col: "area", dir: 1 }, open = new Set();
+  let query = "", pick = "", sort = { col: "area", dir: 1 };
   const stock = () => (ctx && ctx.wb.stock) || [];
   const matches = () => {
     const Q = query.toUpperCase();
     if (!Q) return [];
-    return stock().filter((x) => String(x.material).toUpperCase().startsWith(Q) || (Q.length >= 4 && String(x.material_text || "").toUpperCase().includes(Q)));
+    return stock().filter((x) => String(x.material).toUpperCase().startsWith(Q) || (Q.length >= 4 && String(x.material_text ?? "").toUpperCase().includes(Q)));
   };
   // one row per product and batch (a batch on hand in two areas is one thing to find: its areas are listed)
   function rowsNow() {
@@ -219,7 +249,7 @@
     for (const x of matches()) {
       if (pick && x.material !== pick) continue;
       const k = keyOf(x.material, x.batch);
-      if (!by.has(k)) by.set(k, { key: k, material: x.material, text: x.material_text || "", batch: String(x.batch), areas: [], qty: 0, uom: x.uom || "", restricted: false, expiry: x.expiry_date });
+      if (!by.has(k)) by.set(k, { key: k, material: x.material, text: String(x.material_text ?? ""), batch: String(x.batch), areas: [], qty: 0, uom: x.uom || "", restricted: false, expiry: x.expiry_date });
       const r = by.get(k);
       r.areas.push(x.area); r.qty += isNaN(x.qty) ? 0 : x.qty; r.restricted = r.restricted || x.restricted;
     }
@@ -253,22 +283,34 @@
     const vs = s.qr !== null && s.qr !== undefined ? (same(s.print, s.qr) ? ` <span class="ok">✓ = QR</span>` : ` <span class="bad">≠ QR ${q2(s.qr)}</span>`) : "";
     return `${q2(s.print)}${vs}`;
   }
-  function histHtml(r) {
+  // a batch's details in a sheet over the list: what the stock overview has (where, how much, its dates) and every
+  // transaction in the journal with the running stock, in columns that fit a phone
+  function openSheet(r) {
     const so = stock().filter((x) => x.material === r.material && String(x.batch) === r.batch);
     const day = (t) => (t === null || t === undefined || isNaN(t) ? "" : sapTs(t).slice(0, 10));
+    const when = (t) => { const x = sapTs(t); return `${x.slice(0, 6)}${x.slice(8, 10)}<small>${x.slice(11, 16)}</small>`; };   // 07.09.26 over 10:53
     const rows = ctx ? R.batchHistory(ctx, r.material, r.batch) : [];
     const last = rows[rows.length - 1];
-    return `<h3>${esc(r.material)} ${esc(r.batch)}${r.text ? ` · ${esc(r.text)}` : ""}</h3>`
-      + `<div class="scroll"><table><thead><tr><th>Logistics Area ID</th><th>On-Hand Stock</th><th>UoM</th><th>Restricted</th><th>Production Date</th><th>Expiration Date</th></tr></thead><tbody>`
-      + so.map((x) => `<tr><td class="m">${esc(x.area)}</td><td class="n">${q2(x.qty)}</td><td>${esc(x.uom || "")}</td><td>${x.restricted ? "X" : ""}</td><td class="m">${day(x.production_date)}</td><td class="m">${day(x.expiry_date)}</td></tr>`).join("")
-      + `</tbody></table></div>`
-      + (rows.length ? `<h3>Transactions in the confirmation journal (${rows.length})</h3><p class="hint">Stock after the last one: ${q2(last.balance)}${last.area ? ` (last at ${esc(last.area)})` : ""}. Positive adds stock to that area, negative takes it away; production confirmations in bold, consumption in red.</p>`
-        + `<div class="scroll"><table><thead><tr><th>Created On</th><th>Conf.Document Type</th><th>Conf.ID</th><th>Logistics Area ID</th><th>Reference</th><th>Effective Qty</th><th>Stock after</th></tr></thead><tbody>`
-        + rows.map((x) => `<tr class="${x.is_prod ? "prod" : ""}${x.qty < 0 && x.is_prod ? " neg" : ""}"><td class="m">${esc(sapTs(x.time))}</td><td>${esc(x.doc)}</td><td class="m">${esc(x.conf)}</td><td class="m">${esc(x.area)}</td><td class="m">${esc(x.ref && x.ref !== "#" ? x.ref : "")}</td><td class="n">${q2(x.qty)}</td><td class="n">${q2(x.balance)}</td></tr>`).join("")
+    $("sheetTitle").textContent = `${r.material} · ${r.batch}`;
+    $("sheetSub").textContent = r.text || "";
+    $("sheetBody").innerHTML = `<h3>On hand in SAP</h3>`
+      + (so.length ? `<div class="scroll"><table><thead><tr><th>Area</th><th class="n">Qty</th><th>Expires</th></tr></thead><tbody>`
+        + so.map((x) => `<tr><td class="m">${esc(x.area)}${x.restricted ? `<small class="warn">restricted</small>` : ""}</td><td class="n">${q2(x.qty)} ${esc(String(x.uom || "").toLowerCase())}</td><td class="m">${day(x.expiry_date) || "–"}${x.production_date ? `<small>made ${day(x.production_date)}</small>` : ""}</td></tr>`).join("")
+        + `</tbody></table></div>` : `<p>Not in the stock overview.</p>`)
+      + `<h3>Transactions in the journal (${rows.length})</h3>`
+      + (rows.length ? `<p>Stock after the last one: ${q2(last.balance)}${last.area ? ` at ${esc(last.area)}` : ""}. Production confirmations in bold; stock taken away in red.</p>`
+        + `<div class="scroll"><table><thead><tr><th>When</th><th>What</th><th class="n">Qty</th><th class="n">Stock after</th></tr></thead><tbody>`
+        + rows.map((x) => `<tr class="${x.is_prod ? "prod" : ""}${x.qty < 0 ? " neg" : ""}"><td class="m">${when(x.time)}</td><td>${esc(x.doc)}<small>${esc(x.area)} · Conf ${esc(x.conf)}${x.ref && x.ref !== "#" ? ` · order ${esc(x.ref)}` : ""}</small></td><td class="n q">${fs(x.qty, 2)}</td><td class="n">${q2(x.balance)}</td></tr>`).join("")
         + `</tbody></table></div>`
-        : `<p class="hint">No transactions for this batch in the loaded confirmation journal${ctx && ctx.wb.journal.length ? " (it may be older than the journal's dates)" : ""}.</p>`)
-      + `<p class="hint"><a href="./?trace=${encodeURIComponent(r.batch)}&amp;product=${encodeURIComponent(r.material)}">Open the full trace on the checker</a></p>`;
+        : `<p>None in the loaded confirmation journal${ctx && ctx.wb.journal.length ? " (the batch may be older than the journal's dates)" : ""}.</p>`)
+      + `<p style="margin-top:12px"><a href="./?trace=${encodeURIComponent(r.batch)}&amp;product=${encodeURIComponent(r.material)}">Open the full trace on the checker</a></p>`;
+    $("sheet").hidden = false; document.documentElement.classList.add("sheet-on");
+    $("sheetBody").scrollTop = 0; $("sheetX").focus();
   }
+  const closeSheet = () => { $("sheet").hidden = true; document.documentElement.classList.remove("sheet-on"); };
+  $("sheetX").onclick = closeSheet;
+  $("sheet").addEventListener("click", (e) => { if (e.target === $("sheet")) closeSheet(); });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !$("sheet").hidden) closeSheet(); });
   function render() {
     if (!ctx || !stock().length) {
       $("countPanel").hidden = true;
@@ -319,7 +361,7 @@
         at: `<td class="m">${s ? `${hm(s.at)}${s.by === "hand" ? " (by hand)" : ""}` : ""}</td>`,
       };
       const tr = `<tr class="${cls}" data-k="${esc(r.key)}">${COLS.map(([c]) => cell[c]).join("")}</tr>`;
-      return tr + (open.has(r.key) ? `<tr class="hist"><td colspan="${COLS.length}">${histHtml(r)}</td></tr>` : "");
+      return tr;
     }).join("");
     $("list").innerHTML = head + `<tbody>${body || `<tr><td colspan="${COLS.length}">No rows match the filter.</td></tr>`}</tbody>`;
     $("extras").innerHTML = extras.length ? `<h2 style="margin:14px 0 6px">Scanned, not in this list (${extras.length})</h2><p class="hint">Labels read during this search whose batch isn't on hand for ${esc(query.toUpperCase())}${area ? ` in ${esc(area)}` : ""} in the stock overview: stock SAP doesn't have here.</p>`
@@ -331,7 +373,7 @@
   // ------------------------------------------------------------ the page
   $("ask").addEventListener("submit", (e) => {
     e.preventDefault();
-    query = $("q").value.trim(); pick = ""; open.clear();
+    query = $("q").value.trim(); pick = "";
     if (query) count.q = query.toUpperCase(), save();
     refresh().then(render);
   });
@@ -341,7 +383,8 @@
     let hi = -1;
     const close = () => { list.hidden = true; input.setAttribute("aria-expanded", "false"); };
     const show = () => {
-      const items = options(input.value.trim());
+      let items;
+      try { items = options(input.value.trim()); } catch (e) { items = [{ value: null, html: `<small>Couldn't list suggestions: ${esc(e.message)}</small>` }]; }
       list.innerHTML = items.map((o) => (o.value === null ? `<li role="option" aria-disabled="true">${o.html}</li>` : `<li role="option" data-v="${esc(o.value)}"${o.cls ? ` class="${o.cls}"` : ""}>${o.html}</li>`)).join("");
       hi = -1; list.hidden = !items.length; input.setAttribute("aria-expanded", String(!list.hidden));
     };
@@ -371,12 +414,8 @@
   // Product: the codes that start with what's typed (and, from 3 letters, those whose description has it), each with
   // its description and batches on hand; with several, "every product starting …" first
   combo($("q"), $("qList"), (t) => {
-    const T = t.toUpperCase(), by = new Map();
-    for (const x of stock()) {
-      if (!by.has(x.material)) by.set(x.material, { text: x.material_text || "", b: new Set() });
-      by.get(x.material).b.add(String(x.batch));
-    }
-    const all = [...by].sort((a, b) => a[0].localeCompare(b[0], undefined, { numeric: true }));
+    const T = t.toUpperCase();
+    const all = [...PRODS].sort((a, b) => a[0].localeCompare(b[0], undefined, { numeric: true }));
     const starts = all.filter(([m]) => m.toUpperCase().startsWith(T));
     const named = T.length >= 3 ? all.filter(([m, v]) => !m.toUpperCase().startsWith(T) && v.text.toUpperCase().includes(T)) : [];
     const hits = [...starts, ...named];
@@ -390,7 +429,7 @@
   // Counting in: All areas first, then the areas matching what's typed; the list follows as you type
   combo($("area"), $("areaList"), (t) => {
     const opts = isAll(t) ? AREAS : areasLike(t);
-    const cnt = (a) => batches(new Set(stock().filter((x) => x.area === a).map((x) => x.material + "|" + x.batch)).size);
+    const cnt = (a) => batches(AREA_N.get(a) || 0);
     if (!AREAS.length) return [];
     return [{ value: "", cls: "all", html: `All areas<small>${f(AREAS.length)} areas</small>` },
       ...opts.slice(0, 60).map((a) => ({ value: a, html: `${esc(a)}<small>${cnt(a)}</small>` })),
@@ -403,7 +442,7 @@
     const th = e.target.closest("th[data-c]");
     if (th) { sort = { col: th.dataset.c, dir: sort.col === th.dataset.c ? -sort.dir : 1 }; render(); return; }
     const hb = e.target.closest("button.hist");
-    if (hb) { const k = hb.closest("tr").dataset.k; if (open.has(k)) open.delete(k); else open.add(k); render(); }
+    if (hb) { const k = hb.closest("tr").dataset.k, r = rowsNow().find((x) => x.key === k); if (r) openSheet(r); }
   });
   $("list").addEventListener("change", (e) => {
     const tr = e.target.closest("tr[data-k]");
