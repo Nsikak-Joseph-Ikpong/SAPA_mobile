@@ -54,6 +54,18 @@
   .sapbar { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 10px 16px; font-size: 13px; }
   .sapbar .grow { flex: 1 1 320px; min-width: 0; }
   /* the controls: one row above the charts */
+  .jhead { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; justify-content: space-between; }
+  .jhead small { display: block; color: var(--muted); font-size: 12.5px; }
+  .jhead small.warn { color: var(--bad); }
+  label.btn { font: 600 13.5px var(--sans); border-radius: 6px; padding: 9px 14px; cursor: pointer; background: var(--accent); color: var(--accent-ink); }
+  label.btn:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
+  ul.jfiles { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+  ul.jfiles li { display: flex; align-items: center; gap: 10px; padding: 6px 6px 6px 10px; border: 1px solid var(--line); border-radius: 6px; font-size: 13px; }
+  ul.jfiles li span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+  ul.jfiles li small { color: var(--muted); }
+  ul.jfiles button { padding: 3px 10px; font-size: 12.5px; }
+  #jPanel.drop { outline: 2px dashed var(--accent); outline-offset: -6px; }
+  .gap { background: var(--sunken); border-left: 3px solid var(--bad); border-radius: 6px; padding: 8px 12px; font-size: 13.5px; margin: 0; }
   .controls { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: end; }
   .controls label { display: grid; gap: 4px; font-weight: 600; font-size: 12.5px; }
   .controls select { font: 500 14px var(--sans); padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--ink); }
@@ -125,11 +137,17 @@
 <div class="wrap">
   <div>
     <h1 data-nav="report">Monthly variance report</h1>
-    <p class="sub">Every job in the month from the SAP files loaded on the checker: where the cheese variance is, by line, shift (6-2, 2-10, 10-6), case weight, product and day, so the worst can be worked on first. The variance is the checker's: cheese in, less the cases at their case weight and the offcuts made. Positive is cheese with no output (red), negative is more out than went in (blue). Click a bar to list its jobs.</p>
+    <p class="sub">Every job in the month, from the month's confirmation journal uploaded here and the other SAP files loaded on the checker: where the cheese variance is, by line, shift (6-2, 2-10, 10-6), case weight, product and day, so the worst can be worked on first. The variance is the checker's: cheese in, less the cases at their case weight and the offcuts made. Positive is cheese with no output (red), negative is more out than went in (blue). Click a bar to list its jobs.</p>
   </div>
   <section class="sapbar" aria-label="SAP data">
     <div class="grow"><b>SAP data:</b> <span id="sapText">looking for the SAP files…</span></div>
     <a href="./">Load or update them on the checker</a>
+  </section>
+  <section class="panel" id="jPanel" aria-label="The month's confirmation journal">
+    <div class="jhead"><div><b>The month's confirmation journal</b><small id="jText">none uploaded here: the report uses the checker's journal</small></div>
+      <label class="btn"><input type="file" id="jFiles" accept=".xlsx,.xls" multiple hidden>Upload the journal (1 or 2 files)</label></div>
+    <ul class="jfiles" id="jList" hidden></ul>
+    <p class="hint">Export the whole month's Confirmation Journal from ByDesign; when it comes in two files, upload both (together or one after the other). It's kept in this browser for the report only: the checker keeps its own journal, and the other files (orders, stock…) still come from the checker. You can also drop the files here.</p>
   </section>
   <section class="panel controls" aria-label="Report settings">
     <label>Month<select id="month"></select></label>
@@ -165,29 +183,51 @@
 
   // ------------------------------------------------------------ the SAP files the checker keeps in this browser
   let ctx = null, saved, JOBS = [];
-  const loadSaved = () => new Promise((resolve) => {
+  // the checker keeps its files under "workbook"; the report's own journal sits beside them under "report-journal"
+  const idb = (fn) => new Promise((resolve) => {
     try {
       const q = indexedDB.open("cheese-variance", 1);
       q.onupgradeneeded = () => q.result.createObjectStore("files");
       q.onerror = () => resolve(null);
-      q.onsuccess = () => { try { const g = q.result.transaction("files").objectStore("files").get("workbook"); g.onsuccess = () => resolve(g.result || null); g.onerror = () => resolve(null); } catch { resolve(null); } };
+      q.onsuccess = () => { try { fn(q.result, resolve); } catch { resolve(null); } };
     } catch { resolve(null); }
   });
+  const loadKey = (key) => idb((db, done) => { const g = db.transaction("files").objectStore("files").get(key); g.onsuccess = () => done(g.result || null); g.onerror = () => done(null); });
+  const saveKey = (key, val) => idb((db, done) => { const tx = db.transaction("files", "readwrite"); if (val) tx.objectStore("files").put(val, key); else tx.objectStore("files").delete(key); tx.oncomplete = () => done(true); tx.onerror = () => done(false); });
+  const loadSaved = () => loadKey("workbook");
+  const sheetsOf = (files) => files.flatMap((x) => { const wb = XLSX.read(x.buf, { type: "array", dense: true }); return wb.SheetNames.map((sn) => ({ file: x.name, sheet: sn, rows: XLSX.utils.sheet_to_json(wb.Sheets[sn], { header: 1, raw: true, defval: null, blankrows: true }) })); });
+  const isJournal = (sh) => R.sheetKinds([sh]).includes("journal");
+  let jrec = null;   // the report's journal: { files: [{ name, buf, from, to, rows }], saved }
+  function showJournal(range) {
+    const files = jrec ? jrec.files : [];
+    $("jList").hidden = !files.length;
+    $("jList").innerHTML = files.map((x, i) => `<li><span>${esc(x.name)}<br><small>${x.from ? `${dmy(x.from).slice(0, 10)} to ${dmy(x.to).slice(0, 10)} · ` : ""}${f(x.rows)} rows</small></span><button type="button" class="quiet" data-i="${i}" aria-label="Remove ${esc(x.name)}">Remove</button></li>`).join("");
+    $("jText").textContent = files.length ? `${files.length} file${files.length === 1 ? "" : "s"} uploaded here${range ? `: ${dmy(range[0]).slice(0, 10)} to ${dmy(range[1]).slice(0, 10)}` : ""} (the report uses these, not the checker's journal)` : "none uploaded here: the report uses the checker's journal";
+  }
   const wait = () => new Promise((r) => setTimeout(r, 0));
-  async function refresh() {
+  // force: read again even when nothing changed; memOnly: the report's journal couldn't be stored, keep the one in hand
+  async function refresh(force, memOnly) {
     const rec = await loadSaved();
-    if (rec && rec.saved === saved && ctx) return;
-    saved = rec ? rec.saved : null;
+    if (!memOnly) jrec = await loadKey("report-journal");
+    const stamp = `${rec ? rec.saved : ""}|${jrec ? jrec.saved : ""}`;
+    if (!force && stamp === saved && ctx) return;
+    saved = stamp;
+    showJournal(null);
     const files = rec ? rec.files || (rec.buf ? [{ name: rec.name, buf: rec.buf }] : []) : [];
     if (!files.length) { ctx = null; JOBS = []; $("sapText").textContent = "no SAP files yet: load the workbook and the confirmation journal on the checker."; render(); return; }
     $("sapText").textContent = "reading the SAP files…";
     $("out").innerHTML = `<div class="empty">Reading the SAP files…</div>`;
     await new Promise((r) => setTimeout(r, 30));
     try {
-      const sheets = files.flatMap((x) => { const wb = XLSX.read(x.buf, { type: "array", dense: true }); return wb.SheetNames.map((sn) => ({ file: x.name, sheet: sn, rows: XLSX.utils.sheet_to_json(wb.Sheets[sn], { header: 1, raw: true, defval: null, blankrows: true }) })); });
+      // the checker's files, with the report's own journal in place of the checker's when one is uploaded here
+      let sheets = sheetsOf(files);
+      const own = jrec && jrec.files.length ? sheetsOf(jrec.files).filter(isJournal) : [];
+      if (own.length) sheets = [...sheets.filter((sh) => !isJournal(sh)), ...own];
       ctx = R.prepare(R.readWorkbook(sheets));
       const r = ctx.journalRange;
-      $("sapText").textContent = `${files.map((x) => x.name).join(", ")} · journal ${r ? dmy(r[0]).slice(0, 10) + " to " + dmy(r[1]).slice(0, 10) : "empty"}`;
+      showJournal(own.length ? r : null);
+      const others = files.map((x) => x.name);
+      $("sapText").textContent = `${own.length ? `${others.join(", ")} (the checker's, without its journal) + the month's journal uploaded here` : others.join(", ")} · journal ${r ? dmy(r[0]).slice(0, 10) + " to " + dmy(r[1]).slice(0, 10) : "empty"}`;
       // every job that ran, checked as the checker checks it, a hundred at a time so the page stays responsive
       const ids = [...ctx.active].filter((o) => ctx.idx.orders.has(o));
       const res = [];
@@ -296,9 +336,17 @@
       ["Outside tolerance", f(all.out), `${share(all.out / withV.length)} of the jobs`],
       ["Offcuts", pc(offPct), "made vs the recipe's expected"],
     ];
+    // the journal should cover the month: say what's missing
+    let gapNote = "";
+    const jr = ctx.journalRange;
+    if (m !== "all" && jr) {
+      const [y, mo] = m.split("-").map(Number), m0 = Date.UTC(y, mo - 1, 1, 6), m1 = Date.UTC(y, mo, 1, 6), D = 24 * H;
+      const miss = [jr[0] - m0 > D ? `before ${dmy(jr[0]).slice(0, 10)}` : "", m1 - jr[1] > D && m1 - D < Date.now() ? `after ${dmy(jr[1]).slice(0, 10)}` : ""].filter(Boolean);
+      if (miss.length) gapNote = `<p class="gap">The journal covers ${dmy(Math.max(jr[0], m0)).slice(0, 10)} to ${dmy(Math.min(jr[1], m1 - 1)).slice(0, 10)} of ${esc(monthName(m))}: jobs ${miss.join(" and ")} aren't in this report. Upload the whole month's journal above.</p>`;
+    }
     const card = (dim, sub, body) => `<section class="panel" data-dim="${dim}"><h2>${esc(DIMS[dim] ? DIMS[dim].title : sub)}<small>${esc(M.name)}${sub && DIMS[dim] ? " · " + esc(sub) : ""}</small></h2>${body}</section>`;
     $("out").innerHTML = `<div style="display:grid;gap:16px">
-      <section class="panel"><dl class="tiles">${tiles.map(([k, v, s]) => `<div><dt>${esc(k)}</dt><dd>${esc(v)}<small>${esc(s)}</small></dd></div>`).join("")}</dl>
+      <section class="panel">${gapNote}<dl class="tiles">${tiles.map(([k, v, s]) => `<div><dt>${esc(k)}</dt><dd>${esc(v)}<small>${esc(s)}</small></dd></div>`).join("")}</dl>
         <p class="headline">Most ${measure === "out" ? "jobs outside tolerance" : measure === "lost" ? "cheese lost" : "variance"} in ${esc(m === "all" ? "the loaded files" : monthName(m))}: ${hl.join(" · ")}.</p></section>
       <div class="grid">
         ${card("line", "", bars("line", by.line, M))}
@@ -500,6 +548,64 @@
     }
     XLSX.writeFile(wb, `Variance report ${m === "all" ? "all loaded" : monthName(m)}.xlsx`);
   };
+
+  // a journal file's rows and dates, from its Created On column (the engine reads a journal only with the order sheets)
+  function journalSpan(sheets) {
+    const when = (v) => {
+      if (v === null || v === undefined || v === "") return NaN;
+      if (typeof v === "number") return Math.round((v - 25569) * 86400000);   // Excel serial date
+      const m = String(v).trim().match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})(?:\s+(\d{1,2}):(\d{2}))?/);
+      return m ? Date.UTC(+m[3], +m[2] - 1, +m[1], +(m[4] || 0), +(m[5] || 0)) : NaN;
+    };
+    let rows = 0, from = Infinity, to = -Infinity;
+    for (const sh of sheets) {
+      const hi = sh.rows.findIndex((r) => (r || []).some((c) => /^created\s*on$/i.test(String(c ?? "").trim())));
+      if (hi < 0) continue;
+      const ci = sh.rows[hi].findIndex((c) => /^created\s*on$/i.test(String(c ?? "").trim()));
+      for (const r of sh.rows.slice(hi + 1)) { const t = when(r && r[ci]); if (isNaN(t)) continue; rows++; if (t < from) from = t; if (t > to) to = t; }
+    }
+    return { rows, from: rows ? from : null, to: rows ? to : null };
+  }
+  async function addJournal(list) {
+    const picked = [...list].filter((x) => /\.xlsx?$/i.test(x.name));
+    if (!picked.length) { toast("Pick the journal's Excel files (.xlsx)"); return; }
+    $("jText").textContent = "reading the journal…";
+    await new Promise((r) => setTimeout(r, 30));
+    const keep = jrec ? jrec.files.slice() : [], bad = [];
+    let added = 0;
+    for (const file of picked) {
+      try {
+        const buf = await file.arrayBuffer(), sh = sheetsOf([{ name: file.name, buf }]).filter(isJournal);
+        if (!sh.length) { bad.push(file.name); continue; }
+        const { rows, from, to } = journalSpan(sh);
+        const meta = { name: file.name, buf, rows, from, to };
+        const i = keep.findIndex((x) => x.name === file.name);
+        if (i >= 0) keep[i] = meta; else keep.push(meta);
+        added++;
+      } catch (e) { bad.push(`${file.name} (${e.message})`); }
+    }
+    keep.sort((a, b) => (a.from || 0) - (b.from || 0));
+    if (bad.length) toast(`Not a confirmation journal: ${bad.join(", ")}`, 6000);
+    if (!added) { showJournal(ctx && jrec ? ctx.journalRange : null); return; }
+    jrec = { files: keep, saved: Date.now() };
+    const kept = await saveKey("report-journal", jrec);
+    if (!kept) toast("Couldn't keep the journal in this browser: it's used until the page closes", 6000);
+    sel = null;
+    await refresh(true, !kept);
+  }
+  $("jFiles").onchange = () => { const fl = $("jFiles").files; if (fl.length) addJournal(fl); $("jFiles").value = ""; };
+  $("jList").addEventListener("click", async (e) => {
+    const b = e.target.closest("button[data-i]");
+    if (!b || !jrec) return;
+    const files = jrec.files.filter((_, i) => i !== Number(b.dataset.i));
+    jrec = files.length ? { files, saved: Date.now() } : null;
+    await saveKey("report-journal", jrec);
+    await refresh(true);
+  });
+  const jp = $("jPanel");
+  jp.addEventListener("dragover", (e) => { e.preventDefault(); jp.classList.add("drop"); });
+  jp.addEventListener("dragleave", () => jp.classList.remove("drop"));
+  jp.addEventListener("drop", (e) => { e.preventDefault(); jp.classList.remove("drop"); if (e.dataTransfer.files.length) addJournal(e.dataTransfer.files); });
 
   window.addEventListener("focus", () => refresh());
   refresh();

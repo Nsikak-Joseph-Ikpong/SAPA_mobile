@@ -31,8 +31,12 @@ The phone can't open files straight off the laptop's disk; they have to go throu
 
 ## Monthly report
 
-`report.html` (*Monthly report* in the page menu, where the investigator was) checks every job in the SAP files
-loaded on the checker, as the checker does, and reports the month: pick the month (or everything loaded) and what
+`report.html` (*Monthly report* in the page menu, where the investigator was) checks every job, as the checker does,
+and reports the month. It takes its own confirmation journal: upload the whole month's export on the page (one file
+or two, together or one after the other; a file of the same name replaces the one there, and each can be removed).
+It's kept in the browser for the report only, in place of the checker's journal; the other files (orders, stock,
+fulfilment) come from the checker. Without one, the report uses the checker's journal, and it says which days of the
+month the journal it has doesn't cover. Then pick the month (or everything loaded) and what
 to show (the variance in kg, as a % of the cheese in, the cheese lost, or the jobs outside tolerance). Tiles give the
 jobs, cheese in, variance, cheese lost, more out than in, jobs outside tolerance and offcuts against the recipe; a
 sentence names the line, shift, job type (case weight) and product with the most. Bar charts break it down by line,
