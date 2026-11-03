@@ -29,37 +29,21 @@ The phone can't open files straight off the laptop's disk; they have to go throu
 (step 1), email, or a USB cable. If you'd rather the files never leave the laptop, use
 `python serve.py --share` on the office Wi-Fi instead (see *Use it from your phone (office Wi-Fi)*).
 
-## Variance investigator
+## Monthly report
 
-https://nsikak-joseph-ikpong.github.io/SAPA_mobile/investigate.html (or **Variance investigator** from any page's title
-menu, or **Investigate this job** on an order in the checker). It uses the SAP files loaded on the checker: keep loading
-the month's confirmation journal there each day. Type a production order, pick **2 weeks** (7 days either side of the
-job) or **1 week** (3½ days either side), and click **Investigate**.
+`report.html` (*Monthly report* in the page menu, where the investigator was) checks every job in the SAP files
+loaded on the checker, as the checker does, and reports the month: pick the month (or everything loaded) and what
+to show (the variance in kg, as a % of the cheese in, the cheese lost, or the jobs outside tolerance). Tiles give the
+jobs, cheese in, variance, cheese lost, more out than in, jobs outside tolerance and offcuts against the recipe; a
+sentence names the line, shift, job type (case weight) and product with the most. Bar charts break it down by line,
+shift, case weight, product type and product; a donut shows where the lost cheese was by shift; a heatmap crosses
+lines with shifts; a column chart goes day by day. Shifts are 6-2 (06:00-14:00), 2-10 (14:00-22:00) and 10-6
+(22:00-06:00, counted on the day it started); a job that runs over a shift change is shared between the shifts by the
+cases it posted in each. Hover or press a bar for its numbers, open *Show as a table* under any chart, and click a bar
+(or a heatmap cell, or a day) to list its jobs, each linking to the checker and the investigator. *Download the
+report* saves it as Excel: every job and a sheet per breakdown.
 
-Cheese can't appear or vanish: when a job's output has no cheese booked for it, the blocks it used are still in SAP and
-turn up somewhere else. The investigation works through it in the order an analyst would:
-
-1. **The gap in plain words:** what the output needs, what was booked (blocks and offcut bags apart) and the variance,
-   also as blocks (≈ 20 kg) or offcut bags (7–13 kg).
-2. **Checked first** (things that aren't lost cheese): the job was still running when the journal was exported (then
-   nothing else is reported); it started before the journal begins; pallets booked to the wrong order (same product,
-   same line, after its own cheese stopped while the other job was still consuming); a pallet booked twice; the recipe
-   case weight.
-3. **Most likely causes**, each marked *strong*, *medium* or *weak* with the kg it explains (never more than the gap in
-   all; **Explained** shows how much): a pallet moved to the line during the run but never booked (and whether it was
-   written off or is still on the line); a whole pallet booked minutes after it was moved once the job already had
-   what it needed; pallets moved in for another job; pallets booked to a job that's over. Only this cheese counts,
-   offcut bags are handled as bags, batches that started before the journal aren't called over-consumed, and the
-   shared grating area (L4/L5) is marked *medium* when a pallet could belong to either job.
-4. **Offcut bags:** how much of the cheese should be bags (from at least 3 other jobs on the product, else the recipe),
-   and how many bags look unscanned.
-5. **Other jobs it touched** and **do the jobs on this cheese net out?** over the week: if they cancel, the cheese was
-   booked to the wrong jobs; if not, it's really missing (or extra).
-6. **Where the cheese is now:** stock SAP still shows on the lines, write-offs, part pallets from the **Stock
-   Overview** export (load it on the checker), and batches booked below zero.
-
-**Copy the summary** gives it all in plain words for an email or report. **Every job in the window** (folded away)
-lists the week's jobs; click any to investigate it.
+The variance investigator (`investigate.html`) is still there, opened from a job in the report or on the checker.
 
 ## Stock take
 
