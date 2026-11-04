@@ -7,6 +7,7 @@
   "use strict";
   const PAGES = [
     { id: "checker", href: "./", title: "Cheese variance check", sub: "Production orders, the cheese balance, stock trace" },
+    { id: "daily", href: "daily.html", title: "Daily report", sub: "One day's jobs against a threshold: variance by job, shift, job type and cheese code, and through the day" },
     { id: "report", href: "report.html", title: "Monthly report", sub: "The month's variance by line, shift, case weight, product and day, with charts, to see where to work first" },
     { id: "stocktake", href: "stocktake.html", title: "Stock take", sub: "Search a product, scan its labels as you walk the racks, and set each label's quantity against SAP" },
     { id: "aisles", href: "aisle.html", title: "Aisle manager", sub: "Scan an aisle's barcode, then the labels on it: each batch is assigned to that aisle with its quantity; export to Excel" },

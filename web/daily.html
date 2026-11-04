@@ -1,0 +1,537 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:,">
+<title>Daily Variance Report</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
+<style>
+  :root {
+    --ground: #f2f4f1; --surface: #ffffff; --sunken: #e9ece8; --ink: #17201d; --muted: #5b6661; --line: #d8ddd9;
+    --accent: #23615a; --accent-ink: #ffffff; --accent-soft: #dcebe8;
+    --bad: #b3261e; --ok: #2b7a4b;
+    --sans: "IBM Plex Sans", "Segoe UI", system-ui, -apple-system, sans-serif;
+    --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+    /* chart roles: loss (cheese with no output) and gain (more out than in) are the diverging pair's poles; the three
+       shifts take categorical slots validated together (orange, aqua, violet) */
+    --loss: #e34948; --gain: #2a78d6; --mid: #f0efec; --grid: #e1e0d9; --axis: #c3c2b7;
+    --s0: #eb6834; --s1: #1baf7a; --s2: #6250d6;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --ground: #111513; --surface: #192019; --sunken: #141a17; --ink: #e5eae7; --muted: #9aa59f; --line: #2c3531;
+      --accent: #62b5aa; --accent-ink: #0d1412; --accent-soft: #1c3531; --bad: #f27b70; --ok: #6dc690;
+      --loss: #e66767; --gain: #3987e5; --mid: #383835; --grid: #2c2c2a; --axis: #383835;
+      --s0: #d95926; --s1: #199e70; --s2: #9085e9;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --ground: #111513; --surface: #192019; --sunken: #141a17; --ink: #e5eae7; --muted: #9aa59f; --line: #2c3531;
+    --accent: #62b5aa; --accent-ink: #0d1412; --accent-soft: #1c3531; --bad: #f27b70; --ok: #6dc690;
+    --loss: #e66767; --gain: #3987e5; --mid: #383835; --grid: #2c2c2a; --axis: #383835;
+    --s0: #d95926; --s1: #199e70; --s2: #9085e9;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+  body { background: var(--ground); color: var(--ink); font: 14px/1.5 var(--sans); }
+  .wrap { max-width: 1240px; margin: 0 auto; padding: 20px 16px 48px; display: grid; gap: 16px; }
+  h1 { font-size: 21px; line-height: 1.2; margin: 0; letter-spacing: -0.01em; }
+  h2 { font-size: 15px; margin: 0; font-weight: 600; }
+  h2 small { display: block; font-weight: 400; font-size: 12.5px; color: var(--muted); }
+  .sub { color: var(--muted); margin: 4px 0 0; font-size: 13px; max-width: 95ch; }
+  .panel { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; display: grid; gap: 12px; align-content: start; min-width: 0; }
+  .hint { font-size: 12.5px; color: var(--muted); margin: 0; }
+  a { color: var(--accent); }
+  button { font: 600 13.5px var(--sans); border-radius: 6px; padding: 8px 14px; cursor: pointer; border: 1px solid var(--accent); background: var(--accent); color: var(--accent-ink); }
+  button.quiet { background: var(--surface); color: var(--ink); border-color: var(--line); font-weight: 500; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .sapbar { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 10px 16px; font-size: 13px; }
+  .sapbar .grow { flex: 1 1 320px; min-width: 0; }
+  /* the controls: one row above the charts */
+  .jhead { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; justify-content: space-between; }
+  .jhead small { display: block; color: var(--muted); font-size: 12.5px; }
+  .jhead small.warn { color: var(--bad); }
+  label.btn { font: 600 13.5px var(--sans); border-radius: 6px; padding: 9px 14px; cursor: pointer; background: var(--accent); color: var(--accent-ink); }
+  label.btn:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
+  ul.jfiles { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+  ul.jfiles li { display: flex; align-items: center; gap: 10px; padding: 6px 6px 6px 10px; border: 1px solid var(--line); border-radius: 6px; font-size: 13px; }
+  ul.jfiles li span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+  ul.jfiles li small { color: var(--muted); }
+  ul.jfiles button { padding: 3px 10px; font-size: 12.5px; }
+  #jPanel.drop { outline: 2px dashed var(--accent); outline-offset: -6px; }
+  .gap { background: var(--sunken); border-left: 3px solid var(--bad); border-radius: 6px; padding: 8px 12px; font-size: 13.5px; margin: 0; }
+  .controls { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: end; }
+  .controls label { display: grid; gap: 4px; font-weight: 600; font-size: 12.5px; }
+  .controls select { font: 500 14px var(--sans); padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--ink); }
+  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; flex-wrap: wrap; }
+  .seg button { border: 0; border-radius: 0; background: var(--surface); color: var(--ink); font-weight: 500; padding: 8px 12px; }
+  .seg button + button { border-left: 1px solid var(--line); }
+  .seg button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); font-weight: 600; }
+  .controls .grow { flex: 1; }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin: 0; }
+  .tiles div { background: var(--sunken); border-radius: 8px; padding: 10px 12px; }
+  .tiles dt { font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); }
+  .tiles dd { margin: 2px 0 0; font: 600 22px var(--sans); }
+  .tiles dd small { display: block; font: 12.5px var(--sans); color: var(--muted); }
+  .headline { font-size: 15px; line-height: 1.55; margin: 0; }
+  .headline b { font-weight: 600; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 520px), 1fr)); gap: 16px; }
+  /* horizontal bars: a zero line, the bar from it to the value, the value beside it */
+  .bars { display: grid; gap: 2px; }
+  .bar { display: grid; grid-template-columns: minmax(90px, 32%) 1fr auto; gap: 10px; align-items: center; padding: 5px 4px; border-radius: 6px; cursor: pointer; }
+  .bar:hover, .bar.sel { background: var(--sunken); }
+  .bar .lab { font-size: 13px; line-height: 1.25; min-width: 0; overflow-wrap: anywhere; }
+  .bar .lab small { display: block; color: var(--muted); font-size: 11.5px; }
+  .bar .track { position: relative; height: 18px; }
+  .bar .zero { position: absolute; top: -3px; bottom: -3px; width: 1px; background: var(--axis); }
+  .bar .fill { position: absolute; top: 0; bottom: 0; background: var(--loss); }
+  .bar .fill.pos { border-radius: 0 4px 4px 0; } .bar .fill.neg { border-radius: 4px 0 0 4px; background: var(--gain); }
+  .bar .val { font: 500 13px var(--sans); font-variant-numeric: tabular-nums; text-align: right; min-width: 6.5em; }
+  .key { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12px; color: var(--muted); }
+  .key i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
+  /* donut + legend */
+  .donut { display: flex; flex-wrap: wrap; gap: 14px 22px; align-items: center; }
+  .donut svg { flex: none; }
+  .legend { display: grid; gap: 6px; font-size: 13px; }
+  .legend i { display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-right: 8px; vertical-align: -1px; }
+  .legend b { font-variant-numeric: tabular-nums; }
+  /* heatmap: lines down, shifts across */
+  .heat { display: grid; gap: 2px; font-size: 12.5px; }
+  .heat .hd { color: var(--muted); font-weight: 600; text-align: center; padding: 2px; }
+  .heat .rl { padding: 6px 6px 6px 0; line-height: 1.2; }
+  .heat .cell { border-radius: 4px; padding: 8px 4px; text-align: center; font-variant-numeric: tabular-nums; font-weight: 500; cursor: default; }
+  .heat .cell small { display: block; font-weight: 400; font-size: 11px; opacity: .85; }
+  .scale { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); }
+  .scale span.ramp { flex: 0 1 180px; height: 10px; border-radius: 3px; background: linear-gradient(90deg, var(--gain), var(--mid), var(--loss)); }
+  svg text { font-family: var(--sans); }
+  .chartbox { width: 100%; overflow: hidden; }
+  details.tv > summary { cursor: pointer; font-size: 12.5px; color: var(--accent); }
+  .scroll { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: top; white-space: nowrap; }
+  th { font-size: 12px; font-weight: 600; background: var(--sunken); }
+  table.sortable th { cursor: pointer; user-select: none; }
+  th[aria-sort="ascending"]::after { content: " \25B2"; } th[aria-sort="descending"]::after { content: " \25BC"; }
+  td.n, th.n { text-align: right; font-variant-numeric: tabular-nums; }
+  td small { display: block; color: var(--muted); font-size: 12px; white-space: normal; }
+  td.m { font-family: var(--mono); }
+  .pos { color: var(--bad); } .neg { color: var(--gain); }
+  .chip { display: inline-flex; align-items: center; gap: 8px; background: var(--accent-soft); border-radius: 999px; padding: 4px 6px 4px 12px; font-size: 13px; }
+  .chip button { padding: 2px 8px; border-radius: 999px; font-size: 12px; }
+  input.tfilter { width: 100%; max-width: 320px; font: inherit; font-size: 13px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--ink); }
+  .empty { border: 1px dashed var(--line); border-radius: 8px; padding: 26px; text-align: center; color: var(--muted); background: var(--surface); }
+  #tip { position: fixed; z-index: 80; pointer-events: none; background: var(--ink); color: var(--ground); border-radius: 6px; padding: 7px 10px; font-size: 12.5px; line-height: 1.45; max-width: 280px; box-shadow: 0 6px 18px rgba(0, 0, 0, .2); }
+  #tip b { font-weight: 600; }
+  .toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); background: var(--ink); color: var(--ground); padding: 8px 14px; border-radius: 6px; font-size: 13px; z-index: 70; max-width: calc(100vw - 32px); }
+  .dayrow { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .dayrow input[type=date], .dayrow input[type=number] { font: 600 15px var(--sans); padding: 7px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--ink); }
+  .dayrow input[type=number] { width: 5.5em; }
+  .dayrow > button { padding: 7px 12px; font-size: 16px; line-height: 1; }
+  label.chk { display: flex; align-items: center; gap: 8px; font-weight: 500; font-size: 13.5px; }
+  label.chk input { width: 18px; height: 18px; accent-color: var(--accent); }
+  .tiles .ok dd { color: var(--ok); } .tiles .bad dd { color: var(--bad); }
+  .badge { font: 600 11px var(--sans); padding: 1px 7px; border-radius: 999px; vertical-align: 1px; }
+  .badge.ok { background: var(--accent-soft); color: var(--ok); }
+  .bar .thr { position: absolute; top: -4px; bottom: -4px; width: 0; border-left: 1.5px dashed var(--muted); }
+  .bar.within .fill { opacity: .38; }
+  .bar .lab a { font-family: var(--mono); font-weight: 600; }
+  tr.over td { background: color-mix(in srgb, var(--loss) 8%, transparent); }
+  button.link { border: 0; background: none; padding: 0; color: var(--accent); text-decoration: underline; font: inherit; cursor: pointer; }
+  [hidden] { display: none !important; }
+  @media print { .sapbar, .controls button, #xlsBtn, .navsw button svg { display: none !important; } body { background: #fff; } .panel { break-inside: avoid; } }
+</style>
+
+</head>
+<body>
+<div class="wrap">
+  <div>
+    <h1 data-nav="daily">Daily variance report</h1>
+    <p class="sub">One production day (06:00 to 06:00) from the SAP files loaded on the checker: every job's cheese variance against a threshold you choose, the totals by shift, job type (case weight) and cheese code, and how the variance built up through the day. Positive is cheese with no output (red), negative is more out than went in (blue).</p>
+  </div>
+  <section class="sapbar" aria-label="SAP data">
+    <div class="grow"><b>SAP data:</b> <span id="sapText">looking for the SAP files…</span></div>
+    <a href="./">Load or update them on the checker</a>
+  </section>
+  <section class="panel controls" aria-label="Report settings">
+    <label>Day<span class="dayrow"><button type="button" class="quiet" id="prevDay" aria-label="The day before with jobs">‹</button><input type="date" id="day"><button type="button" class="quiet" id="nextDay" aria-label="The day after with jobs">›</button></span></label>
+    <label>Threshold (± kg)<span class="dayrow"><input type="number" id="thr" min="0" step="5" value="25" inputmode="decimal"><span class="seg" id="thrChips" role="group" aria-label="Threshold"><button type="button" data-t="10">10</button><button type="button" data-t="25">25</button><button type="button" data-t="50">50</button><button type="button" data-t="100">100</button></span></span></label>
+    <label class="chk"><input type="checkbox" id="onlyOver"> Only jobs beyond the threshold</label>
+    <span class="grow"></span>
+    <button type="button" class="quiet" id="xlsBtn">Download the report (Excel, with charts)</button>
+  </section>
+  <main id="out" aria-live="polite"><div class="empty">Reading the SAP files…</div></main>
+</div>
+<p class="hint" style="text-align:center;margin:0 0 20px">Version __BUILD__</p>
+<div id="tip" hidden></div>
+<div class="toast" id="toast" hidden></div>
+<script src="vendor/xlsx.full.min.js?v=__BUILD__"></script>
+<script>window.XLSX || document.write('<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"><\/script>');</script>
+<script src="reconcile.js?v=__BUILD__"></script>
+<script src="xlsxcharts.js?v=__BUILD__"></script>
+<script src="nav.js?v=__BUILD__"></script>
+<script>
+(function () {
+  "use strict";
+  const R = window.OrderCheck, $ = (id) => document.getElementById(id);
+  const { f, fs, dmy } = R.fmt;
+  const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const p2 = (n) => String(n).padStart(2, "0");
+  const H = 3600000;
+  const cmp = (a, b) => String(a).localeCompare(String(b), undefined, { numeric: true });
+  function toast(msg, ms = 2800) { const t = $("toast"); t.textContent = msg; t.hidden = false; clearTimeout(toast.t); toast.t = setTimeout(() => (t.hidden = true), ms); }
+  // signed for a variance (+ cheese with no output), plain for a share; nothing rounds to "-0"
+  const z = (v, d) => (Math.abs(v) < 0.5 * 10 ** -d ? 0 : v);
+  const sg = (v, d) => (z(v, d) ? fs(v, d) : f(0, d));
+  const kg = (v, d = 0) => `${f(z(v, d), d)} kg`, skg = (v, d = 0) => `${sg(v, d)} kg`, pc = (v, d = 1) => `${sg(v * 100, d)}%`, share = (v, d = 0) => `${f(z(v * 100, d), d)}%`;
+
+  // ------------------------------------------------------------ the SAP files the checker keeps in this browser
+  let ctx = null, saved, JOBS = [], DAYS = [];
+  const loadSaved = () => new Promise((resolve) => {
+    try {
+      const q = indexedDB.open("cheese-variance", 1);
+      q.onupgradeneeded = () => q.result.createObjectStore("files");
+      q.onerror = () => resolve(null);
+      q.onsuccess = () => { try { const g = q.result.transaction("files").objectStore("files").get("workbook"); g.onsuccess = () => resolve(g.result || null); g.onerror = () => resolve(null); } catch { resolve(null); } };
+    } catch { resolve(null); }
+  });
+  const wait = () => new Promise((r) => setTimeout(r, 0));
+  async function refresh() {
+    const rec = await loadSaved();
+    if (rec && rec.saved === saved && ctx) return;
+    saved = rec ? rec.saved : null;
+    const files = rec ? rec.files || (rec.buf ? [{ name: rec.name, buf: rec.buf }] : []) : [];
+    if (!files.length) { ctx = null; JOBS = []; $("sapText").textContent = "no SAP files yet: load the workbook and the confirmation journal on the checker."; render(); return; }
+    $("sapText").textContent = "reading the SAP files…";
+    $("out").innerHTML = `<div class="empty">Reading the SAP files…</div>`;
+    await new Promise((r) => setTimeout(r, 30));
+    try {
+      const sheets = files.flatMap((x) => { const wb = XLSX.read(x.buf, { type: "array", dense: true }); return wb.SheetNames.map((sn) => ({ file: x.name, sheet: sn, rows: XLSX.utils.sheet_to_json(wb.Sheets[sn], { header: 1, raw: true, defval: null, blankrows: true }) })); });
+      ctx = R.prepare(R.readWorkbook(sheets));
+      const r = ctx.journalRange;
+      $("sapText").textContent = `${files.map((x) => x.name).join(", ")} · journal ${r ? dmy(r[0]).slice(0, 10) + " to " + dmy(r[1]).slice(0, 10) : "empty"}`;
+      // every job that ran, checked as the checker checks it, a hundred at a time so the page stays responsive
+      const ids = [...ctx.active].filter((o) => ctx.idx.orders.has(o));
+      const res = [];
+      for (let i = 0; i < ids.length; i += 100) {
+        $("out").innerHTML = `<div class="empty">Checking the jobs… ${f(Math.min(i, ids.length))} of ${f(ids.length)}</div>`;
+        await wait();
+        res.push(...R.check(ctx, ids.slice(i, i + 100)).results);
+      }
+      JOBS = res.map(jobOf);
+      DAYS = [...new Set(JOBS.filter((j) => j.v !== null && j.day !== "?").map((j) => j.day))].sort();
+      if (DAYS.length) { $("day").min = DAYS[0]; $("day").max = DAYS[DAYS.length - 1]; }
+      const asked = new URLSearchParams(location.search).get("day");
+      if (!DAYS.includes($("day").value)) $("day").value = asked && DAYS.includes(asked) ? asked : DAYS[DAYS.length - 1] || "";
+    } catch (e) { ctx = null; JOBS = []; $("sapText").textContent = "couldn't read the SAP files: " + e.message; }
+    render();
+  }
+
+  // ------------------------------------------------------------ one job, as the reports count it
+  // Shifts: 6-2 is 06:00-14:00, 2-10 is 14:00-22:00, 10-6 is 22:00-06:00 (SAP's times). A job's variance, cheese and
+  // cases are shared between the shifts it ran in by the cases it posted in each; a job with no pallets posted counts
+  // in the shift it started in. A job belongs to the production day (06:00 to 06:00) of its first pallet, as in the
+  // monthly report. Its cheese codes are what it consumed (the journal or the fulfilment report), else what was issued
+  // on the order; its variance is shared between them by the kg of each.
+  const SHIFTS = ["6-2", "2-10", "10-6"];
+  const shiftOf = (t) => { const h = new Date(t).getUTCHours(); return h >= 6 && h < 14 ? 0 : h >= 14 && h < 22 ? 1 : 2; };
+  const dayOf = (t) => { const d = new Date(t - 6 * H); return `${d.getUTCFullYear()}-${p2(d.getUTCMonth() + 1)}-${p2(d.getUTCDate())}`; };
+  const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+  const DAYN = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+  const dayName = (k) => { const d = new Date(k + "T00:00:00Z"); return `${DAYN[d.getUTCDay()]} ${Number(k.slice(8))} ${MONTHS[d.getUTCMonth()]} ${d.getUTCFullYear()}`; };
+  const hm = (t) => { const d = new Date(t); return `${p2(d.getUTCHours())}:${p2(d.getUTCMinutes())}`; };
+  const lineName = (res) => (res ? String(res).replace(/_/g, " ").toLowerCase().replace(/^\w/, (c) => c.toUpperCase()).replace(/\bl(\d)/, "L$1") : "No line");
+  const cwLabel = (v) => (!v ? "No case weight" : v.uom === "kg" ? "Counted in kg" : `${f(v.case_weight, v.case_weight % 1 ? 2 : 0)} kg case`);
+  function jobOf(r) {
+    const s = r.summary, v = s.variance;
+    const outs = (s.outputs || []).filter((o) => o.qty > 0 && !isNaN(o.time));
+    const shares = [0, 0, 0];
+    if (outs.length) { const tot = outs.reduce((a, o) => a + o.qty, 0); for (const o of outs) shares[shiftOf(o.time)] += o.qty / tot; }
+    else if (!isNaN(s.start)) shares[shiftOf(s.start)] = 1;
+    const first = outs.length ? outs[0].time : s.start, last = outs.length ? outs[outs.length - 1].time : s.start;
+    let mats = Object.entries(s.cheese_consumed_by_material || {}).filter(([, q]) => q > 0);
+    if (!mats.length) mats = (s.components || []).filter((c) => c.cheese && c.fulfilled > 0).map((c) => [c.material, c.fulfilled]);
+    const day = first !== null && first !== undefined && !isNaN(first) ? dayOf(first) : "?";
+    return { id: s.order_id, fg: s.fg || "", text: s.fg_text || "", line: s.line || "", day, first, last,
+      cwKey: v ? (v.uom === "kg" ? "kg" : String(v.case_weight)) : "none", cwLabel: cwLabel(v), cw: v ? v.case_weight : null,
+      cases: v ? v.actual_fg : s.order_out || 0, cheeseIn: v ? v.actual_cheese : 0, v: v ? v.variance_kg : null, tol: v ? v.tolerance : null,
+      out: v ? Math.abs(v.variance_kg) > v.tolerance : false, shares, mats };
+  }
+
+  // ------------------------------------------------------------ totals by a dimension
+  // parts(job) gives [key, label, share] for each group a job falls in (one, its shifts or its cheese codes)
+  let T = 25;
+  const beyond = (j) => Math.abs(j.v) >= T;
+  function group(jobs, parts) {
+    const m = new Map();
+    for (const j of jobs) for (const [key, label, w] of parts(j)) {
+      if (!(w > 0)) continue;
+      if (!m.has(key)) m.set(key, { key, label, jobs: 0, over: 0, cheeseIn: 0, net: 0, lost: 0, gain: 0, cases: 0 });
+      const g = m.get(key);
+      g.jobs += 1; g.over += beyond(j) ? 1 : 0; g.cheeseIn += j.cheeseIn * w; g.net += j.v * w; g.cases += j.cases * w;
+      if (j.v > 0) g.lost += j.v * w; else g.gain += -j.v * w;
+    }
+    return [...m.values()];
+  }
+  const matKg = (j) => j.mats.reduce((a, [, q]) => a + q, 0);
+  const DIMS = {
+    shift: { title: "By shift", parts: (j) => j.shares.map((w, i) => [String(i), SHIFTS[i], w]) },
+    cw: { title: "By job type (case weight)", parts: (j) => [[j.cwKey, j.cwLabel, 1]] },
+    code: { title: "By cheese code", parts: (j) => { const t = matKg(j); return t ? j.mats.map(([m, q]) => [m, m, q / t]) : [["?", "No cheese code", 1]]; } },
+    line: { title: "By line", parts: (j) => [[j.line || "?", lineName(j.line), 1]] },
+  };
+  const pctOf = (g) => (g.cheeseIn ? g.net / g.cheeseIn : 0);
+  const tipOf = (g) => `<b>${esc(g.label)}</b><br>${f(g.jobs)} job${g.jobs === 1 ? "" : "s"} · ${kg(g.cheeseIn)} of cheese in<br>Variance <b>${skg(g.net, 1)}</b> (${pc(pctOf(g))})<br>Cheese lost ${kg(g.lost, 1)} · more out than in ${kg(g.gain, 1)}<br>${f(g.over)} beyond ±${f(T)} kg`;
+
+  // ------------------------------------------------------------ the page
+  const tips = new Map();
+  let tipN = 0, jobSort = null;
+  const tipAttr = (html) => { const id = "t" + tipN++; tips.set(id, html); return ` data-tip="${id}"`; };
+  const KEY = `<div class="key"><span><i style="background:var(--loss)"></i>cheese with no output</span><span><i style="background:var(--gain)"></i>more out than went in</span></div>`;
+  function render() {
+    tips.clear(); tipN = 0;
+    T = Math.max(0, Number($("thr").value) || 0);
+    for (const b of $("thrChips").querySelectorAll("button")) b.setAttribute("aria-pressed", String(Number(b.dataset.t) === T));
+    if (!ctx) { $("out").innerHTML = `<div class="empty">Load the SAP files (the workbook and the confirmation journal) on the checker first, then come back here.</div>`; return; }
+    const day = $("day").value;
+    const jobs = JOBS.filter((j) => j.day === day && j.v !== null);
+    if (!jobs.length) {
+      const near = DAYS.length ? DAYS.reduce((b, d) => (Math.abs(new Date(d) - new Date(day || d)) < Math.abs(new Date(b) - new Date(day || b)) ? d : b), DAYS[0]) : null;
+      $("out").innerHTML = `<div class="empty">No jobs with a variance on ${esc(day ? dayName(day) : "that day")}.${near ? ` The nearest day with jobs is <button type="button" class="link" data-go="${near}">${esc(dayName(near))}</button>.` : ""}${DAYS.length ? ` The files have ${f(DAYS.length)} days, ${esc(dayName(DAYS[0]))} to ${esc(dayName(DAYS[DAYS.length - 1]))}.` : ""}</div>`;
+      return;
+    }
+    const all = group(jobs, () => [["all", "All", 1]])[0];
+    const by = Object.fromEntries(Object.entries(DIMS).map(([k, d]) => [k, group(jobs, d.parts)]));
+    const shifts = [0, 1, 2].map((i) => by.shift.find((g) => g.key === String(i))).filter(Boolean);
+    const best = shifts.slice().sort((a, b) => Math.abs(pctOf(a)) - Math.abs(pctOf(b)))[0];
+    const worstShift = shifts.slice().sort((a, b) => b.net - a.net)[0];
+    const top = jobs.slice().sort((a, b) => b.v - a.v)[0], low = jobs.slice().sort((a, b) => a.v - b.v)[0];
+    const nOver = jobs.filter(beyond).length;
+    const skipped = JOBS.filter((j) => j.day === day && j.v === null).length;
+    const tiles = [
+      ["Jobs", f(jobs.length), skipped ? `${f(skipped)} more without a variance figure` : `${f(all.cases)} cases made`, ""],
+      [`Beyond ±${f(T)} kg`, f(nOver), nOver ? `${share(nOver / jobs.length)} of the jobs` : "none", nOver ? "bad" : "ok"],
+      ["Cheese in", kg(all.cheeseIn), `${f(new Set(jobs.flatMap((j) => j.mats.map(([m]) => m))).size)} cheese codes`, ""],
+      ["Variance", skg(all.net), `${pc(pctOf(all), 2)} of the cheese in`, ""],
+      ["Cheese lost", kg(all.lost), `more out than in: ${kg(all.gain)}`, ""],
+      ["Best shift", best ? best.label : "–", best ? `${skg(best.net)} (${pc(pctOf(best), 2)}) · closest to nil` : "", "ok"],
+      ["Highest variance", top ? top.id : "–", top ? `${skg(top.v, 1)} · ${lineName(top.line)} · ${top.fg}` : "", top && top.v > 0 ? "bad" : ""],
+    ];
+    const headline = `${esc(dayName(day))}: ${f(jobs.length)} job${jobs.length === 1 ? "" : "s"}, variance <b>${esc(skg(all.net))}</b> (${esc(pc(pctOf(all), 2))}). `
+      + `${nOver ? `<b>${f(nOver)}</b> beyond ±${f(T)} kg. ` : `None beyond ±${f(T)} kg. `}`
+      + (best ? `Best shift <b>${esc(best.label)}</b> (${esc(skg(best.net))}); ` : "") + (worstShift && worstShift !== best ? `most variance on <b>${esc(worstShift.label)}</b> (${esc(skg(worstShift.net))}). ` : "")
+      + (top ? `Highest variance: job <b>${esc(top.id)}</b> (${esc(skg(top.v, 1))}, ${esc(lineName(top.line))}, ${esc(top.fg)})` : "")
+      + (low && low.v < -T ? `; most out over in: job <b>${esc(low.id)}</b> (${esc(skg(low.v, 1))})` : "") + ".";
+    $("out").innerHTML = `<div style="display:grid;gap:16px">
+      <section class="panel"><dl class="tiles">${tiles.map(([k, v, s, c]) => `<div class="${c}"><dt>${esc(k)}</dt><dd>${esc(v)}<small>${esc(s)}</small></dd></div>`).join("")}</dl><p class="headline">${headline}</p></section>
+      <section class="panel"><h2>Every job's variance<small>beyond ±${f(T)} kg in full colour, within it pale · the dashed lines are the threshold</small></h2>${jobBars(jobs)}</section>
+      <div class="grid">
+        <section class="panel"><h2>By shift<small>variance · the best shift is the one closest to nil, as a % of its cheese</small></h2>${bars(shiftsAll(by.shift), best && best.key)}${donut(shiftsAll(by.shift))}${table(shiftsAll(by.shift), "Shift", false)}</section>
+        <section class="panel"><h2>By job type<small>variance by case weight</small></h2>${bars(sortNet(by.cw))}${table(sortNet(by.cw), "Job type", true)}</section>
+        <section class="panel"><h2>By cheese code<small>the cheese used that day, with each job's variance shared by the kg of each code</small></h2>${bars(sortNet(by.code))}${codeTable(sortNet(by.code))}</section>
+        <section class="panel"><h2>By line<small>variance</small></h2>${bars(sortNet(by.line))}${table(sortNet(by.line), "Line", true)}</section>
+      </div>
+      <section class="panel"><h2>Through the day<small>the day's variance added up job by job, as each job's last pallet was posted (06:00 to 06:00, longer when a job finished after)</small></h2><div class="chartbox" id="cumChart"></div><p class="hint">Each step is a job: up for cheese with no output, down for more out than went in. The lines mark the shift changes.</p></section>
+      <section class="panel" id="jobsPanel">${jobsHtml(jobs)}</section>
+    </div>`;
+    curDay = { jobs, day };
+    drawCum();
+  }
+  const sortNet = (gs) => gs.slice().sort((a, b) => b.net - a.net || cmp(a.label, b.label));
+  const shiftsAll = (gs) => [0, 1, 2].map((i) => gs.find((g) => g.key === String(i)) || { key: String(i), label: SHIFTS[i], jobs: 0, over: 0, cheeseIn: 0, net: 0, lost: 0, gain: 0, cases: 0 });
+  // horizontal bars from a shared zero, the value beside them
+  function bars(gs, mark) {
+    if (!gs.length) return `<p class="hint">No jobs.</p>`;
+    const vals = gs.map((g) => g.net), lo = Math.min(0, ...vals), hi = Math.max(0, ...vals), span = hi - lo || 1, z0 = (-lo / span) * 100;
+    return `<div class="bars" role="list">` + gs.map((g) => {
+      const v = g.net, w = (Math.abs(v) / span) * 100, neg = v < 0;
+      return `<div class="bar" role="listitem"${tipAttr(tipOf(g))}><span class="lab">${esc(g.label)}${g.key === mark ? ` <span class="badge ok">best</span>` : ""}<small>${f(g.jobs)} job${g.jobs === 1 ? "" : "s"} · ${pc(pctOf(g))}</small></span>`
+        + `<span class="track"><span class="fill ${neg ? "neg" : "pos"}" style="left:${neg ? z0 - w : z0}%;width:${Math.max(w, v ? 0.6 : 0)}%"></span><span class="zero" style="left:${z0}%"></span></span><span class="val">${esc(skg(v))}</span></div>`;
+    }).join("") + `</div>${KEY}`;
+  }
+  // every job: the threshold either side of nil as dashed lines; jobs within it pale
+  function jobBars(jobs) {
+    const js = jobs.slice().sort((a, b) => b.v - a.v);
+    const lo = Math.min(-T, 0, ...js.map((j) => j.v)), hi = Math.max(T, 0, ...js.map((j) => j.v)), span = hi - lo || 1, x = (v) => ((v - lo) / span) * 100, z0 = x(0);
+    return `<div class="bars" role="list">` + js.map((j) => {
+      const w = (Math.abs(j.v) / span) * 100, neg = j.v < 0, b = beyond(j);
+      return `<div class="bar${b ? "" : " within"}" role="listitem"${tipAttr(`<b>Job ${esc(j.id)}</b> · ${esc(lineName(j.line))}<br>${esc(j.fg)} ${esc(j.text)}<br>${esc(j.cwLabel)} · ${f(j.cases)} cases · ${kg(j.cheeseIn)} of cheese<br>Variance <b>${skg(j.v, 1)}</b> (${pc(j.cheeseIn ? j.v / j.cheeseIn : 0, 2)})${b ? ` · beyond ±${f(T)} kg` : ""}<br>Cheese: ${esc(j.mats.map(([m, q]) => `${m} ${f(q)} kg`).join(", ") || "–")}`)}>`
+        + `<span class="lab"><a href="./?order=${encodeURIComponent(j.id)}">${esc(j.id)}</a><small>${esc(lineName(j.line))} · ${esc(j.cwLabel.replace(" case", ""))}</small></span>`
+        + `<span class="track"><span class="thr" style="left:${x(-T)}%"></span><span class="thr" style="left:${x(T)}%"></span><span class="fill ${neg ? "neg" : "pos"}" style="left:${neg ? z0 - w : z0}%;width:${Math.max(w, j.v ? 0.6 : 0)}%"></span><span class="zero" style="left:${z0}%"></span></span><span class="val">${esc(skg(j.v, 1))}</span></div>`;
+    }).join("") + `</div>${KEY}`;
+  }
+  // a breakdown's numbers, with the variance added up down the list
+  function table(gs, first, cumulative) {
+    let run = 0;
+    return `<details class="tv"><summary>Show as a table</summary><div class="scroll"><table><thead><tr><th>${esc(first)}</th><th class="n">Jobs</th><th class="n">Cheese in</th><th class="n">Variance</th><th class="n">%</th><th class="n">Lost</th><th class="n">More out</th><th class="n">Beyond ±${f(T)}</th>${cumulative ? `<th class="n">Cumulative</th>` : ""}</tr></thead><tbody>`
+      + gs.map((g) => { run += g.net; return `<tr><td>${esc(g.label)}</td><td class="n">${f(g.jobs)}</td><td class="n">${f(g.cheeseIn)}</td><td class="n ${g.net > 0 ? "pos" : g.net < 0 ? "neg" : ""}">${sg(g.net, 1)}</td><td class="n">${pc(pctOf(g), 2)}</td><td class="n">${f(g.lost, 1)}</td><td class="n">${f(g.gain, 1)}</td><td class="n">${f(g.over)}</td>${cumulative ? `<td class="n">${sg(run, 1)}</td>` : ""}</tr>`; }).join("")
+      + `</tbody></table></div></details>`;
+  }
+  function codeTable(gs) {
+    let run = 0;
+    return `<div class="scroll"><table><thead><tr><th>Cheese code</th><th class="n">Used (kg)</th><th class="n">Jobs</th><th class="n">Variance</th><th class="n">%</th><th class="n">Cumulative</th></tr></thead><tbody>`
+      + gs.map((g) => { run += g.net; return `<tr><td class="m">${esc(g.label)}</td><td class="n">${f(g.cheeseIn, 1)}</td><td class="n">${f(g.jobs)}</td><td class="n ${g.net > 0 ? "pos" : g.net < 0 ? "neg" : ""}">${sg(g.net, 1)}</td><td class="n">${pc(pctOf(g), 2)}</td><td class="n">${sg(run, 1)}</td></tr>`; }).join("")
+      + `</tbody></table></div><p class="hint">Used: each job's cheese in, shared by the kg of each code it consumed.</p>`;
+  }
+  // where the cheese was lost, by shift
+  function donut(gs) {
+    const tot = gs.reduce((a, g) => a + g.lost, 0);
+    if (!(tot > 0)) return "";
+    const R0 = 54, r1 = 34, cx = 60, cy = 60;
+    let a0 = -Math.PI / 2;
+    const arcs = gs.map((g, i) => {
+      const fr = g.lost / tot, a1 = a0 + fr * 2 * Math.PI;
+      if (fr <= 0) return "";
+      const big = a1 - a0 > Math.PI ? 1 : 0, p = (r, a) => `${(cx + r * Math.cos(a)).toFixed(2)} ${(cy + r * Math.sin(a)).toFixed(2)}`;
+      const d = fr >= 0.9999 ? `M ${cx - R0} ${cy} a ${R0} ${R0} 0 1 0 ${2 * R0} 0 a ${R0} ${R0} 0 1 0 ${-2 * R0} 0 M ${cx - r1} ${cy} a ${r1} ${r1} 0 1 1 ${2 * r1} 0 a ${r1} ${r1} 0 1 1 ${-2 * r1} 0`
+        : `M ${p(R0, a0)} A ${R0} ${R0} 0 ${big} 1 ${p(R0, a1)} L ${p(r1, a1)} A ${r1} ${r1} 0 ${big} 0 ${p(r1, a0)} Z`;
+      a0 = a1;
+      return `<path d="${d}" fill="var(--s${i})" stroke="var(--surface)" stroke-width="2" fill-rule="evenodd"${tipAttr(`<b>${esc(g.label)} shift</b><br>${kg(g.lost, 1)} of cheese lost · ${share(fr)} of it`)}></path>`;
+    }).join("");
+    return `<div class="donut"><svg width="120" height="120" viewBox="0 0 120 120" role="img" aria-label="Share of the cheese lost by shift">${arcs}<text x="60" y="58" text-anchor="middle" font-size="15" font-weight="600" fill="var(--ink)">${esc(f(tot))}</text><text x="60" y="74" text-anchor="middle" font-size="11" fill="var(--muted)">kg lost</text></svg>`
+      + `<div class="legend"><div style="font-weight:600">Where the cheese was lost</div>${gs.map((g, i) => `<div><i style="background:var(--s${i})"></i>${esc(g.label)}: <b>${share(g.lost / tot)}</b> · ${kg(g.lost)}</div>`).join("")}</div></div>`;
+  }
+  // the day's variance added up as each job finished, 06:00 to 06:00, the shift changes marked
+  let curDay = null;
+  const dayEnd = (jobs, d0) => Math.max(d0 + 24 * H, ...jobs.map((j) => (isNaN(j.last) ? 0 : j.last)));
+  const cumPoints = (jobs, day) => {
+    const d0 = Date.parse(day + "T06:00:00Z"), d1 = dayEnd(jobs, d0);
+    let run = 0;
+    return jobs.slice().sort((a, b) => a.last - b.last || cmp(a.id, b.id)).map((j) => ({ t: Math.min(d1, Math.max(d0, j.last)), j, cum: (run += j.v) }));
+  };
+  function drawCum() {
+    const box = $("cumChart");
+    if (!box || !curDay) return;
+    const { jobs, day } = curDay, pts = cumPoints(jobs, day), d0 = Date.parse(day + "T06:00:00Z"), d1 = dayEnd(jobs, d0) + (dayEnd(jobs, d0) > d0 + 24 * H ? 0.25 * H : 0);
+    const W = Math.max(300, box.clientWidth), Hh = 230, pl = 56, pr = 12, pt = 12, pb = 28;
+    const vals = [0, ...pts.map((p) => p.cum)], lo = Math.min(0, ...vals), hi = Math.max(0, ...vals);
+    const nice = (v) => { if (!v) return 0; const e = 10 ** Math.floor(Math.log10(Math.abs(v))), m = Math.abs(v) / e, s = m <= 1 ? 1 : m <= 2 ? 2 : m <= 5 ? 5 : 10; return Math.sign(v) * s * e; };
+    const top = nice(hi) || (lo < 0 ? 0 : 1), bot = nice(lo);
+    const x = (t) => pl + ((t - d0) / (d1 - d0)) * (W - pl - pr), y = (v) => pt + ((top - v) / (top - bot || 1)) * (Hh - pt - pb);
+    let svg = `<svg width="${W}" height="${Hh}" viewBox="0 0 ${W} ${Hh}" role="img" aria-label="Cumulative variance through the day">`;
+    for (const tv of [top, top / 2, 0, bot / 2, bot].filter((t, i, a) => a.indexOf(t) === i && t >= bot && t <= top)) svg += `<line x1="${pl}" x2="${W - pr}" y1="${y(tv).toFixed(1)}" y2="${y(tv).toFixed(1)}" stroke="${tv === 0 ? "var(--axis)" : "var(--grid)"}"></line><text x="${pl - 6}" y="${(y(tv) + 4).toFixed(1)}" text-anchor="end" font-size="11" fill="var(--muted)">${tv === 0 ? "0" : esc(sg(tv, 0))}</text>`;
+    // the shift changes, and the hours along the bottom
+    for (const [h, lab] of [[8, "14:00"], [16, "22:00"]]) svg += `<line x1="${x(d0 + h * H).toFixed(1)}" x2="${x(d0 + h * H).toFixed(1)}" y1="${pt}" y2="${Hh - pb}" stroke="var(--axis)" stroke-dasharray="4 4"></line>`;
+    for (let h = 0; h <= (d1 - d0) / H; h += 4) svg += `<text x="${x(d0 + h * H).toFixed(1)}" y="${Hh - 9}" text-anchor="middle" font-size="11" fill="var(--muted)">${p2((6 + h) % 24)}:00</text>`;
+    if (d1 - d0 > 24.1 * H) svg += `<line x1="${x(d0 + 24 * H).toFixed(1)}" x2="${x(d0 + 24 * H).toFixed(1)}" y1="${pt}" y2="${Hh - pb}" stroke="var(--axis)"></line><text x="${(x(d0 + 24 * H) + 4).toFixed(1)}" y="${pt + 11}" font-size="11" fill="var(--muted)">next day</text>`;
+    SHIFTS.forEach((s, i) => (svg += `<text x="${x(d0 + (i * 8 + 4) * H).toFixed(1)}" y="${pt + 11}" text-anchor="middle" font-size="11" font-weight="600" fill="var(--muted)">${s}</text>`));
+    // the steps
+    let path = `M${x(d0).toFixed(1)} ${y(0).toFixed(1)}`, prev = 0;
+    for (const p of pts) { path += ` H${x(p.t).toFixed(1)} V${y(p.cum).toFixed(1)}`; prev = p.cum; }
+    path += ` H${x(d1).toFixed(1)}`;
+    svg += `<path d="${path}" fill="none" stroke="${prev >= 0 ? "var(--loss)" : "var(--gain)"}" stroke-width="2" stroke-linejoin="round"></path>`;
+    for (const p of pts) svg += `<circle cx="${x(p.t).toFixed(1)}" cy="${y(p.cum).toFixed(1)}" r="4" fill="${p.j.v >= 0 ? "var(--loss)" : "var(--gain)"}" stroke="var(--surface)" stroke-width="2"></circle><circle cx="${x(p.t).toFixed(1)}" cy="${y(p.cum).toFixed(1)}" r="11" fill="transparent"${tipAttr(`<b>${hm(p.t)} · job ${esc(p.j.id)}</b><br>${esc(lineName(p.j.line))} · ${esc(p.j.fg)}<br>Job ${skg(p.j.v, 1)} · day so far <b>${skg(p.cum, 1)}</b>`)}></circle>`;
+    box.innerHTML = svg + `</svg>`;
+  }
+  // the jobs, the highest variance first, with the variance added up down the list
+  const JCOLS = [["id", "Job"], ["shift", "Shift"], ["line", "Line"], ["fg", "Product"], ["mats", "Cheese used"], ["cw", "Case"], ["cases", "Cases", 1], ["cheeseIn", "Cheese in", 1], ["v", "Variance", 1], ["pct", "%", 1], ["cum", "Cumulative", 1]];
+  const shiftText = (j) => j.shares.map((w, i) => (w > 0.005 ? `${SHIFTS[i]}${w < 0.995 ? ` (${Math.round(w * 100)}%)` : ""}` : "")).filter(Boolean).join(", ");
+  function jobsHtml(jobs) {
+    let list = $("onlyOver").checked ? jobs.filter(beyond) : jobs;
+    list = list.slice().sort(jobSort || ((a, b) => b.v - a.v));
+    let run = 0;
+    return `<h2>The jobs<small>${$("onlyOver").checked ? `the ${f(list.length)} beyond ±${f(T)} kg` : `all ${f(list.length)}, those beyond ±${f(T)} kg marked`} · highest variance first · the cumulative column adds them up in the order shown · click a heading to sort</small></h2>`
+      + `<div class="scroll"><table class="sortable" id="jobTable"><thead><tr>${JCOLS.map(([k, t, n]) => `<th data-k="${k}"${n ? ' class="n"' : ""}>${t}</th>`).join("")}<th></th></tr></thead><tbody>`
+      + list.map((j) => { run += j.v; const b = beyond(j); return `<tr class="${b ? "over" : ""}"><td class="m"><a href="./?order=${encodeURIComponent(j.id)}">${esc(j.id)}</a></td><td>${esc(shiftText(j))}</td><td>${esc(lineName(j.line))}</td>`
+        + `<td class="m">${esc(j.fg)}<small>${esc(j.text)}</small></td><td class="m">${j.mats.map(([m, q]) => `${esc(m)}<small>${f(q)} kg</small>`).join("") || "–"}</td><td>${esc(j.cwLabel.replace(" case", ""))}</td><td class="n">${f(j.cases)}</td><td class="n">${f(j.cheeseIn, 1)}</td>`
+        + `<td class="n ${j.v > 0 ? "pos" : j.v < 0 ? "neg" : ""}"><b>${sg(j.v, 1)}</b>${b ? `<small>beyond ±${f(T)}</small>` : ""}</td><td class="n">${pc(j.cheeseIn ? j.v / j.cheeseIn : 0, 2)}</td><td class="n">${sg(run, 1)}</td>`
+        + `<td><a href="investigate.html?order=${encodeURIComponent(j.id)}">Investigate</a></td></tr>`; }).join("")
+      + `</tbody></table></div>`;
+  }
+
+  // ------------------------------------------------------------ interaction
+  const goDay = (d) => { if (d) { $("day").value = d; jobSort = null; render(); } };
+  $("day").addEventListener("change", () => { jobSort = null; render(); });
+  $("prevDay").onclick = () => { const d = $("day").value; goDay([...DAYS].reverse().find((x) => x < d) || null); };
+  $("nextDay").onclick = () => { const d = $("day").value; goDay(DAYS.find((x) => x > d) || null); };
+  $("thr").addEventListener("input", () => render());
+  $("thrChips").addEventListener("click", (e) => { const b = e.target.closest("button[data-t]"); if (b) { $("thr").value = b.dataset.t; render(); } });
+  $("onlyOver").onchange = () => { if (curDay) $("jobsPanel").innerHTML = jobsHtml(curDay.jobs); };
+  $("out").addEventListener("click", (e) => {
+    const go = e.target.closest("[data-go]");
+    if (go) { goDay(go.dataset.go); return; }
+    const th = e.target.closest("#jobTable th[data-k]");
+    if (!th || !curDay) return;
+    const k = th.dataset.k, dir = th.getAttribute("aria-sort") === "descending" ? 1 : -1;
+    const val = { shift: (j) => j.shares.indexOf(Math.max(...j.shares)), pct: (j) => (j.cheeseIn ? j.v / j.cheeseIn : 0), cw: (j) => j.cw ?? -1, mats: (j) => (j.mats[0] || [""])[0], cum: (j) => j.v }[k] || ((j) => j[k]);
+    jobSort = (a, b) => { const x = val(a), y = val(b); return (typeof x === "number" && typeof y === "number" ? x - y : cmp(x, y)) * dir; };
+    $("jobsPanel").innerHTML = jobsHtml(curDay.jobs);
+    $("jobsPanel").querySelector(`th[data-k="${k}"]`).setAttribute("aria-sort", dir > 0 ? "ascending" : "descending");
+  });
+  // the tooltip: on hover with a mouse, on a press with a finger
+  const tip = $("tip");
+  function showTip(e) {
+    const el = e.target.closest && e.target.closest("[data-tip]");
+    if (!el || !tips.has(el.dataset.tip)) { tip.hidden = true; return; }
+    tip.innerHTML = tips.get(el.dataset.tip); tip.hidden = false;
+    const w = tip.offsetWidth, h = tip.offsetHeight;
+    let x = e.clientX + 14, y = e.clientY + 14;
+    if (x + w > innerWidth - 8) x = e.clientX - w - 14;
+    if (y + h > innerHeight - 8) y = e.clientY - h - 14;
+    tip.style.left = Math.max(8, x) + "px"; tip.style.top = Math.max(8, y) + "px";
+  }
+  document.addEventListener("pointermove", (e) => { if (e.pointerType === "mouse") showTip(e); });
+  document.addEventListener("pointerdown", (e) => { if (e.pointerType !== "mouse") showTip(e); });
+  document.addEventListener("scroll", () => (tip.hidden = true), { passive: true });
+  let rz;
+  window.addEventListener("resize", () => { clearTimeout(rz); rz = setTimeout(drawCum, 150); });
+
+  // ------------------------------------------------------------ the Excel report, with its charts
+  $("xlsBtn").onclick = () => {
+    if (!curDay) { toast("Pick a day with jobs first"); return; }
+    try { exportDay(curDay.jobs, curDay.day); } catch (e) { toast("Couldn't build the Excel file: " + e.message, 6000); }
+  };
+  function exportDay(jobs, day) {
+    const r1 = (v) => Number(v.toFixed(1)), r2 = (v) => Number(v.toFixed(2));
+    const all = group(jobs, () => [["all", "All", 1]])[0];
+    const sh = shiftsAll(group(jobs, DIMS.shift.parts)), cw = sortNet(group(jobs, DIMS.cw.parts)), code = sortNet(group(jobs, DIMS.code.parts)), line = sortNet(group(jobs, DIMS.line.parts));
+    const best = sh.filter((g) => g.jobs).sort((a, b) => Math.abs(pctOf(a)) - Math.abs(pctOf(b)))[0], top = jobs.slice().sort((a, b) => b.v - a.v)[0];
+    const wb = XLSX.utils.book_new();
+    // the breakdown sheets: the numbers, then two helper columns that split the variance by sign for the charts
+    const groupSheet = (gs, first) => { let run = 0; return [[first, "Jobs", "Cheese in (kg)", "Variance (kg)", "Variance %", "Cheese lost (kg)", "More out than in (kg)", `Jobs beyond ±${T} kg`, "Cumulative (kg)", "Cheese with no output", "More out than went in"],
+      ...gs.map((g) => { run += g.net; return [g.label, g.jobs, r1(g.cheeseIn), r1(g.net), r2(pctOf(g) * 100), r1(g.lost), r1(g.gain), g.over, r1(run), r1(Math.max(g.net, 0)), r1(Math.min(g.net, 0))]; })]; };
+    const js = jobs.slice().sort((a, b) => b.v - a.v);
+    let run = 0;
+    const jobRows = [["Job", "Job · line", "Shift", "Line", "Product", "Description", "Cheese used", "Case weight", "Cases", "Cheese in (kg)", "Variance (kg)", "Variance %", `Beyond ±${T} kg`, "Cumulative (kg)", "Cheese with no output", "More out than went in"],
+      ...js.map((j) => { run += j.v; return [j.id, `${j.id} · ${lineName(j.line)}`, shiftText(j), lineName(j.line), j.fg, j.text, j.mats.map(([m, q]) => `${m} ${Math.round(q)} kg`).join(", "), j.cwLabel, j.cases, r1(j.cheeseIn), r1(j.v), r2(j.cheeseIn ? (j.v / j.cheeseIn) * 100 : 0), beyond(j) ? "yes" : "", r1(run), r1(Math.max(j.v, 0)), r1(Math.min(j.v, 0))]; })];
+    let cum = 0;
+    const cumRows = [["Time", "Job", "Line", "Variance (kg)", "Cumulative (kg)"], ["06:00", "", "", 0, 0], ...cumPoints(jobs, day).map((p) => [hm(p.t), p.j.id, lineName(p.j.line), r1(p.j.v), r1((cum = p.cum))])];
+    const summary = [["Daily variance report", dayName(day)], [], ["Threshold", `±${T} kg`], ["Jobs", jobs.length], [`Jobs beyond ±${T} kg`, jobs.filter(beyond).length], ["Cheese in (kg)", r1(all.cheeseIn)], ["Cases made", Math.round(all.cases)],
+      ["Variance (kg)", r1(all.net)], ["Variance %", r2(pctOf(all) * 100)], ["Cheese lost (kg)", r1(all.lost)], ["More out than in (kg)", r1(all.gain)],
+      ["Best shift (closest to nil)", best ? `${best.label}: ${r1(best.net)} kg (${r2(pctOf(best) * 100)}%)` : ""], ["Highest variance", top ? `Job ${top.id}: ${r1(top.v)} kg (${lineName(top.line)}, ${top.fg})` : ""], [], ["The charts below read the other sheets."]];
+    const add = (rows, name, widths) => { const ws = XLSX.utils.aoa_to_sheet(rows); ws["!cols"] = widths.map((w) => ({ wch: w })); XLSX.utils.book_append_sheet(wb, ws, name); };
+    add(summary, "Summary", [30, 44]);
+    add(jobRows, "Jobs", [9, 22, 18, 12, 13, 32, 26, 13, 7, 13, 13, 11, 12, 15, 10, 10]);
+    add(groupSheet(sh, "Shift"), "By shift", [12, 6, 14, 13, 11, 15, 19, 17, 15, 12, 12]);
+    add(groupSheet(cw, "Job type"), "By job type", [16, 6, 14, 13, 11, 15, 19, 17, 15, 12, 12]);
+    add(groupSheet(code, "Cheese code"), "By cheese code", [14, 6, 14, 13, 11, 15, 19, 17, 15, 12, 12]);
+    add(groupSheet(line, "Line"), "By line", [14, 6, 14, 13, 11, 15, 19, 17, 15, 12, 12]);
+    add(cumRows, "Through the day", [8, 9, 12, 13, 15]);
+    const R2 = XlsxCharts.ref, LOSS = "E34948", GAIN = "2A78D6";
+    const two = (sheet, n, labelCol, lostCol, gainCol) => [{ name: "Cheese with no output", cats: R2(sheet, labelCol, 1, labelCol, n), vals: R2(sheet, lostCol, 1, lostCol, n), color: LOSS }, { name: "More out than went in", cats: R2(sheet, labelCol, 1, labelCol, n), vals: R2(sheet, gainCol, 1, gainCol, n), color: GAIN }];
+    const nJ = js.length, at = (i) => ({ col: (i % 2) * 8, row: 16 + Math.floor(i / 2) * 20, cols: 8, rows: 19 });
+    const charts = [
+      { type: "bar", title: "Variance by job (kg)", series: two("Jobs", nJ, 1, 14, 15) },
+      { type: "bar", title: "Variance by shift (kg)", series: two("By shift", 3, 0, 9, 10) },
+      { type: "bar", title: "Variance by job type (kg)", series: two("By job type", cw.length, 0, 9, 10) },
+      { type: "bar", title: "Variance by cheese code (kg)", series: two("By cheese code", code.length, 0, 9, 10) },
+      { type: "pie", title: "Where the cheese was lost, by shift", colors: ["EB6834", "1BAF7A", "6250D6"], series: [{ name: "Cheese lost (kg)", cats: R2("By shift", 0, 1, 0, 3), vals: R2("By shift", 5, 1, 5, 3) }] },
+      { type: "line", title: "Variance through the day, cumulative (kg)", series: [{ name: "Cumulative", cats: R2("Through the day", 0, 1, 0, cumRows.length - 1), vals: R2("Through the day", 4, 1, 4, cumRows.length - 1), color: all.net >= 0 ? LOSS : GAIN }] },
+    ].map((c, i) => ({ ...c, sheet: "Summary", at: at(i) }));
+    // the job chart grows with the jobs
+    charts[0].at = { col: 0, row: 16, cols: 16, rows: Math.max(14, Math.min(60, 4 + nJ)) };
+    charts.slice(1).forEach((c, i) => (c.at = { col: (i % 2) * 8, row: 16 + charts[0].at.rows + 1 + Math.floor(i / 2) * 20, cols: 8, rows: 19 }));
+    XlsxCharts.write(wb, charts, `Daily variance report ${day}.xlsx`);
+  }
+
+  window.addEventListener("focus", () => refresh());
+  refresh();
+})();
+</script>
+</body>
+</html>

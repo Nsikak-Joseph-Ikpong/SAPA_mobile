@@ -29,6 +29,22 @@ The phone can't open files straight off the laptop's disk; they have to go throu
 (step 1), email, or a USB cable. If you'd rather the files never leave the laptop, use
 `python serve.py --share` on the office Wi-Fi instead (see *Use it from your phone (office Wi-Fi)*).
 
+## Daily report
+
+`daily.html` (*Daily report* in the page menu) reports one production day (06:00 to 06:00) from the SAP files
+loaded on the checker. Pick the day (type it, use the calendar, or step to the day before or after with jobs) and a
+threshold (±25 kg to start; 10, 25, 50, 100 or any number). Tiles give the jobs, those beyond the threshold, cheese
+in, the variance and its %, cheese lost, the best shift (the one closest to nil as a % of its cheese) and the job
+with the highest variance; a sentence says the same. Charts: every job's variance (the threshold as dashed lines,
+jobs within it pale), by shift (with a donut of where the lost cheese was), by job type (case weight), by cheese code
+(each job's variance shared between the cheese codes it consumed by their kg, with the kg used and a cumulative
+column) and by line, and the day's variance added up job by job as each job's last pallet was posted, with the shift
+changes marked. The jobs table lists them all (or only those beyond the threshold), highest variance first, with a
+cumulative column. A job belongs to the day of its first pallet, and is shared between the shifts by the cases it
+posted in each, as in the monthly report. *Download the report* saves an Excel file with the same charts as real
+Excel charts (`xlsxcharts.js` adds them to the SheetJS workbook) on a Summary sheet, reading the Jobs, By shift, By job
+type, By cheese code, By line and Through the day sheets.
+
 ## Monthly report
 
 `report.html` (*Monthly report* in the page menu, where the investigator was) checks every job, as the checker does,
