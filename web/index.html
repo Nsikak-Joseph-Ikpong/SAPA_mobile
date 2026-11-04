@@ -213,6 +213,7 @@
   th { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); font-weight: 600; }
   td.n { text-align: right; font-family: var(--mono); font-variant-numeric: tabular-nums; }
   td.m { font-family: var(--mono); }
+  td.n small.from { display: block; font: 11px var(--sans); color: var(--muted); }
   tr.neg td { color: var(--high); }
   tr.lineRow td { background: var(--medium-soft); }
   td.seen { width: 1%; padding: 2px 8px; }
@@ -762,13 +763,21 @@
     const q = (v) => (v === null || v === undefined || isNaN(v) ? "" : f(v, 2));
     const consumedCol = s.cheese_source === "consumed";
     const byMat = s.cheese_consumed_by_material || {};
+    // Used − needed: for the cheese and starch, what the journal shows consumed when it has the consumption (the order
+    // sheet's issued is often nil, the cheese not booked to it), with each cheese's need its share (by the plan) of the
+    // cheese the cases made need, as in the cheese finding; for the rest (packaging), what was issued on the order
+    const cheesePlan = s.components.filter((c) => c.cheese).reduce((a, c) => a + (isNaN(c.planned) ? 0 : c.planned), 0);
+    const cheeseNeed = consumedCol && s.cheese_est_needed_kg ? s.cheese_est_needed_kg : null;
     const compRows = s.components.map((c) => {
-      const need = c.needed_for_output;
-      const judged = !(c.cheese && (s.cheese_source === "journal" || consumedCol));
-      const off = judged && need !== null && need > 0 && (c.fulfilled < need - Math.max(2, 0.03 * need) || c.fulfilled > need + Math.max(2, 0.1 * need));
       const starch = /^RMPS/i.test(c.material);
-      const cons = consumedCol ? `<td class="n">${c.cheese ? f(byMat[c.material] || 0, 2) : starch && s.mass ? f(s.mass.starch_in, 2) : ""}</td>` : "";
-      return `<tr class="${off ? "neg" : ""}"><td class="m">${esc(c.material)}</td><td class="n">${q(c.planned)}</td><td class="n">${q(c.fulfilled)}</td><td class="n">${q(c.open)}</td>${cons}<td class="n">${q(need)}</td><td class="n">${c.difference === null ? "" : fs(c.difference, 2)}</td><td>${c.cheese ? "cheese" : ""}</td></tr>`;
+      const fromJournal = consumedCol && (c.cheese || (starch && s.mass && s.mass.starch_in > 0));
+      const need = c.cheese && cheeseNeed !== null && cheesePlan > 0 ? (cheeseNeed * (isNaN(c.planned) ? 0 : c.planned)) / cheesePlan : c.needed_for_output;
+      const used = fromJournal ? (c.cheese ? byMat[c.material] || 0 : s.mass.starch_in) : c.fulfilled;
+      const diff = need === null || used === null || isNaN(used) ? null : used - need;
+      const judged = !(c.cheese && s.cheese_source === "journal");
+      const off = judged && need !== null && need > 0 && !isNaN(used) && (used < need - Math.max(2, 0.03 * need) || used > need + Math.max(2, 0.1 * need));
+      const cons = consumedCol ? `<td class="n">${fromJournal ? f(used, 2) : ""}</td>` : "";
+      return `<tr class="${off ? "neg" : ""}"><td class="m">${esc(c.material)}</td><td class="n">${q(c.planned)}</td><td class="n">${q(c.fulfilled)}</td><td class="n">${q(c.open)}</td>${cons}<td class="n">${q(need)}</td><td class="n">${diff === null ? "" : fs(diff, 2)}${consumedCol ? `<small class="from">${fromJournal ? "consumed" : "issued"}</small>` : ""}</td><td>${c.cheese ? "cheese" : ""}</td></tr>`;
     }).join("");
     // as in the SAP confirmation journal: Effective Qty negative for consumption, positive for a reversal
     const p2 = (n) => String(n).padStart(2, "0");
@@ -797,7 +806,7 @@
         <thead><tr><th>Product</th><th>Identified Stock ID</th><th>Logistics Area ID</th><th>Created On</th><th>Conf.ID</th><th>Effective Qty (cases)</th><th>kg per case</th><th>kg</th><th>Tied to the order by</th></tr></thead><tbody>${rpRows || `<tr><td colspan="9">On the order sheet only (no postings found)</td></tr>`}</tbody></table></div></details>` : "";
     const ev = `
       <details class="ev" open><summary>Inputs on the order (${s.components.length})</summary><div class="scroll"><table>
-        <thead><tr><th>Material</th><th>Planned</th><th>Issued</th><th>Open</th>${consumedCol ? "<th>Consumed (journal)</th>" : ""}<th>Needed for cases made</th><th>Issued − needed</th><th></th></tr></thead><tbody>${compRows}</tbody></table></div></details>
+        <thead><tr><th>Material</th><th>Planned</th><th>Issued</th><th>Open</th>${consumedCol ? "<th>Consumed (journal)</th>" : ""}<th>Needed for cases made</th><th>${consumedCol ? "Used − needed" : "Issued − needed"}</th><th></th></tr></thead><tbody>${compRows}</tbody></table></div>${consumedCol ? `<p class="hint">Used − needed: the cheese and starch as the journal shows them consumed (the order sheet's issued can be nil when the cheese isn't booked to the order), each cheese's need its share by the plan of the ${f(cheeseNeed || 0, 1)} kg the cases made need; the packaging as issued on the order.</p>` : ""}</details>
       ${consumedCol ? `<details class="ev"><summary>Cheese consumed (${s.consumption.length})${seenCount("in", consIds)}</summary>
         ${scanBar("in", consIds)}
         <p class="hint">${srcHint(s)} As in the SAP journal: negative Effective Qty is cheese consumed, positive is a reversal (highlighted). Click a column heading to sort by it.</p>
