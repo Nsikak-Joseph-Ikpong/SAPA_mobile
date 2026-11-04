@@ -618,6 +618,9 @@ the offcuts made on the order's by-products and says when the two differ. The of
 cheese consumed and cheese moved tables each have a filter box (type a batch, bin, pallet or Conf.ID to show
 just those rows; the total follows) and sort by any column when its heading is clicked (the *Seen* column sorts
 ticked pallets together). These tables are on the web page only; the Python checker's report doesn't list the bins.
+The *Cheese consumed* and *Offcuts made* tables have the same *Seen* tick boxes, count and *Scan … labels*
+camera as the output postings below: one tick per cheese batch consumed (a reversal isn't one to find) and per offcut
+bin made, each table keeping its own ticks, and a label of another job's batch or bin is named on the picture.
 Each pallet in the output postings has a *Seen* tick box for walking the floor: tick it when you've found
 the pallet, and the table's heading counts how many of the order's pallets have been seen (e.g. "8 of 11
 pallets seen"); a pallet booked twice is one tick. Ticks are kept in that browser (on that phone or laptop)
